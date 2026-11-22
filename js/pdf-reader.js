@@ -8,7 +8,7 @@ const PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf
 
 let pdfjsPromise = null;
 
-function loadPdfJs() {
+export function loadPdfJs() {
   if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
     return Promise.resolve(window.pdfjsLib);

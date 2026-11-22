@@ -621,11 +621,11 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             # Create Student Account
             if path == "/api/admin/students":
                 username = str(body.get("username", "")).strip().lower()
-                password = str(body.get("password", "")).strip()
+                password = str(body.get("password", "")).strip() or "123456"
                 full_name = str(body.get("fullName", "")).strip()
                 if not username or len(username) < 3:
                     return self.send_json(400, {"error": "Tên đăng nhập phải có ít nhất 3 ký tự."})
-                if not password or len(password) < 4:
+                if len(password) < 4:
                     return self.send_json(400, {"error": "Mật khẩu khởi tạo phải có ít nhất 4 ký tự."})
                 if not full_name:
                     return self.send_json(400, {"error": "Vui lòng nhập họ tên học sinh."})

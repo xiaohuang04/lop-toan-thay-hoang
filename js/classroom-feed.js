@@ -1,5 +1,6 @@
-import { api } from './api.js?v=20261122g';
-import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122g';
+import { api } from './api.js?v=20261122h';
+import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122h';
+import { loadPdfJs } from './pdf-reader.js?v=20261122h';
 
 /**
  * Extract 11-char YouTube video ID from any URL or full <iframe> embed code.
@@ -351,7 +352,7 @@ export function renderFeedList({ posts = [], isAdmin = false, emptyTitle = 'Chư
 export function bindFeedEvents(container, { uiHelpers, onEdit, onDelete, onTogglePin } = {}) {
   const { openModal, closeModal } = uiHelpers;
 
-  // Built-in PDF viewer popup modal (plus open in new tab)
+  // Built-in fit-to-frame PDF.js viewer popup modal (crisp on iPhone/Android/Desktop + open in new tab)
   container.querySelectorAll('[data-view-pdf]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const url = btn.dataset.viewPdf;
@@ -360,8 +361,20 @@ export function bindFeedEvents(container, { uiHelpers, onEdit, onDelete, onToggl
         title,
         wide: true,
         bodyHtml: `
-          <div style="width:100%; height:68vh; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:#f1f5f9;">
-            <iframe src="${escapeAttr(url)}" style="width:100%; height:100%; border:none;" title="${escapeAttr(title)}"></iframe>
+          <div class="pdf-viewer-shell">
+            <div class="pdf-viewer-bar">
+              <span class="pdf-viewer-status" id="pdfPageIndicator">Đang tải tài liệu...</span>
+              <div class="pdf-viewer-zoom">
+                <button type="button" class="btn btn-secondary btn-sm" id="pdfZoomOut" title="Thu nhỏ">−</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="pdfZoomFit" title="Vừa khít 1 trang">Vừa trang</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="pdfZoomIn" title="Phóng to">+</button>
+              </div>
+            </div>
+            <div class="pdf-viewer-scroll" id="pdfViewerScroll">
+              <div class="pdf-pages-stack" id="pdfPagesStack">
+                <div class="pdf-viewer-loading">Đang dựng trang PDF vừa khít khung...</div>
+              </div>
+            </div>
           </div>
         `,
         footerHtml: `
@@ -369,7 +382,118 @@ export function bindFeedEvents(container, { uiHelpers, onEdit, onDelete, onToggl
           <a class="btn btn-secondary" href="${escapeAttr(url)}?download=1" download>Tải về PDF</a>
           <button class="btn btn-primary" id="mClosePdfView">Đóng</button>
         `,
-        onMount: (m) => m.querySelector('#mClosePdfView').addEventListener('click', closeModal),
+        onMount: async (m) => {
+          let cancelled = false;
+          let zoom = 1.0;
+          let pageInfos = [];
+          const scrollEl = m.querySelector('#pdfViewerScroll');
+          const stackEl = m.querySelector('#pdfPagesStack');
+          const statusEl = m.querySelector('#pdfPageIndicator');
+
+          const cleanupAndClose = () => {
+            cancelled = true;
+            closeModal();
+          };
+          m.querySelector('#mClosePdfView').addEventListener('click', cleanupAndClose);
+
+          function applyZoom() {
+            const innerW = Math.max(220, scrollEl.clientWidth - 20);
+            const innerH = Math.max(260, scrollEl.clientHeight - 38);
+            pageInfos.forEach(({ canvas, baseW, baseH }) => {
+              const fitScale = Math.min(innerW / baseW, innerH / baseH);
+              const dispW = Math.round(baseW * fitScale * zoom);
+              const dispH = Math.round(baseH * fitScale * zoom);
+              canvas.style.width = `${dispW}px`;
+              canvas.style.height = `${dispH}px`;
+            });
+            const fitBtn = m.querySelector('#pdfZoomFit');
+            if (fitBtn) {
+              fitBtn.textContent = zoom === 1 ? 'Vừa trang' : `${Math.round(zoom * 100)}%`;
+            }
+          }
+
+          m.querySelector('#pdfZoomOut')?.addEventListener('click', () => {
+            zoom = Math.max(0.75, Math.round((zoom - 0.25) * 100) / 100);
+            applyZoom();
+          });
+          m.querySelector('#pdfZoomFit')?.addEventListener('click', () => {
+            zoom = 1.0;
+            applyZoom();
+            scrollEl.scrollLeft = 0;
+          });
+          m.querySelector('#pdfZoomIn')?.addEventListener('click', () => {
+            zoom = Math.min(2.25, Math.round((zoom + 0.25) * 100) / 100);
+            applyZoom();
+          });
+
+          scrollEl.addEventListener('scroll', () => {
+            if (!pageInfos.length) return;
+            const mid = scrollEl.scrollTop + scrollEl.clientHeight * 0.35;
+            let cur = 1;
+            for (const info of pageInfos) {
+              if (info.wrap.offsetTop <= mid) cur = info.pageNum;
+            }
+            if (statusEl) statusEl.textContent = `Trang ${cur} / ${pageInfos.length}`;
+          });
+
+          try {
+            const [pdfjsLib, resp] = await Promise.all([loadPdfJs(), fetch(url)]);
+            if (!resp.ok) throw new Error(`Không tải được tệp PDF (${resp.status})`);
+            const buf = await resp.arrayBuffer();
+            if (cancelled || !document.body.contains(stackEl)) return;
+
+            const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+            if (cancelled || !document.body.contains(stackEl)) return;
+
+            const totalPages = pdf.numPages;
+            if (statusEl) statusEl.textContent = `Trang 1 / ${totalPages}`;
+            stackEl.innerHTML = '';
+
+            const innerW = Math.max(220, scrollEl.clientWidth - 20);
+            const innerH = Math.max(260, scrollEl.clientHeight - 38);
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+            for (let p = 1; p <= totalPages; p++) {
+              if (cancelled || !document.body.contains(stackEl)) return;
+              const page = await pdf.getPage(p);
+              const baseVp = page.getViewport({ scale: 1 });
+              const fitScale = Math.min(innerW / baseVp.width, innerH / baseVp.height);
+              // Render at sharp resolution so zooming up to ~200% stays crisp on Retina/mobile
+              const renderScale = Math.max(fitScale * dpr * 1.6, 1.6);
+              const vp = page.getViewport({ scale: renderScale });
+
+              const wrap = document.createElement('div');
+              wrap.className = 'pdf-page-wrap';
+
+              const canvas = document.createElement('canvas');
+              canvas.className = 'pdf-page-canvas';
+              canvas.width = Math.ceil(vp.width);
+              canvas.height = Math.ceil(vp.height);
+              canvas.style.width = `${Math.round(baseVp.width * fitScale * zoom)}px`;
+              canvas.style.height = `${Math.round(baseVp.height * fitScale * zoom)}px`;
+
+              const numTag = document.createElement('div');
+              numTag.className = 'pdf-page-num';
+              numTag.textContent = `Trang ${p} / ${totalPages}`;
+
+              wrap.appendChild(canvas);
+              wrap.appendChild(numTag);
+              stackEl.appendChild(wrap);
+              pageInfos.push({ pageNum: p, wrap, canvas, baseW: baseVp.width, baseH: baseVp.height });
+
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            }
+          } catch {
+            if (cancelled || !document.body.contains(stackEl)) return;
+            if (statusEl) statusEl.textContent = 'Trình xem mặc định';
+            stackEl.innerHTML = `
+              <iframe src="${escapeAttr(url)}#view=FitH" style="width:100%; height:62vh; border:none; background:#fff;" title="${escapeAttr(title)}"></iframe>
+            `;
+          }
+        },
       });
     });
   });
@@ -687,7 +811,7 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         }
       });
       fileInp.addEventListener('change', async () => {
-        const files = fileInp.files;
+        const files = Array.from(fileInp.files || []);
         fileInp.value = '';
         await handleUploadFiles(files);
       });

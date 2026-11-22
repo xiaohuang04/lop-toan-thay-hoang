@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261122g';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122g';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122g';
+import { api } from './api.js?v=20261122h';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122h';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122h';
 
 /**
  * Resize an uploaded preview image to a crisp lightweight JPEG data URL (max 680px wide)

@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261122g';
-import { createExamRunner } from './exam-runner.js?v=20261122g';
-import { createTeacherController } from './teacher-ui.js?v=20261122g';
-import { createStudentController } from './student-ui.js?v=20261122g';
-import { createHtmlLabController } from './html-lab.js?v=20261122g';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122g';
+import { api, setToken } from './api.js?v=20261122h';
+import { createExamRunner } from './exam-runner.js?v=20261122h';
+import { createTeacherController } from './teacher-ui.js?v=20261122h';
+import { createStudentController } from './student-ui.js?v=20261122h';
+import { createHtmlLabController } from './html-lab.js?v=20261122h';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122h';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');

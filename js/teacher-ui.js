@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261122g';
+import { api } from './api.js?v=20261122h';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
   renderPdfBase64AllPagesToPngs,
-} from './pdf-reader.js?v=20261122g';
+} from './pdf-reader.js?v=20261122h';
 import {
   escapeHtml,
   escapeAttr,
@@ -16,12 +16,12 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js?v=20261122g';
+} from './exam-engine.js?v=20261122h';
 import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
-} from './classroom-feed.js?v=20261122g';
+} from './classroom-feed.js?v=20261122h';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -1180,7 +1180,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           </div>
           <div class="form-group">
             <label>${existing ? 'Đặt lại mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu khởi tạo *'}</label>
-            <input id="stuPassword" class="input-control" type="text" autocomplete="off" placeholder="${existing ? 'Không đổi' : 'Nhập mật khẩu (tối thiểu 4 ký tự)'}" value="" />
+            <input id="stuPassword" class="input-control" type="text" autocomplete="off" placeholder="${existing ? 'Không đổi' : 'Mặc định: 123456'}" value="${existing ? '' : '123456'}" />
           </div>
         </div>
         <div class="form-row-2">
