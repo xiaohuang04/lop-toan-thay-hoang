@@ -39,25 +39,33 @@ function showToast(message, type = 'info') {
   }, 3400);
 }
 
-function openModal({ title, bodyHtml, footerHtml = '', wide = false, onMount }) {
+let modalDismissible = true;
+
+function openModal({ title, bodyHtml, footerHtml = '', wide = false, dismissible = true, onMount }) {
+  modalDismissible = dismissible;
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
   modalFooter.innerHTML = footerHtml;
   modalCard.classList.toggle('modal-wide', Boolean(wide));
+  modalCloseBtn.classList.toggle('hidden', !dismissible);
   modalBackdrop.classList.remove('hidden');
   if (typeof onMount === 'function') onMount(modalCard);
 }
 
 function closeModal() {
+  modalDismissible = true;
+  modalCloseBtn.classList.remove('hidden');
   modalBackdrop.classList.add('hidden');
 }
 
-modalCloseBtn.addEventListener('click', closeModal);
+modalCloseBtn.addEventListener('click', () => {
+  if (modalDismissible) closeModal();
+});
 modalBackdrop.addEventListener('click', (e) => {
-  if (e.target === modalBackdrop) closeModal();
+  if (e.target === modalBackdrop && modalDismissible) closeModal();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !modalBackdrop.classList.contains('hidden')) {
+  if (e.key === 'Escape' && !modalBackdrop.classList.contains('hidden') && modalDismissible) {
     closeModal();
   }
 });

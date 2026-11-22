@@ -498,11 +498,14 @@ button, input, select, textarea {
   border: 1.5px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px;
-  transition: all 0.18s ease;
-  cursor: pointer;
 }
 
-.exam-card:hover {
+.exam-card.clickable {
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.exam-card.clickable:hover {
   border-color: var(--primary-border);
   box-shadow: var(--shadow-md);
 }
@@ -2348,4 +2351,44 @@ button, input, select, textarea {
   .asg-type-switch {
     grid-template-columns: 1fr;
   }
+}
+
+
+/* =========================================================
+   TIKZ FIGURES & STRICT FULLSCREEN TEST MODE
+   ========================================================= */
+.tikz-figure {
+  max-width: 100%;
+  max-height: 360px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+body.test-lock-active .app-header {
+  display: none !important;
+}
+
+body.test-lock-active .app-main {
+  padding-top: 18px;
+}
+
+body.test-lock-active .exam-sidebar {
+  top: 18px;
+}
+
+.test-lock-banner {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
 }

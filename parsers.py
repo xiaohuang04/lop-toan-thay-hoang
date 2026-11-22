@@ -9,12 +9,19 @@ EduLab / Lớp toán thầy Hoàng — Exam Parsers
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import io
+import json
 import re
+import shutil
 import struct
+import subprocess
+import tempfile
 import time
+import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 # =============================================================================
@@ -159,19 +166,208 @@ def convert_tabular_to_html(body: str) -> str:
     return f'<table class="q-table"><tbody>{"".join(html_rows)}</tbody></table>'
 
 
-def clean_latex_fragment(raw: str) -> str:
+def _build_tikz_standalone_doc(tikz_code: str) -> str:
+    extra_pkgs = []
+    if "\\tkzTab" in tikz_code or "tkz-tab" in tikz_code:
+        extra_pkgs.append(r"\usepackage{tkz-tab}")
+    if re.search(r"\\tkz(?!Tab)[A-Za-z]+", tikz_code):
+        extra_pkgs.append(r"\usepackage{tkz-euclide}")
+    if "\\begin{axis}" in tikz_code or "\\addplot" in tikz_code:
+        extra_pkgs.append(r"\usepackage{pgfplots}")
+        extra_pkgs.append(r"\pgfplotsset{compat=1.18}")
+    if "\\tdplot" in tikz_code:
+        extra_pkgs.append(r"\usepackage{tikz-3dplot}")
+
+    extra_block = "\n".join(extra_pkgs)
+    return (
+        r"\documentclass[tikz,border=4pt]{standalone}" "\n"
+        r"\usepackage[utf8]{inputenc}" "\n"
+        r"\usepackage[T5]{fontenc}" "\n"
+        r"\usepackage{amsmath,amssymb,mathrsfs}" "\n"
+        r"\usepackage{tikz}" "\n"
+        r"\usetikzlibrary{calc,angles,quotes,intersections,patterns,arrows,arrows.meta,shapes.geometric,decorations.markings,decorations.pathreplacing,positioning,3d}" "\n"
+        f"{extra_block}\n"
+        r"\begin{document}" "\n"
+        f"{tikz_code}\n"
+        r"\end{document}" "\n"
+    )
+
+
+def _compile_single_tikz_local(tikz_code: str) -> tuple[str | None, str | None]:
+    """Compile a TikZ block locally using MiKTeX / TeX Live pdflatex + pdftocairo (or dvisvgm)."""
+    pdflatex = shutil.which("pdflatex")
+    if not pdflatex:
+        return None, None
+    pdftocairo = shutil.which("pdftocairo")
+    dvisvgm = shutil.which("dvisvgm")
+    if not pdftocairo and not dvisvgm:
+        return None, None
+
+    doc = _build_tikz_standalone_doc(tikz_code)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="edulab_tikz_"))
+    try:
+        tex_path = tmp_dir / "fig.tex"
+        pdf_path = tmp_dir / "fig.pdf"
+        svg_path = tmp_dir / "fig.svg"
+        tex_path.write_text(doc, encoding="utf-8")
+
+        p1 = subprocess.run(
+            [pdflatex, "-interaction=nonstopmode", "-halt-on-error", "fig.tex"],
+            cwd=str(tmp_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=25,
+        )
+        if p1.returncode != 0 or not pdf_path.exists():
+            # Grab concise error line from pdflatex log
+            err_lines = [ln for ln in (p1.stdout or "").splitlines() if ln.startswith("!")]
+            err_msg = err_lines[0] if err_lines else "pdflatex compile error"
+            return None, err_msg
+
+        if pdftocairo:
+            p2 = subprocess.run(
+                [pdftocairo, "-svg", "fig.pdf", "fig.svg"],
+                cwd=str(tmp_dir),
+                capture_output=True,
+                timeout=15,
+            )
+            if p2.returncode == 0 and svg_path.exists():
+                b64 = base64.b64encode(svg_path.read_bytes()).decode("ascii")
+                return f'<div class="q-figure"><img src="data:image/svg+xml;base64,{b64}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>', None
+
+        if dvisvgm:
+            p2 = subprocess.run(
+                [dvisvgm, "--pdf", "--no-fonts", "-o", "fig.svg", "fig.pdf"],
+                cwd=str(tmp_dir),
+                capture_output=True,
+                timeout=15,
+            )
+            if p2.returncode == 0 and svg_path.exists():
+                b64 = base64.b64encode(svg_path.read_bytes()).decode("ascii")
+                return f'<div class="q-figure"><img src="data:image/svg+xml;base64,{b64}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>', None
+
+        return None, "Không chuyển đổi được PDF sang SVG"
+    except Exception as exc:
+        return None, str(exc)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _compile_single_tikz_cloud(tikz_code: str) -> tuple[str | None, str | None]:
+    """Cloud fallback (for Render.com where pdflatex is not installed) via latex.ytotech.com."""
+    doc = _build_tikz_standalone_doc(tikz_code)
+    payload = json.dumps({
+        "compiler": "pdflatex",
+        "resources": [{"main": True, "content": doc}],
+        "options": {"outputFormat": "png"},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://latex.ytotech.com/builds/sync",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "image/png, application/pdf"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            raw = resp.read()
+            if "image/png" in ctype and raw:
+                b64 = base64.b64encode(raw).decode("ascii")
+                return f'<div class="q-figure"><img src="data:image/png;base64,{b64}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>', None
+    except Exception as exc:
+        return None, str(exc)
+    return None, "Cloud TikZ service unavailable"
+
+
+def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, dict[str, str]]:
+    """
+    Find all \\begin{tikzpicture}...\\end{tikzpicture} blocks in raw_tex,
+    compile them in parallel to embedded SVG/PNG images, and replace with safe tokens.
+    """
+    pattern = re.compile(r"\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}")
+    matches = list(pattern.finditer(raw_tex))
+    if not matches:
+        return raw_tex, {}
+
+    has_local = bool(shutil.which("pdflatex") and (shutil.which("pdftocairo") or shutil.which("dvisvgm")))
+    unique_codes: list[str] = []
+    code_to_idx: dict[str, int] = {}
+    for m in matches:
+        code = m.group(0)
+        if code not in code_to_idx:
+            code_to_idx[code] = len(unique_codes)
+            unique_codes.append(code)
+
+    def _compile_one(code: str) -> tuple[str | None, str | None]:
+        if has_local:
+            html, err = _compile_single_tikz_local(code)
+            if html:
+                return html, None
+            # Try cloud fallback if local failed (e.g. missing package)
+            html2, _ = _compile_single_tikz_cloud(code)
+            return (html2, None) if html2 else (None, err)
+        return _compile_single_tikz_cloud(code)
+
+    results: list[tuple[str | None, str | None]] = [None] * len(unique_codes)  # type: ignore
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(unique_codes))) as pool:
+        futs = {pool.submit(_compile_one, code): idx for idx, code in enumerate(unique_codes)}
+        for fut in concurrent.futures.as_completed(futs):
+            idx = futs[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as exc:
+                results[idx] = (None, str(exc))
+
+    tokens: dict[str, str] = {}
+    for idx, (html, err) in enumerate(results):
+        tok = f"EDULABTIKZTOKEN{idx}END"
+        if html:
+            tokens[tok] = html
+        else:
+            warnings.append(f"Hình TikZ #{idx + 1} chưa biên dịch được ({err or 'lỗi cú pháp'}).")
+            tokens[tok] = '<div class="tikz-placeholder">[Hình vẽ TikZ chưa biên dịch được — kiểm tra mã nguồn]</div>'
+
+    # Replace matches in reverse order so indices stay valid
+    out = raw_tex
+    for m in reversed(matches):
+        idx = code_to_idx[m.group(0)]
+        out = out[:m.start()] + f" EDULABTIKZTOKEN{idx}END " + out[m.end():]
+    return out, tokens
+
+
+def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) -> str:
     """Normalize Vietnamese ex_test LaTeX fragment into clean HTML + KaTeX math."""
     s = raw.strip()
     if not s:
         return ""
 
-    # Handle \immini[...]{left}{right} -> keep text and figure/note
+    # Strip layout/spacing macros BEFORE structural transforms (e.g. \setlength{\baselineskip}{16pt})
+    s = replace_command_2args(s, "setlength", lambda a1, a2: "")
+    s = replace_command_2args(s, "addtolength", lambda a1, a2: "")
+    s = replace_command_2args(s, "setcounter", lambda a1, a2: "")
+    s = replace_command_1arg(s, "vspace*", lambda a: "")
+    s = replace_command_1arg(s, "vspace", lambda a: "")
+    s = replace_command_1arg(s, "hspace*", lambda a: "")
+    s = replace_command_1arg(s, "hspace", lambda a: "")
+    s = re.sub(
+        r"\\(noindent|smallskip|medskip|bigskip|hfill|vfill|newpage|clearpage|centering|raggedright|raggedleft)\b",
+        "",
+        s,
+    )
+
+    # Handle \immini[thm]{left}{right} (and multiple optional args) -> clean text + figure
     def _immini(a1: str, a2: str) -> str:
-        t1 = clean_latex_fragment(a1)
-        t2 = clean_latex_fragment(a2)
+        t1 = clean_latex_fragment(a1, tikz_tokens)
+        t2 = clean_latex_fragment(a2, tikz_tokens)
         if not t2:
             return t1
-        return f"{t1}<div class=\"q-figure\">{t2}</div>"
+        if not t1:
+            return t2
+        if 'class="q-figure"' in t2:
+            return f"{t1}{t2}"
+        return f'{t1}<div class="q-figure">{t2}</div>'
 
     s = replace_command_2args(s, "immini", _immini)
 
@@ -185,10 +381,10 @@ def clean_latex_fragment(raw: str) -> str:
         s,
     )
 
-    # Replace TikZ diagrams with clear note so teacher knows where figure was
+    # Any leftover uncompiled tikzpicture (if clean_latex_fragment called standalone)
     s = re.sub(
         r"\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}",
-        '<div class="tikz-placeholder">[Hình vẽ TikZ — có thể chèn ảnh SVG/HTML trong Trình tinh chỉnh]</div>',
+        '<div class="tikz-placeholder">[Hình vẽ TikZ]</div>',
         s,
     )
 
@@ -205,7 +401,7 @@ def clean_latex_fragment(raw: str) -> str:
                 continue
             lbl = labels[idx] if idx < len(labels) else str(idx + 1)
             idx += 1
-            items.append(f"• <strong>{lbl})</strong> {clean_latex_fragment(p)}")
+            items.append(f"• <strong>{lbl})</strong> {clean_latex_fragment(p, tikz_tokens)}")
         return "<br/>".join(items)
 
     s = re.sub(r"\\begin\{itemchoice\}([\s\S]*?)\\end\{itemchoice\}", _itemchoice_sub, s)
@@ -213,17 +409,26 @@ def clean_latex_fragment(raw: str) -> str:
     # Handle itemize / enumerate
     def _list_sub(m: re.Match) -> str:
         inner = m.group(2)
-        items = [clean_latex_fragment(x.strip()) for x in re.split(r"\\item\b", inner) if x.strip()]
+        items = [clean_latex_fragment(x.strip(), tikz_tokens) for x in re.split(r"\\item\b", inner) if x.strip()]
         return "<br/>".join(f"• {x}" for x in items)
 
     s = re.sub(r"\\begin\{(itemize|enumerate)\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{\1\}", _list_sub, s)
 
     # Center / flushleft
-    s = re.sub(r"\\begin\{center\}([\s\S]*?)\\end\{center\}", lambda m: f'<div style="text-align:center;margin:6px 0;">{clean_latex_fragment(m.group(1))}</div>', s)
+    s = re.sub(
+        r"\\begin\{center\}([\s\S]*?)\\end\{center\}",
+        lambda m: f'<div style="text-align:center;margin:6px 0;">{clean_latex_fragment(m.group(1), tikz_tokens)}</div>',
+        s,
+    )
 
     # Vietnamese ex_test math macros: \heva{...} and \hoac{...}
     s = replace_command_1arg(s, "heva", lambda inner: r"\left\{\begin{aligned}" + inner.strip() + r"\end{aligned}\right.")
     s = replace_command_1arg(s, "hoac", lambda inner: r"\left[\begin{aligned}" + inner.strip() + r"\end{aligned}\right.")
+
+    # Strip \par cleanly: remove leading/trailing \par, turn internal \par into line break
+    s = re.sub(r"(?:\s*\\par\b\s*)+$", "", s)
+    s = re.sub(r"^(?:\s*\\par\b\s*)+", "", s)
+    s = re.sub(r"\s*\\par\b\s*", "<br/>", s)
 
     # Common Vietnamese math shortcuts
     s = re.sub(r"\\vec\{([^}]+)\}", r"\\overrightarrow{\1}", s)
@@ -232,20 +437,26 @@ def clean_latex_fragment(raw: str) -> str:
     s = s.replace("``", "“").replace("''", "”")
     s = s.replace("~", " ")
 
-    # Text formatting commands (safe outside math)
+    # Text formatting commands
     s = replace_command_1arg(s, "textbf", lambda inner: f"<strong>{inner}</strong>")
     s = replace_command_1arg(s, "textit", lambda inner: f"<em>{inner}</em>")
     s = replace_command_1arg(s, "underline", lambda inner: f"<u>{inner}</u>")
     s = replace_command_1arg(s, "emph", lambda inner: f"<em>{inner}</em>")
 
-    # Convert display math \[ ... \] -> $$ ... $$ and inline \( ... \) -> $ ... $
-    # (KaTeX supports both, normalizing helps clean spacing)
-    # Handle explicit line breaks \\ outside math environments carefully
     s = _convert_text_newlines(s)
 
-    # Clean multiple spaces
+    # Clean leading/trailing <br/> and multiple spaces
     s = re.sub(r"[ \t]{2,}", " ", s)
     s = re.sub(r"(<br/>\s*){3,}", "<br/><br/>", s)
+    s = re.sub(r"^(?:<br/>\s*)+", "", s)
+    s = re.sub(r"(?:<br/>\s*)+$", "", s)
+
+    # Re-inject compiled TikZ SVG/PNG HTML safely after text processing
+    if tikz_tokens:
+        for tok, html in tikz_tokens.items():
+            if tok in s:
+                s = s.replace(tok, html)
+
     return s.strip()
 
 
@@ -351,8 +562,11 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
     elif filename:
         title_hint = re.sub(r"\.tex$", "", filename, flags=re.IGNORECASE).strip()
 
+    # Compile all TikZ diagrams in parallel before stripping LaTeX comments/commands
+    processed_tex, tikz_tokens = compile_tikz_blocks_in_tex(raw_tex, warnings)
+
     # Find all \begin{ex}...\end{ex} blocks (also accept \begin{bt}...\end{bt})
-    ex_blocks = re.findall(r"\\begin\{(ex|bt)\}([\s\S]*?)\\end\{\1\}", raw_tex)
+    ex_blocks = re.findall(r"\\begin\{(ex|bt)\}([\s\S]*?)\\end\{\1\}", processed_tex)
     if not ex_blocks:
         raise ValueError(
             "Không tìm thấy môi trường \\begin{ex}...\\end{ex} nào trong mã LaTeX. "
@@ -385,8 +599,19 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         if lg_match:
             lg_inner, lg_end = read_balanced(block, lg_match.end(), "{", "}")
             if lg_inner is not None:
-                explanation = clean_latex_fragment(lg_inner)
+                explanation = clean_latex_fragment(lg_inner, tikz_tokens)
                 block = (block[:lg_match.start()] + block[lg_end:]).strip()
+
+        # Unwrap top-level \immini[thm]{arg1}{arg2} BEFORE splitting \choice / \choiceTF / \shortans
+        # so cases where \choice or \shortans sits inside arg1 still keep the figure (arg2) in the stem!
+        def _unwrap_immini_block(a1: str, a2: str) -> str:
+            m_inner = re.search(r"\\(choiceTFt?|choice(?:fix)?|shortans)\b", a1, flags=re.IGNORECASE)
+            if m_inner:
+                return a1[:m_inner.start()].rstrip() + "\n" + a2.strip() + "\n" + a1[m_inner.start():]
+            return a1.strip() + "\n" + a2.strip()
+
+        block = replace_command_2args(block, "immini", _unwrap_immini_block)
+        block = replace_command_2args(block, "setlength", lambda a1, a2: "")
 
         # Detect question type inside remaining block:
         # Priority: \choiceTF / \choiceTFt -> Part II; \shortans -> Part III; \choice -> Part I
@@ -417,13 +642,13 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 text_clean = re.sub(r"\\True\b\s*", "", a_raw)
                 statements.append({
                     "key": labels[si],
-                    "text": clean_latex_fragment(text_clean),
+                    "text": clean_latex_fragment(text_clean, tikz_tokens),
                     "answer": is_true,
                 })
             part2.append({
                 "id": f"tex-p2-{len(part2)+1}-{stamp}",
                 "topic": topic or "Phần II",
-                "stem": clean_latex_fragment(stem_raw),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "statements": statements,
                 "explanation": explanation,
             })
@@ -436,6 +661,9 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 p = skip_ws(block, p)
             ans_raw, end_pos = read_balanced(block, p, "{", "}")
             tail = block[end_pos:].strip()
+            # Strip trailing \par / whitespace right after \shortans{...}
+            tail = re.sub(r"^(?:\s*\\par\b\s*)+", "", tail)
+            tail = re.sub(r"(?:\s*\\par\b\s*)+$", "", tail).strip()
             if tail:
                 stem_raw = (stem_raw + "\n" + tail).strip()
             ans_clean = clean_short_answer_value(ans_raw or "")
@@ -444,7 +672,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             part3.append({
                 "id": f"tex-p3-{len(part3)+1}-{stamp}",
                 "topic": topic or "Phần III",
-                "stem": clean_latex_fragment(stem_raw),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "answer": ans_clean or "0",
                 "explanation": explanation,
             })
@@ -473,7 +701,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 text_clean = re.sub(r"\\True\b\s*", "", a_raw)
                 options.append({
                     "key": keys[oi],
-                    "text": clean_latex_fragment(text_clean),
+                    "text": clean_latex_fragment(text_clean, tikz_tokens),
                 })
             if not correct_key:
                 correct_key = "A"
@@ -481,7 +709,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             part1.append({
                 "id": f"tex-p1-{len(part1)+1}-{stamp}",
                 "topic": topic or "Phần I",
-                "stem": clean_latex_fragment(stem_raw),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "options": options,
                 "answer": correct_key,
                 "explanation": explanation,

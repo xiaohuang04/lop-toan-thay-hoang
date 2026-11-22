@@ -13,6 +13,10 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
 
   let timerId = null;
+  let strictHandlers = null;
+  let violationModalOpen = false;
+  let enteredFullscreenOnce = false;
+
   const state = {
     mode: 'idle', // 'taking' | 'review'
     exam: null,
@@ -20,6 +24,8 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     studentName: '',
     studentClass: '',
     isPreview: false,
+    strictTestMode: false,
+    violations: 0,
     shuffle: false,
     timedMode: true,
     answers: { part1: {}, part2: {}, part3: {} },
@@ -39,6 +45,102 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       clearInterval(timerId);
       timerId = null;
     }
+  }
+
+  function teardownStrictMode(exitFs = true) {
+    document.body.classList.remove('test-lock-active');
+    violationModalOpen = false;
+    enteredFullscreenOnce = false;
+    if (strictHandlers) {
+      document.removeEventListener('fullscreenchange', strictHandlers.onFsChange);
+      document.removeEventListener('visibilitychange', strictHandlers.onVisChange);
+      window.removeEventListener('beforeunload', strictHandlers.onBeforeUnload);
+      strictHandlers = null;
+    }
+    if (exitFs && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  function handleStrictViolation(reasonText) {
+    if (state.mode !== 'taking' || !state.strictTestMode) return;
+    if (violationModalOpen) return;
+
+    state.violations++;
+    if (state.violations >= 2) {
+      showToast('Bạn đã thoát chế độ toàn màn hình quá số lần cho phép — Hệ thống tự động nộp bài!', 'error');
+      finalizeSubmission();
+      return;
+    }
+
+    violationModalOpen = true;
+    openModal({
+      title: 'CẢNH BÁO: Thoát chế độ kiểm tra = NỘP BÀI!',
+      dismissible: false,
+      bodyHtml: `
+        <p style="margin-top:0; color:var(--danger); font-weight:700;">
+          ${escapeHtml(reasonText)}
+        </p>
+        <p style="margin-bottom:0; font-size:0.9rem;">
+          Trong chế độ <strong>Bài kiểm tra</strong>, học sinh không được phép thoát toàn màn hình hoặc chuyển sang cửa sổ khác.
+          Nếu thoát ra (hoặc vi phạm thêm 1 lần nữa), hệ thống sẽ <strong>TỰ ĐỘNG NỘP BÀI NGAY LẬP TỨC</strong>!
+        </p>
+      `,
+      footerHtml: `
+        <button class="btn btn-danger-outline" id="btnStrictExitSubmit">Thoát &amp; Nộp bài ngay</button>
+        <button class="btn btn-primary" id="btnStrictResumeFs">Quay lại toàn màn hình (Làm tiếp)</button>
+      `,
+      onMount: (m) => {
+        m.querySelector('#btnStrictExitSubmit').addEventListener('click', () => {
+          violationModalOpen = false;
+          closeModal();
+          finalizeSubmission();
+        });
+        m.querySelector('#btnStrictResumeFs').addEventListener('click', () => {
+          violationModalOpen = false;
+          closeModal();
+          if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        });
+      },
+    });
+  }
+
+  function setupStrictMode() {
+    teardownStrictMode(false);
+    document.body.classList.add('test-lock-active');
+    enteredFullscreenOnce = Boolean(document.fullscreenElement);
+
+    const onFsChange = () => {
+      if (state.mode !== 'taking' || !state.strictTestMode) return;
+      if (document.fullscreenElement) {
+        enteredFullscreenOnce = true;
+        return;
+      }
+      if (enteredFullscreenOnce) {
+        handleStrictViolation('Bạn vừa thoát khỏi chế độ toàn màn hình!');
+      }
+    };
+
+    const onVisChange = () => {
+      if (state.mode !== 'taking' || !state.strictTestMode) return;
+      if (document.hidden) {
+        handleStrictViolation('Bạn vừa rời khỏi trang làm bài / chuyển sang tab khác!');
+      }
+    };
+
+    const onBeforeUnload = (e) => {
+      if (state.mode === 'taking' && state.strictTestMode) {
+        e.preventDefault();
+        e.returnValue = 'Thoát khỏi trang sẽ làm gián đoạn bài kiểm tra!';
+      }
+    };
+
+    strictHandlers = { onFsChange, onVisChange, onBeforeUnload };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('visibilitychange', onVisChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
   }
 
   function countAnswered() {
@@ -69,6 +171,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     studentName = 'Thí sinh',
     studentClass = '',
     isPreview = false,
+    strictTestMode = false,
     shuffle = false,
     timedMode = true,
     durationMinutes = null,
@@ -76,12 +179,15 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     onExit = null,
   }) {
     clearTimer();
+    teardownStrictMode(false);
     state.mode = 'taking';
     state.exam = prepareExamInstance(exam, { shuffle });
     state.assignment = assignment;
     state.studentName = studentName;
     state.studentClass = studentClass;
     state.isPreview = isPreview;
+    state.strictTestMode = Boolean(strictTestMode && !isPreview);
+    state.violations = 0;
     state.shuffle = shuffle;
     state.timedMode = timedMode;
     state.answers = { part1: {}, part2: {}, part3: {} };
@@ -97,6 +203,9 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     state.onRetry = null;
 
     setHeaderStatus('');
+    if (state.strictTestMode) {
+      setupStrictMode();
+    }
 
     timerId = setInterval(() => {
       state.elapsedSeconds++;
@@ -185,6 +294,17 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     rootEl.innerHTML = `
       ${isReview ? renderResultHero(res) : ''}
 
+      ${
+        !isReview && state.strictTestMode
+          ? `
+            <div class="test-lock-banner">
+              <span>Chế độ Bài kiểm tra toàn màn hình — Không thể thoát ra ngoài (thoát toàn màn hình hoặc chuyển tab = tự động nộp bài).</span>
+              <button class="btn btn-danger-outline btn-sm" id="btnReenterFs">Bật toàn màn hình</button>
+            </div>
+          `
+          : ''
+      }
+
       <div class="exam-topbar">
         <div class="exam-topbar-info">
           <h2>${escapeHtml(state.assignment?.title || ex.title)}</h2>
@@ -205,7 +325,9 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                 ${state.onRetry ? `<button class="btn btn-secondary btn-sm" id="btnRetryExam">Làm lại</button>` : ''}
                 <button class="btn btn-primary btn-sm" id="btnBackRunner">← Quay lại</button>
               `
-              : `<button class="btn btn-secondary btn-sm" id="btnExitExam">← Thoát phòng thi</button>`
+              : `<button class="btn ${state.strictTestMode ? 'btn-danger-outline' : 'btn-secondary'} btn-sm" id="btnExitExam">
+                  ${state.strictTestMode ? 'Thoát (Nộp bài)' : '← Thoát phòng thi'}
+                </button>`
           }
         </div>
       </div>
@@ -247,10 +369,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
               visibleP1.length > 0
                 ? `
                   <div class="part-banner part-1">
-                    <div class="part-banner-title">PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn</div>
-                    <p class="part-banner-desc">
-                      Mỗi câu hỏi thí sinh chỉ chọn một phương án đúng nhất (${formatScoreVN(scoring.part1PerQuestion)} điểm / câu).
-                    </p>
+                    <div class="part-banner-title" style="margin-bottom:0;">PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn</div>
                   </div>
                   ${visibleP1.map(({ q, i }) => renderPart1Card(q, i, isReview, p1ResultMap.get(q.id))).join('')}
                 `
@@ -261,14 +380,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
               visibleP2.length > 0
                 ? `
                   <div class="part-banner part-2">
-                    <div class="part-banner-title">PHẦN II. Câu trắc nghiệm đúng sai</div>
-                    <p class="part-banner-desc">
-                      Trong mỗi ý a), b), c), d) ở mỗi câu, thí sinh chọn Đúng hoặc Sai.
-                      Thang điểm BGD 2025: 1 ý đúng = ${formatScoreVN(scoring.part2Progressive[1])}đ •
-                      2 ý = ${formatScoreVN(scoring.part2Progressive[2])}đ •
-                      3 ý = ${formatScoreVN(scoring.part2Progressive[3])}đ •
-                      4 ý = ${formatScoreVN(scoring.part2Progressive[4])}đ.
-                    </p>
+                    <div class="part-banner-title" style="margin-bottom:0;">PHẦN II. Câu trắc nghiệm đúng sai</div>
                   </div>
                   ${visibleP2.map(({ q, i }) => renderPart2Card(q, i, isReview, p2ResultMap.get(q.id))).join('')}
                 `
@@ -279,10 +391,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
               visibleP3.length > 0
                 ? `
                   <div class="part-banner part-3">
-                    <div class="part-banner-title">PHẦN III. Câu trắc nghiệm trả lời ngắn</div>
-                    <p class="part-banner-desc">
-                      Điền đáp số tối đa 4 ký tự gồm chữ số, dấu trừ "-" và dấu phẩy "," (${formatScoreVN(scoring.part3PerQuestion)} điểm / câu).
-                    </p>
+                    <div class="part-banner-title" style="margin-bottom:0;">PHẦN III. Câu trắc nghiệm trả lời ngắn</div>
                   </div>
                   ${visibleP3.map(({ q, i }) => renderPart3Card(q, i, isReview, p3ResultMap.get(q.id))).join('')}
                 `
@@ -558,22 +667,21 @@ export function createExamRunner({ rootEl, uiHelpers }) {
         ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
         <div class="sa-box-wrap">
           <div class="sa-input-group">
-            <label for="sa-${q.id}">Nhập đáp số (tối đa 4 ký tự):</label>
-            <input id="sa-${q.id}" class="sa-input" type="text" inputmode="decimal" maxlength="4" placeholder="VD: -1,5" value="${escapeAttr(val)}" data-p3-q="${q.id}" ${isReview ? 'disabled' : ''} />
+            <label for="sa-${q.id}">Kết quả</label>
+            <input id="sa-${q.id}" class="sa-input" type="text" inputmode="decimal" maxlength="4" value="${escapeAttr(val)}" data-p3-q="${q.id}" ${isReview ? 'disabled' : ''} />
           </div>
-          <div class="sa-omr-preview">
-            <span class="sa-omr-label">Mô phỏng 4 ô tô phiếu 2025:</span>
+          <div class="sa-omr-preview" style="align-self:flex-end;">
             <div class="sa-slots" id="slots-${q.id}">
               ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
             </div>
           </div>
-          <div class="sa-hint">
-            ${
-              isReview
-                ? `Đáp án của bạn: <strong>${val ? escapeHtml(val) : '(Bỏ trống)'}</strong> • Đáp án chuẩn: <strong style="color:var(--success)">${escapeHtml(q.answer)}</strong>`
-                : 'Chấp nhận dấu phẩy <code>,</code> hoặc dấu chấm <code>.</code> và dấu âm <code>-</code>.'
-            }
-          </div>
+          ${
+            isReview
+              ? `<div class="sa-hint">
+                  Đáp án của bạn: <strong>${val ? escapeHtml(val) : '(Bỏ trống)'}</strong> • Đáp án chuẩn: <strong style="color:var(--success)">${escapeHtml(q.answer)}</strong>
+                </div>`
+              : ''
+          }
         </div>
         ${isReview && state.showSolutions && q.explanation ? renderSolutionBox(q.explanation) : ''}
       </article>
@@ -702,6 +810,11 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
     rootEl.querySelector('#btnSubmitExam')?.addEventListener('click', openSubmitConfirmModal);
     rootEl.querySelector('#btnExitExam')?.addEventListener('click', openExitConfirmModal);
+    rootEl.querySelector('#btnReenterFs')?.addEventListener('click', () => {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    });
   }
 
   function syncProgressAndOmr(part, qId) {
@@ -742,6 +855,38 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   }
 
   function openExitConfirmModal() {
+    if (state.strictTestMode) {
+      openModal({
+        title: 'Cảnh báo: Thoát = Nộp bài ngay!',
+        dismissible: false,
+        bodyHtml: `
+          <p style="margin:0; color:var(--danger); font-weight:700;">
+            Trong chế độ Bài kiểm tra, bạn không thể thoát ngang giữa chừng!
+          </p>
+          <p style="margin:10px 0 0; font-size:0.9rem;">
+            Nếu xác nhận thoát khỏi phòng kiểm tra lúc này, hệ thống sẽ <strong>TỰ ĐỘNG NỘP BÀI NGAY LẬP TỨC</strong> theo những câu bạn đã làm.
+          </p>
+        `,
+        footerHtml: `
+          <button class="btn btn-primary" id="modalStay">Quay lại làm tiếp</button>
+          <button class="btn btn-danger-outline" id="modalLeaveSubmit">Thoát &amp; Nộp bài ngay</button>
+        `,
+        onMount: (modalEl) => {
+          modalEl.querySelector('#modalStay').addEventListener('click', () => {
+            closeModal();
+            if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+              document.documentElement.requestFullscreen().catch(() => {});
+            }
+          });
+          modalEl.querySelector('#modalLeaveSubmit').addEventListener('click', () => {
+            closeModal();
+            finalizeSubmission();
+          });
+        },
+      });
+      return;
+    }
+
     openModal({
       title: 'Thoát khỏi phòng thi?',
       bodyHtml: `<p style="margin:0;">Bài làm hiện tại chưa được nộp. Nếu thoát ra, các lựa chọn hiện tại sẽ không được lưu.</p>`,
@@ -754,6 +899,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
         modalEl.querySelector('#modalLeave').addEventListener('click', () => {
           closeModal();
           clearTimer();
+          teardownStrictMode(true);
           state.onExit?.();
         });
       },
@@ -762,6 +908,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
   async function finalizeSubmission() {
     clearTimer();
+    teardownStrictMode(true);
     const res = gradeExam(state.exam, state.answers);
     if (typeof state.onSubmitPersist === 'function') {
       try {
@@ -778,6 +925,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     }
     state.result = res;
     state.mode = 'review';
+    state.strictTestMode = false;
     state.filter = 'all';
     setHeaderStatus('');
     showToast(`Đã nộp bài! Điểm số: ${formatScoreVN(res.totalScore)} / ${formatScoreVN(res.maxScore)}`, 'success');
@@ -788,7 +936,10 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   return {
     startTaking,
     openReview,
-    cleanup: clearTimer,
+    cleanup: () => {
+      clearTimer();
+      teardownStrictMode(true);
+    },
     isTaking: () => state.mode === 'taking' && timerId !== null,
   };
 }

@@ -1,5 +1,4 @@
 import { api } from './api.js';
-import { getSampleJsonTemplate } from './exam-data.js';
 import { extractTextFromPdfFile } from './pdf-reader.js';
 import {
   escapeHtml,
@@ -13,7 +12,6 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-  parseImportedExams,
 } from './exam-engine.js';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
@@ -163,7 +161,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           </button>
           <button class="btn btn-secondary" id="btnImportWordPdf">Nạp file Word / PDF</button>
           <button class="btn btn-secondary" id="btnNewExam">+ Tạo đề thủ công</button>
-          <button class="btn btn-ghost" id="btnImportJsonTab">Nạp JSON</button>
         </div>
       </div>
 
@@ -824,10 +821,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
               <span>Trộn câu hỏi (nội bộ từng dạng thức; Phần II chỉ trộn câu, không trộn ý a, b, c, d)</span>
             </label>
           </div>
-
-          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">
-            • Mặc định mỗi học sinh chỉ được làm và nộp <strong>1 lần duy nhất</strong> (không cho phép làm lại).
-          </div>
         </div>
 
         <div class="form-group" style="margin-top:12px;">
@@ -1268,7 +1261,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     // Exams tab events
     rootEl.querySelector('#btnImportLatex')?.addEventListener('click', () => openSmartImportModal('latex'));
     rootEl.querySelector('#btnImportWordPdf')?.addEventListener('click', () => openSmartImportModal('word'));
-    rootEl.querySelector('#btnImportJsonTab')?.addEventListener('click', () => openSmartImportModal('json'));
     rootEl.querySelector('#btnNewExam')?.addEventListener('click', openNewExamEditor);
 
     rootEl.querySelectorAll('[data-edit-exam]').forEach((btn) => {
@@ -1419,17 +1411,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     });
   }
 
-  async function handleImportJsonText(rawText) {
-    try {
-      const parsed = parseImportedExams(rawText);
-      await api.createExams(parsed);
-      showToast(`Đã nạp thành công ${parsed.length} đề thi vào ngân hàng!`, 'success');
-      await refresh();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  }
-
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1444,7 +1425,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   }
 
   function openSmartImportModal(initialMode = 'latex') {
-    let mode = initialMode; // 'latex' | 'word' | 'pdf' | 'json'
+    let mode = initialMode; // 'latex' | 'word' | 'pdf'
     let parsedResult = null; // { exam, warnings, sourceFormat }
 
     const renderBody = () => `
@@ -1458,17 +1439,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <button type="button" class="import-mode-btn ${mode === 'pdf' ? 'active' : ''}" data-imp-mode="pdf">
           PDF (.pdf)
         </button>
-        <button type="button" class="import-mode-btn ${mode === 'json' ? 'active' : ''}" data-imp-mode="json">
-          JSON
-        </button>
       </div>
 
       <div id="impPanelLatex" class="${mode === 'latex' ? '' : 'hidden'}">
         <div class="import-tip">
-          Hỗ trợ trọn bộ gói <code>ex_test</code>: môi trường <code>\\begin{ex}...\\end{ex}</code>,
-          <code>\\choice</code> (Phần I), <code>\\choiceTF</code> / <code>\\choiceTF[t]</code> (Phần II),
-          <code>\\shortans</code> (Phần III), đánh dấu đúng bằng <code>\\True</code>, <code>\\loigiai{...}</code>,
-          <code>\\heva</code>, <code>\\hoac</code>, <code>tabular</code>.
+          Hỗ trợ trọn bộ <code>ex_test</code>: <code>\\begin{ex}...\\end{ex}</code>, <code>\\choice</code>, <code>\\choiceTF</code>,
+          <code>\\shortans</code>, <code>\\True</code>, <code>\\loigiai</code>, <code>\\heva</code>, <code>\\hoac</code>,
+          tự làm sạch <code>\\par</code> / <code>\\immini</code> / <code>\\setlength</code> và <strong>tự động biên dịch hình vẽ TikZ sang ảnh SVG sắc nét</strong>.
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
           <button type="button" class="btn btn-secondary btn-sm" id="btnPickTexFile">Chọn file .tex</button>
@@ -1503,16 +1480,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           <div class="dropzone-title">Kéo thả hoặc nhấn chọn file PDF (.pdf)</div>
           <div class="dropzone-sub">Tự nhận diện cấu trúc PHẦN I / PHẦN II / PHẦN III và đánh số Câu 1., Câu 2., ...</div>
         </div>
-      </div>
-
-      <div id="impPanelJson" class="${mode === 'json' ? '' : 'hidden'}">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnPickJsonFile">Chọn file .json</button>
-          <input type="file" id="inpJsonFileModal" accept=".json,application/json" hidden />
-          <button type="button" class="btn btn-ghost btn-sm" id="btnDlJsonTpl">Tải file mẫu JSON</button>
-          <button type="button" class="btn btn-primary btn-sm" id="btnImportJsonNow" style="margin-left:auto;">Nạp JSON ngay</button>
-        </div>
-        <textarea id="jsonSourceArea" class="code-textarea">${escapeHtml(JSON.stringify(getSampleJsonTemplate(), null, 2))}</textarea>
       </div>
 
       <div id="impStatusMsg" class="hidden" style="margin-top:12px;"></div>
@@ -1595,7 +1562,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             m.querySelector('#impPanelLatex').classList.toggle('hidden', mode !== 'latex');
             m.querySelector('#impPanelWord').classList.toggle('hidden', mode !== 'word');
             m.querySelector('#impPanelPdf').classList.toggle('hidden', mode !== 'pdf');
-            m.querySelector('#impPanelJson').classList.toggle('hidden', mode !== 'json');
           });
         });
 
@@ -1715,31 +1681,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           const f = pdfInp.files?.[0];
           if (f) handlePdfFile(f);
           pdfInp.value = '';
-        });
-
-        // === MODE 4: JSON ===
-        const jsonInp = m.querySelector('#inpJsonFileModal');
-        const jsonArea = m.querySelector('#jsonSourceArea');
-        m.querySelector('#btnPickJsonFile').addEventListener('click', () => jsonInp.click());
-        jsonInp.addEventListener('change', async () => {
-          const f = jsonInp.files?.[0];
-          if (!f) return;
-          jsonArea.value = await f.text();
-          jsonInp.value = '';
-        });
-        m.querySelector('#btnDlJsonTpl').addEventListener('click', () => {
-          const blob = new Blob([JSON.stringify(getSampleJsonTemplate(), null, 2)], { type: 'application/json;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'mau-ngan-hang-de-bgd-2025.json';
-          a.click();
-          URL.revokeObjectURL(url);
-        });
-        m.querySelector('#btnImportJsonNow').addEventListener('click', async () => {
-          const raw = jsonArea.value;
-          closeModal();
-          await handleImportJsonText(raw);
         });
 
         // === FOOTER ACTIONS ===

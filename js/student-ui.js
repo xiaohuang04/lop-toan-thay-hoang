@@ -56,12 +56,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       <div class="role-hero student-hero">
         <div>
           <div class="hero-eyebrow">Góc học tập Học sinh • @${escapeHtml(user.username)}</div>
-          <h1>Xin chào, ${escapeHtml(user.fullName)}!</h1>
-          <p>
-            Lớp <strong>${escapeHtml(user.className || 'Chưa cập nhật')}</strong>
-            ${user.studentCode ? ` • SBD/Mã HS: <strong>${escapeHtml(user.studentCode)}</strong>` : ''}
-            — Theo dõi các đề thi được giáo viên giao, hạn nộp bài và xem lời giải chi tiết sau khi hoàn thành.
-          </p>
+          <h1 style="margin-bottom:0;">Xin chào, ${escapeHtml(user.fullName)}!</h1>
         </div>
         <div class="kpi-strip">
           <div class="kpi-box"><div class="kpi-num">${pendingCount}</div><div class="kpi-lbl">Bài chưa làm</div></div>
@@ -382,6 +377,11 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     }
 
     const u = state.data.user;
+    const isStrictTest = asg.assignmentType === 'test';
+    if (isStrictTest && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+
     state.inRunner = true;
     examRunner.startTaking({
       exam: asg.exam,
@@ -389,6 +389,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       studentName: u.fullName,
       studentClass: u.className,
       isPreview: false,
+      strictTestMode: isStrictTest,
       shuffle: Boolean(asg.shuffle),
       timedMode: Boolean(asg.timedMode),
       durationMinutes: asg.durationMinutes || asg.exam.durationMinutes || 45,
