@@ -95,7 +95,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       return;
     }
 
-    const { exams, students, assignments, submissions, storageMode } = state.data;
+    const { exams, students, assignments, submissions, storageMode, storageError } = state.data;
     const openAssignments = assignments.filter((a) => !getDeadlineStatus(a.dueAt).expired).length;
     const isCloud = storageMode === 'supabase';
 
@@ -104,8 +104,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <div>
           <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
             <div class="hero-eyebrow" style="margin-bottom:0;">Bảng điều khiển Giáo viên (Admin)</div>
-            <div class="hero-eyebrow" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : 'rgba(255,255,255,0.2)'};">
-              ${isCloud ? '● Supabase Cloud (Lưu vĩnh viễn)' : '○ Lưu trữ cục bộ'}
+            <div class="hero-eyebrow" title="${escapeAttr(storageError || '')}" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : storageError ? 'rgba(225, 29, 72, 0.28)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : storageError ? 'rgba(254, 205, 211, 0.6)' : 'rgba(255,255,255,0.2)'};">
+              ${isCloud ? '● Supabase Cloud (Lưu vĩnh viễn)' : storageError ? '⚠ Lỗi kết nối Supabase (đang dùng tạm cục bộ)' : '○ Lưu trữ cục bộ'}
             </div>
           </div>
           <h1>Quản lý đề thi, giao bài tập &amp; tài khoản học sinh</h1>

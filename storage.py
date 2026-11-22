@@ -28,12 +28,16 @@ class StorageBackend:
         self.sessions_file = self.data_dir / "sessions.json"
         self.seed_factory = seed_factory
 
-        self.supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+        raw_url = os.environ.get("SUPABASE_URL", "").strip().strip('"').strip("'").rstrip("/")
+        # Normalize if user pasted full Data API URL ending in /rest/v1
+        if raw_url.lower().endswith("/rest/v1"):
+            raw_url = raw_url[:-8].rstrip("/")
+        self.supabase_url = raw_url
         self.supabase_key = (
             os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
             or os.environ.get("SUPABASE_SECRET_KEY", "").strip()
             or os.environ.get("SUPABASE_KEY", "").strip()
-        )
+        ).strip('"').strip("'")
         self.use_supabase = bool(self.supabase_url and self.supabase_key)
         self.supabase_error: str | None = None
 
