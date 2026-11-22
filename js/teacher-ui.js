@@ -1,0 +1,1609 @@
+import { api } from './api.js';
+import { getSampleJsonTemplate } from './exam-data.js';
+import { extractTextFromPdfFile } from './pdf-reader.js';
+import {
+  escapeHtml,
+  escapeAttr,
+  formatScoreVN,
+  formatTime,
+  formatDateTimeVN,
+  getDeadlineStatus,
+  defaultDueAtInput,
+  parseImportedExams,
+} from './exam-engine.js';
+
+const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
+
+\\begin{ex}%[2D4N1-1]
+Họ nguyên hàm của hàm số $f(x) = 4x^3 - 2x + 5$ là:
+\\choice
+{\\True $x^4 - x^2 + 5x + C$}
+{$12x^2 - 2 + C$}
+{$x^4 - 2x^2 + 5x + C$}
+{$4x^4 - x^2 + 5x + C$}
+\\loigiai{
+Ta có $\\displaystyle \\int (4x^3 - 2x + 5)\\,\\mathrm{d}x = x^4 - x^2 + 5x + C$.
+}
+\\end{ex}
+
+\\begin{ex}%[2D1H2-2]
+Cho hàm số $y = x^3 - 3x^2 + 2$. Xét tính đúng sai của các khẳng định sau:
+\\choiceTF[t]
+{\\True Đạo hàm của hàm số là $y' = 3x^2 - 6x$.}
+{Hàm số đạt cực đại tại $x = 2$.}
+{\\True Giá trị cực tiểu của hàm số bằng $-2$.}
+{\\True Phương trình $y = 0$ có đúng $3$ nghiệm thực phân biệt.}
+\\loigiai{
+Ta có $y' = 0 \\Leftrightarrow \\hoac{& x = 0 \\\\ & x = 2.}$
+\\begin{itemchoice}
+\\itemch Đúng vì $y' = 3x^2 - 6x$.
+\\itemch Sai vì hàm số đạt cực đại tại $x = 0$ ($y_{\\text{CĐ}} = 2$).
+\\itemch Đúng vì $y(2) = -2$.
+\\itemch Đúng vì $y_{\\text{CT}} < 0 < y_{\\text{CĐ}}$.
+\\end{itemchoice}
+}
+\\end{ex}
+
+\\begin{ex}%[2D4H3-1]
+Tính tích phân $I = \\displaystyle \\int_0^3 (2x - 1)\\,\\mathrm{d}x$.
+\\shortans[oly]{6}
+\\loigiai{
+Ta có $I = \\big[x^2 - x\\big]_0^3 = 6$.
+}
+\\end{ex}`;
+
+export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
+  const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
+
+  const state = {
+    subTab: 'exams', // 'exams' | 'assignments' | 'students' | 'submissions'
+    data: {
+      user: null,
+      exams: [],
+      students: [],
+      assignments: [],
+      submissions: [],
+    },
+    editingExam: null, // null | cloned exam draft
+    editorPartTab: 'part1', // 'part1' | 'part2' | 'part3'
+    subFilterAsg: 'all',
+    subSearch: '',
+    inRunner: false,
+  };
+
+  async function refresh() {
+    try {
+      state.data = await api.adminOverview();
+      if (!state.inRunner) render();
+    } catch (err) {
+      showToast(err.message || 'Không thể tải dữ liệu quản trị.', 'error');
+    }
+  }
+
+  function render() {
+    state.inRunner = false;
+    setHeaderStatus('');
+
+    if (state.editingExam) {
+      renderExamEditor();
+      return;
+    }
+
+    const { exams, students, assignments, submissions } = state.data;
+    const openAssignments = assignments.filter((a) => !getDeadlineStatus(a.dueAt).expired).length;
+
+    rootEl.innerHTML = `
+      <div class="role-hero teacher-hero">
+        <div>
+          <div class="hero-eyebrow">Bảng điều khiển Giáo viên (Admin)</div>
+          <h1>Quản lý đề thi, giao bài tập &amp; tài khoản học sinh</h1>
+          <p>
+            Tạo hoặc tinh chỉnh đề thi 3 dạng câu hỏi chuẩn Bộ GD&amp;ĐT 2025, chọn học sinh giao bài kèm hạn nộp
+            và theo dõi điểm số chi tiết ngay sau khi học sinh nộp bài.
+          </p>
+        </div>
+        <div class="kpi-strip">
+          <div class="kpi-box"><div class="kpi-num">${exams.length}</div><div class="kpi-lbl">Đề thi</div></div>
+          <div class="kpi-box"><div class="kpi-num">${openAssignments}</div><div class="kpi-lbl">Đợt giao đang mở</div></div>
+          <div class="kpi-box"><div class="kpi-num">${students.length}</div><div class="kpi-lbl">Học sinh</div></div>
+          <div class="kpi-box"><div class="kpi-num">${submissions.length}</div><div class="kpi-lbl">Lượt nộp bài</div></div>
+        </div>
+      </div>
+
+      <div class="subtab-bar">
+        <button class="subtab-btn ${state.subTab === 'exams' ? 'active' : ''}" data-subtab="exams">
+          Ngân hàng đề thi <span class="badge badge-neutral">${exams.length}</span>
+        </button>
+        <button class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}" data-subtab="assignments">
+          Giao bài &amp; Hạn nộp <span class="badge badge-neutral">${assignments.length}</span>
+        </button>
+        <button class="subtab-btn ${state.subTab === 'students' ? 'active' : ''}" data-subtab="students">
+          Tài khoản học sinh <span class="badge badge-neutral">${students.length}</span>
+        </button>
+        <button class="subtab-btn ${state.subTab === 'submissions' ? 'active' : ''}" data-subtab="submissions">
+          Kết quả &amp; Bài nộp <span class="badge badge-neutral">${submissions.length}</span>
+        </button>
+      </div>
+
+      <div id="teacherSubContent">
+        ${state.subTab === 'exams' ? renderExamsSection() : ''}
+        ${state.subTab === 'assignments' ? renderAssignmentsSection() : ''}
+        ${state.subTab === 'students' ? renderStudentsSection() : ''}
+        ${state.subTab === 'submissions' ? renderSubmissionsSection() : ''}
+      </div>
+    `;
+
+    bindDashboardEvents();
+    renderMath(rootEl);
+  }
+
+  // =========================================================
+  // SUB-TAB 1: EXAMS MANAGEMENT
+  // =========================================================
+  function renderExamsSection() {
+    const { exams } = state.data;
+    return `
+      <div class="section-toolbar">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btnImportLatex">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/>
+            </svg>
+            Nạp đề LaTeX (ex_test)
+          </button>
+          <button class="btn btn-secondary" id="btnImportWordPdf">Nạp file Word / PDF</button>
+          <button class="btn btn-secondary" id="btnNewExam">+ Tạo đề thủ công</button>
+          <button class="btn btn-ghost" id="btnImportJsonTab">Nạp JSON</button>
+        </div>
+      </div>
+
+      <div class="exam-list">
+        ${
+          exams.length === 0
+            ? `<div class="card panel-card" style="text-align:center; padding:40px; color:var(--text-muted);">
+                Chưa có đề thi nào. Nhấn <strong>"+ Tạo đề thi mới"</strong> hoặc <strong>"Nạp file JSON"</strong> để bắt đầu.
+              </div>`
+            : exams
+                .map((ex) => {
+                  const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
+                  return `
+                    <article class="exam-card" style="cursor:default;">
+                      <div class="exam-card-top">
+                        <div>
+                          <h3 class="exam-card-title">${escapeHtml(ex.title)}</h3>
+                          <p class="exam-card-desc">${escapeHtml(ex.description || 'Đề thi chuẩn cấu trúc 3 dạng câu hỏi Bộ GD&ĐT 2025.')}</p>
+                        </div>
+                        <span class="badge badge-p1">${escapeHtml(ex.code || 'MĐ')}</span>
+                      </div>
+
+                      <div class="exam-card-badges">
+                        <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
+                        <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
+                        <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
+                        <span class="badge badge-neutral">${escapeHtml(ex.subject || 'Chưa phân môn')} • ${ex.durationMinutes} phút • ${totalQ} câu</span>
+                      </div>
+
+                      <div class="exam-card-footer">
+                        <div class="exam-meta-inline">
+                          <span>Thang điểm: P.I ${formatScoreVN(ex.scoring?.part1PerQuestion ?? 0.25)}đ • P.III ${formatScoreVN(ex.scoring?.part3PerQuestion ?? 0.5)}đ</span>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                          <button class="btn btn-primary btn-sm" data-assign-exam="${ex.id}">Giao bài tập</button>
+                          <button class="btn btn-secondary btn-sm" data-edit-exam="${ex.id}">Tinh chỉnh đề</button>
+                          <button class="btn btn-secondary btn-sm" data-preview-exam="${ex.id}">Xem trước</button>
+                          <button class="btn btn-danger-outline btn-sm" data-delete-exam="${ex.id}">Xóa</button>
+                        </div>
+                      </div>
+                    </article>
+                  `;
+                })
+                .join('')
+        }
+      </div>
+    `;
+  }
+
+  // =========================================================
+  // VISUAL EXAM EDITOR (ADD / EDIT EXAM & QUESTIONS)
+  // =========================================================
+  function openNewExamEditor() {
+    state.editingExam = {
+      id: null, // null means create new
+      title: 'Đề kiểm tra mới — Chuẩn BGD 2025',
+      subject: 'Toán học 12',
+      code: 'MĐ ' + String(Math.floor(100 + Math.random() * 899)),
+      durationMinutes: 45,
+      description: 'Đề thi gồm 3 phần theo form trắc nghiệm Bộ GD&ĐT 2025.',
+      scoring: {
+        part1PerQuestion: 0.25,
+        part2Progressive: [0, 0.1, 0.25, 0.5, 1.0],
+        part3PerQuestion: 0.5,
+      },
+      part1: [
+        {
+          id: 'p1-' + Date.now().toString(36),
+          topic: 'Chủ đề 1',
+          stem: 'Nhập nội dung câu hỏi Phần I (hỗ trợ LaTeX như $x^2 + 1 = 0$):',
+          options: [
+            { key: 'A', text: 'Phương án A' },
+            { key: 'B', text: 'Phương án B' },
+            { key: 'C', text: 'Phương án C' },
+            { key: 'D', text: 'Phương án D' },
+          ],
+          answer: 'A',
+          explanation: '',
+        },
+      ],
+      part2: [],
+      part3: [],
+    };
+    state.editorPartTab = 'part1';
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openEditExamEditor(examId) {
+    const found = state.data.exams.find((e) => e.id === examId);
+    if (!found) return;
+    state.editingExam = structuredClone(found);
+    state.editingExam.part1 = state.editingExam.part1 || [];
+    state.editingExam.part2 = state.editingExam.part2 || [];
+    state.editingExam.part3 = state.editingExam.part3 || [];
+    state.editingExam.scoring = state.editingExam.scoring || {
+      part1PerQuestion: 0.25,
+      part2Progressive: [0, 0.1, 0.25, 0.5, 1.0],
+      part3PerQuestion: 0.5,
+    };
+    state.editorPartTab = 'part1';
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function renderExamEditor() {
+    const ex = state.editingExam;
+    const isNew = !ex.id;
+    const pTab = state.editorPartTab;
+
+    rootEl.innerHTML = `
+      <div class="exam-topbar">
+        <div class="exam-topbar-info">
+          <h2>${isNew ? 'Tạo đề thi mới (Chuẩn BGD 2025)' : `Tinh chỉnh đề thi: ${escapeHtml(ex.title)}`}</h2>
+          <div class="exam-topbar-meta">
+            <span>Phần I: <strong>${ex.part1.length}</strong> câu • Phần II: <strong>${ex.part2.length}</strong> câu • Phần III: <strong>${ex.part3.length}</strong> câu</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" id="btnCancelEditor">← Hủy &amp; Quay lại</button>
+          <button class="btn btn-primary btn-sm" id="btnSaveExamEditor">Lưu đề thi</button>
+        </div>
+      </div>
+
+      <!-- Exam Metadata Form -->
+      <div class="card panel-card" style="margin-bottom:20px;">
+        <h3>Thông tin chung &amp; Thang điểm</h3>
+        <div class="form-grid-3">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Tên đề thi *</label>
+            <input class="input-control" id="edTitle" value="${escapeAttr(ex.title)}" />
+          </div>
+          <div class="form-group">
+            <label>Mã đề</label>
+            <input class="input-control" id="edCode" value="${escapeAttr(ex.code)}" />
+          </div>
+          <div class="form-group">
+            <label>Môn học</label>
+            <input class="input-control" id="edSubject" value="${escapeAttr(ex.subject)}" />
+          </div>
+          <div class="form-group">
+            <label>Thời gian làm bài (phút)</label>
+            <input class="input-control" type="number" min="1" max="240" id="edDuration" value="${ex.durationMinutes}" />
+          </div>
+          <div class="form-group">
+            <label>Điểm mỗi câu Phần I / Phần III</label>
+            <div style="display:flex; gap:8px;">
+              <input class="input-control" type="number" step="0.05" id="edScoreP1" value="${ex.scoring.part1PerQuestion}" title="Điểm Phần I" />
+              <input class="input-control" type="number" step="0.05" id="edScoreP3" value="${ex.scoring.part3PerQuestion}" title="Điểm Phần III" />
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Mô tả ngắn</label>
+          <input class="input-control" id="edDesc" value="${escapeAttr(ex.description || '')}" />
+        </div>
+      </div>
+
+      <!-- Part Switcher -->
+      <div class="section-toolbar">
+        <div class="subtab-bar" style="margin-bottom:0;">
+          <button class="subtab-btn ${pTab === 'part1' ? 'active' : ''}" data-ed-part="part1">
+            Phần I — Nhiều lựa chọn (${ex.part1.length})
+          </button>
+          <button class="subtab-btn ${pTab === 'part2' ? 'active' : ''}" data-ed-part="part2">
+            Phần II — Đúng/Sai (${ex.part2.length})
+          </button>
+          <button class="subtab-btn ${pTab === 'part3' ? 'active' : ''}" data-ed-part="part3">
+            Phần III — Trả lời ngắn (${ex.part3.length})
+          </button>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnAddQuestion">+ Thêm câu hỏi vào ${pTab === 'part1' ? 'Phần I' : pTab === 'part2' ? 'Phần II' : 'Phần III'}</button>
+      </div>
+
+      <div id="editorQuestionsList">
+        ${pTab === 'part1' ? renderEditorPart1(ex.part1) : ''}
+        ${pTab === 'part2' ? renderEditorPart2(ex.part2) : ''}
+        ${pTab === 'part3' ? renderEditorPart3(ex.part3) : ''}
+      </div>
+    `;
+
+    bindEditorEvents();
+  }
+
+  function renderEditorPart1(list) {
+    if (!list.length) {
+      return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần I. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
+    }
+    return list
+      .map(
+        (q, idx) => `
+      <div class="card editor-q-card" data-q-idx="${idx}">
+        <div class="editor-q-head">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge badge-p1">Phần I • Câu ${idx + 1}</span>
+            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
+          </div>
+          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+        </div>
+        <div class="form-group">
+          <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
+          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+        </div>
+        <div class="form-row-2">
+          ${q.options
+            .map(
+              (opt, oi) => `
+            <div class="form-group" style="margin-bottom:8px;">
+              <label style="display:flex; justify-content:space-between;">
+                <span>Đáp án ${opt.key}</span>
+                <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; font-weight:700; color:${q.answer === opt.key ? 'var(--success)' : 'var(--text-muted)'};">
+                  <input type="radio" name="p1-ans-${idx}" value="${opt.key}" data-field="answer" ${q.answer === opt.key ? 'checked' : ''} />
+                  Đáp án đúng
+                </label>
+              </label>
+              <input class="input-control" data-opt-idx="${oi}" value="${escapeAttr(opt.text)}" />
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Lời giải chi tiết (tùy chọn)</label>
+          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+        </div>
+      </div>
+    `
+      )
+      .join('');
+  }
+
+  function renderEditorPart2(list) {
+    if (!list.length) {
+      return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần II. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
+    }
+    return list
+      .map(
+        (q, idx) => `
+      <div class="card editor-q-card" data-q-idx="${idx}">
+        <div class="editor-q-head">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge badge-p2">Phần II • Câu ${idx + 1}</span>
+            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
+          </div>
+          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+        </div>
+        <div class="form-group">
+          <label>Đề dẫn (hỗ trợ LaTeX)</label>
+          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+          ${q.statements
+            .map(
+              (st, si) => `
+            <div style="display:grid; grid-template-columns: 28px 1fr 120px; gap:8px; align-items:center;">
+              <strong style="color:var(--p2-text);">${st.key})</strong>
+              <input class="input-control" data-st-text="${si}" value="${escapeAttr(st.text)}" />
+              <select class="input-control" data-st-ans="${si}">
+                <option value="true" ${st.answer ? 'selected' : ''}>Đúng</option>
+                <option value="false" ${!st.answer ? 'selected' : ''}>Sai</option>
+              </select>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Lời giải chi tiết (tùy chọn)</label>
+          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+        </div>
+      </div>
+    `
+      )
+      .join('');
+  }
+
+  function renderEditorPart3(list) {
+    if (!list.length) {
+      return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần III. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
+    }
+    return list
+      .map(
+        (q, idx) => `
+      <div class="card editor-q-card" data-q-idx="${idx}">
+        <div class="editor-q-head">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge badge-p3">Phần III • Câu ${idx + 1}</span>
+            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
+          </div>
+          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+        </div>
+        <div class="form-group">
+          <label>Đề bài</label>
+          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Đáp án chuẩn (tối đa 4 ký tự, VD: -3 hoặc 4,5)</label>
+            <input class="input-control" maxlength="4" data-field="answer" value="${escapeAttr(q.answer)}" />
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Lời giải chi tiết (tùy chọn)</label>
+            <input class="input-control" data-field="explanation" value="${escapeAttr(q.explanation || '')}" />
+          </div>
+        </div>
+      </div>
+    `
+      )
+      .join('');
+  }
+
+  function syncEditorMetadataFromDom() {
+    const ex = state.editingExam;
+    if (!ex) return;
+    const titleEl = rootEl.querySelector('#edTitle');
+    if (titleEl) ex.title = titleEl.value.trim();
+    const codeEl = rootEl.querySelector('#edCode');
+    if (codeEl) ex.code = codeEl.value.trim();
+    const subEl = rootEl.querySelector('#edSubject');
+    if (subEl) ex.subject = subEl.value.trim();
+    const durEl = rootEl.querySelector('#edDuration');
+    if (durEl) ex.durationMinutes = Math.max(1, Number(durEl.value) || 45);
+    const descEl = rootEl.querySelector('#edDesc');
+    if (descEl) ex.description = descEl.value.trim();
+    const sp1 = rootEl.querySelector('#edScoreP1');
+    if (sp1) ex.scoring.part1PerQuestion = Number(sp1.value) || 0.25;
+    const sp3 = rootEl.querySelector('#edScoreP3');
+    if (sp3) ex.scoring.part3PerQuestion = Number(sp3.value) || 0.5;
+  }
+
+  function syncCurrentPartQuestionsFromDom() {
+    const ex = state.editingExam;
+    if (!ex) return;
+    const part = state.editorPartTab;
+    const list = ex[part];
+    rootEl.querySelectorAll('.editor-q-card').forEach((card) => {
+      const idx = Number(card.dataset.qIdx);
+      const q = list[idx];
+      if (!q) return;
+      const topicEl = card.querySelector('[data-field="topic"]');
+      const stemEl = card.querySelector('[data-field="stem"]');
+      const expEl = card.querySelector('[data-field="explanation"]');
+      if (topicEl) q.topic = topicEl.value;
+      if (stemEl) q.stem = stemEl.value;
+      if (expEl) q.explanation = expEl.value;
+
+      if (part === 'part1') {
+        card.querySelectorAll('[data-opt-idx]').forEach((inp) => {
+          q.options[Number(inp.dataset.optIdx)].text = inp.value;
+        });
+        const checked = card.querySelector('input[data-field="answer"]:checked');
+        if (checked) q.answer = checked.value;
+      } else if (part === 'part2') {
+        card.querySelectorAll('[data-st-text]').forEach((inp) => {
+          q.statements[Number(inp.dataset.stText)].text = inp.value;
+        });
+        card.querySelectorAll('[data-st-ans]').forEach((sel) => {
+          q.statements[Number(sel.dataset.stAns)].answer = sel.value === 'true';
+        });
+      } else if (part === 'part3') {
+        const ansEl = card.querySelector('[data-field="answer"]');
+        if (ansEl) q.answer = ansEl.value.trim();
+      }
+    });
+  }
+
+  function bindEditorEvents() {
+    rootEl.querySelector('#btnCancelEditor')?.addEventListener('click', () => {
+      state.editingExam = null;
+      render();
+    });
+
+    rootEl.querySelectorAll('[data-ed-part]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        state.editorPartTab = btn.dataset.edPart;
+        renderExamEditor();
+      });
+    });
+
+    rootEl.querySelector('#btnAddQuestion')?.addEventListener('click', () => {
+      syncEditorMetadataFromDom();
+      syncCurrentPartQuestionsFromDom();
+      const p = state.editorPartTab;
+      const uid = `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
+      if (p === 'part1') {
+        state.editingExam.part1.push({
+          id: uid,
+          topic: 'Chủ đề mới',
+          stem: '',
+          options: [
+            { key: 'A', text: '' },
+            { key: 'B', text: '' },
+            { key: 'C', text: '' },
+            { key: 'D', text: '' },
+          ],
+          answer: 'A',
+          explanation: '',
+        });
+      } else if (p === 'part2') {
+        state.editingExam.part2.push({
+          id: uid,
+          topic: 'Chủ đề mới',
+          stem: '',
+          statements: [
+            { key: 'a', text: '', answer: true },
+            { key: 'b', text: '', answer: false },
+            { key: 'c', text: '', answer: true },
+            { key: 'd', text: '', answer: false },
+          ],
+          explanation: '',
+        });
+      } else {
+        state.editingExam.part3.push({
+          id: uid,
+          topic: 'Chủ đề mới',
+          stem: '',
+          answer: '0',
+          explanation: '',
+        });
+      }
+      renderExamEditor();
+    });
+
+    rootEl.querySelectorAll('[data-del-q]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const idx = Number(btn.dataset.delQ);
+        state.editingExam[state.editorPartTab].splice(idx, 1);
+        renderExamEditor();
+      });
+    });
+
+    rootEl.querySelector('#btnSaveExamEditor')?.addEventListener('click', async () => {
+      syncEditorMetadataFromDom();
+      syncCurrentPartQuestionsFromDom();
+      const ex = state.editingExam;
+      if (!ex.title) {
+        showToast('Vui lòng nhập tên đề thi.', 'error');
+        return;
+      }
+      if (ex.part1.length + ex.part2.length + ex.part3.length === 0) {
+        showToast('Đề thi cần có ít nhất 1 câu hỏi.', 'error');
+        return;
+      }
+      try {
+        if (ex.id) {
+          await api.updateExam(ex.id, ex);
+          showToast('Đã lưu chỉnh sửa đề thi!', 'success');
+        } else {
+          await api.createExams(ex);
+          showToast('Đã tạo đề thi mới thành công!', 'success');
+        }
+        state.editingExam = null;
+        await refresh();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // =========================================================
+  // SUB-TAB 2: ASSIGNMENTS & DEADLINES
+  // =========================================================
+  function renderAssignmentsSection() {
+    const { assignments, exams, students, submissions } = state.data;
+    const examsById = new Map(exams.map((e) => [e.id, e]));
+
+    return `
+      <div class="section-toolbar">
+        <p style="margin:0; font-size:0.88rem; color:var(--text-secondary);">
+          Chọn đề thi, thiết lập <strong>hạn nộp bài tập</strong> và chỉ định học sinh hoặc cả lớp cần làm bài.
+        </p>
+        <button class="btn btn-primary" id="btnNewAssignment">+ Giao bài tập mới</button>
+      </div>
+
+      <div class="exam-list">
+        ${
+          assignments.length === 0
+            ? `<div class="card panel-card" style="text-align:center; padding:40px; color:var(--text-muted);">
+                Chưa có đợt giao bài nào. Nhấn <strong>"+ Giao bài tập mới"</strong> để giao bài cho học sinh.
+              </div>`
+            : assignments
+                .map((asg) => {
+                  const exam = examsById.get(asg.examId);
+                  const dl = getDeadlineStatus(asg.dueAt);
+                  const targetStudents = asg.assignAll
+                    ? students
+                    : students.filter((s) => (asg.studentIds || []).includes(s.id));
+                  const submittedStudentIds = new Set(
+                    submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId)
+                  );
+                  return `
+                    <article class="exam-card" style="cursor:default;">
+                      <div class="exam-card-top">
+                        <div>
+                          <h3 class="exam-card-title">${escapeHtml(asg.title)}</h3>
+                          <p class="exam-card-desc">
+                            Đề thi gốc: <strong>${escapeHtml(exam?.title || 'Đề đã xóa')}</strong>
+                            ${asg.note ? ` • ${escapeHtml(asg.note)}` : ''}
+                          </p>
+                        </div>
+                        <span class="badge ${dl.expired ? 'badge-danger' : dl.urgent ? 'badge-warning' : 'badge-success'}">
+                          ${escapeHtml(dl.label)}
+                        </span>
+                      </div>
+
+                      <div class="exam-card-badges">
+                        <span class="badge badge-p1">Hạn nộp: ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>
+                        <span class="badge badge-p2">Đã nộp: ${submittedStudentIds.size} / ${targetStudents.length} HS</span>
+                        <span class="badge badge-neutral">${asg.assignAll ? 'Giao tất cả học sinh' : `Chọn riêng ${targetStudents.length} HS`}</span>
+                        <span class="badge badge-neutral">${asg.allowRetake ? 'Cho phép làm lại' : 'Chỉ làm 1 lần'}</span>
+                        ${asg.shuffle ? `<span class="badge badge-p3">Trộn đề</span>` : ''}
+                      </div>
+
+                      <div class="exam-card-footer">
+                        <div class="exam-meta-inline" style="flex-wrap:wrap;">
+                          <span>Đối tượng: ${
+                            asg.assignAll
+                              ? 'Toàn bộ học sinh'
+                              : targetStudents.map((s) => escapeHtml(`${s.fullName} (${s.className})`)).join(', ') || 'Chưa chọn'
+                          }</span>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                          <button class="btn btn-secondary btn-sm" data-view-asg-subs="${asg.id}">Xem bài nộp</button>
+                          <button class="btn btn-secondary btn-sm" data-edit-asg="${asg.id}">Sửa hạn nộp / HS</button>
+                          <button class="btn btn-danger-outline btn-sm" data-del-asg="${asg.id}">Xóa</button>
+                        </div>
+                      </div>
+                    </article>
+                  `;
+                })
+                .join('')
+        }
+      </div>
+    `;
+  }
+
+  function openAssignmentModal({ existing = null, preselectExamId = null } = {}) {
+    const { exams, students } = state.data;
+    if (exams.length === 0) {
+      showToast('Hãy tạo ít nhất 1 đề thi trước khi giao bài.', 'error');
+      return;
+    }
+
+    const classes = [...new Set(students.map((s) => s.className).filter(Boolean))];
+    const selExamId = existing?.examId || preselectExamId || exams[0].id;
+    const selExam = exams.find((e) => e.id === selExamId) || exams[0];
+    const assignAll = existing ? Boolean(existing.assignAll) : false;
+    const chosenIds = new Set(existing ? existing.studentIds || [] : students.map((s) => s.id));
+
+    openModal({
+      title: existing ? 'Chỉnh sửa đợt giao bài & hạn nộp' : 'Giao bài tập mới cho học sinh',
+      bodyHtml: `
+        <div class="form-group">
+          <label>Chọn đề thi *</label>
+          <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
+            ${exams
+              .map(
+                (e) =>
+                  `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
+              )
+              .join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Tiêu đề bài tập được giao</label>
+          <input id="asgTitle" class="input-control" value="${escapeAttr(existing?.title || selExam.title)}" />
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Hạn nộp bài tập *</label>
+            <input id="asgDueAt" type="datetime-local" class="input-control" value="${escapeAttr(existing?.dueAt || defaultDueAtInput(5))}" />
+          </div>
+          <div class="form-group">
+            <label>Ghi chú cho học sinh</label>
+            <input id="asgNote" class="input-control" placeholder="VD: Làm nghiêm túc trước 22h..." value="${escapeAttr(existing?.note || '')}" />
+          </div>
+        </div>
+
+        <div class="form-row-3" style="margin-bottom:14px;">
+          <label class="checkbox-pill"><input type="checkbox" id="asgTimed" ${existing ? (existing.timedMode ? 'checked' : '') : 'checked'} /> Tính giờ đếm ngược</label>
+          <label class="checkbox-pill"><input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} /> Trộn câu &amp; đáp án</label>
+          <label class="checkbox-pill"><input type="checkbox" id="asgRetake" ${existing ? (existing.allowRetake ? 'checked' : '') : 'checked'} /> Cho phép làm lại</label>
+        </div>
+
+        <div style="border-top:1px solid var(--border); padding-top:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <strong style="font-size:0.88rem;">Chọn học sinh được giao bài</strong>
+            <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.84rem; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="asgAssignAll" ${assignAll ? 'checked' : ''} />
+              Giao tất cả học sinh (kể cả HS mới)
+            </label>
+          </div>
+
+          <div id="asgStudentPicker" style="${assignAll ? 'opacity:0.45; pointer-events:none;' : ''}">
+            ${
+              classes.length > 0
+                ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+                    <button type="button" class="btn btn-ghost btn-sm" data-pick-class="__all">Chọn hết</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-pick-class="__none">Bỏ chọn</button>
+                    ${classes.map((c) => `<button type="button" class="btn btn-secondary btn-sm" data-pick-class="${escapeAttr(c)}">Lớp ${escapeHtml(c)}</button>`).join('')}
+                  </div>`
+                : ''
+            }
+            <div class="student-pick-list">
+              ${
+                students.length === 0
+                  ? `<div style="padding:12px; color:var(--text-muted); font-size:0.84rem;">Chưa có tài khoản học sinh nào. Hãy tạo tài khoản học sinh trước.</div>`
+                  : students
+                      .map(
+                        (s) => `
+                    <label class="student-pick-item" data-stu-class="${escapeAttr(s.className)}">
+                      <input type="checkbox" class="asg-stu-chk" value="${s.id}" ${chosenIds.has(s.id) ? 'checked' : ''} />
+                      <span><strong>${escapeHtml(s.fullName)}</strong> <span style="color:var(--text-muted);">(${escapeHtml(s.className)} • @${escapeHtml(s.username)})</span></span>
+                    </label>
+                  `
+                      )
+                      .join('')
+              }
+            </div>
+          </div>
+        </div>
+      `,
+      footerHtml: `
+        <button class="btn btn-secondary" id="modalCancelAsg">Hủy</button>
+        <button class="btn btn-primary" id="modalSaveAsg">${existing ? 'Lưu thay đổi' : 'Giao bài ngay'}</button>
+      `,
+      onMount: (modalEl) => {
+        modalEl.querySelector('#modalCancelAsg').addEventListener('click', closeModal);
+
+        const examSel = modalEl.querySelector('#asgExamId');
+        const titleInp = modalEl.querySelector('#asgTitle');
+        if (!existing) {
+          examSel.addEventListener('change', () => {
+            const ex = exams.find((e) => e.id === examSel.value);
+            if (ex) titleInp.value = ex.title;
+          });
+        }
+
+        const allChk = modalEl.querySelector('#asgAssignAll');
+        const picker = modalEl.querySelector('#asgStudentPicker');
+        allChk.addEventListener('change', () => {
+          picker.style.opacity = allChk.checked ? '0.45' : '1';
+          picker.style.pointerEvents = allChk.checked ? 'none' : 'auto';
+        });
+
+        modalEl.querySelectorAll('[data-pick-class]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const cls = btn.dataset.pickClass;
+            modalEl.querySelectorAll('.student-pick-item').forEach((row) => {
+              const chk = row.querySelector('.asg-stu-chk');
+              if (cls === '__all') chk.checked = true;
+              else if (cls === '__none') chk.checked = false;
+              else if (row.dataset.stuClass === cls) chk.checked = true;
+            });
+          });
+        });
+
+        modalEl.querySelector('#modalSaveAsg').addEventListener('click', async () => {
+          const payload = {
+            examId: examSel.value,
+            title: titleInp.value.trim(),
+            dueAt: modalEl.querySelector('#asgDueAt').value,
+            note: modalEl.querySelector('#asgNote').value.trim(),
+            timedMode: modalEl.querySelector('#asgTimed').checked,
+            shuffle: modalEl.querySelector('#asgShuffle').checked,
+            allowRetake: modalEl.querySelector('#asgRetake').checked,
+            assignAll: allChk.checked,
+            studentIds: Array.from(modalEl.querySelectorAll('.asg-stu-chk:checked')).map((c) => c.value),
+          };
+          try {
+            if (existing) {
+              await api.updateAssignment(existing.id, payload);
+              showToast('Đã cập nhật đợt giao bài tập!', 'success');
+            } else {
+              await api.createAssignment(payload);
+              showToast('Đã giao bài tập cho học sinh thành công!', 'success');
+            }
+            closeModal();
+            state.subTab = 'assignments';
+            await refresh();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      },
+    });
+  }
+
+  // =========================================================
+  // SUB-TAB 3: STUDENT ACCOUNTS MANAGEMENT
+  // =========================================================
+  function renderStudentsSection() {
+    const { students, submissions } = state.data;
+    const subCounts = new Map();
+    submissions.forEach((s) => subCounts.set(s.studentId, (subCounts.get(s.studentId) || 0) + 1));
+
+    return `
+      <div class="section-toolbar">
+        <p style="margin:0; font-size:0.88rem; color:var(--text-secondary);">
+          Tạo tài khoản và cấp thông tin đăng nhập cho học sinh. Học sinh có thể tự cập nhật hồ sơ &amp; đổi mật khẩu sau khi đăng nhập.
+        </p>
+        <button class="btn btn-primary" id="btnNewStudent">+ Tạo tài khoản học sinh</button>
+      </div>
+
+      <div class="card" style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Tên đăng nhập</th>
+              <th>Họ và tên</th>
+              <th>Lớp</th>
+              <th>SBD / Mã HS</th>
+              <th>Thông tin liên hệ</th>
+              <th>Bài đã nộp</th>
+              <th style="text-align:right;">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              students.length === 0
+                ? `<tr><td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">Chưa có học sinh nào.</td></tr>`
+                : students
+                    .map(
+                      (s) => `
+                  <tr>
+                    <td><code class="username-pill">@${escapeHtml(s.username)}</code></td>
+                    <td><strong>${escapeHtml(s.fullName)}</strong></td>
+                    <td><span class="badge badge-p1">${escapeHtml(s.className || '—')}</span></td>
+                    <td>${escapeHtml(s.studentCode || '—')}</td>
+                    <td style="font-size:0.82rem; color:var(--text-secondary);">
+                      ${escapeHtml(s.email || 'Chưa có email')}<br/>
+                      <span>${escapeHtml(s.phone || '')}</span>
+                    </td>
+                    <td><span class="badge badge-neutral">${subCounts.get(s.id) || 0} bài</span></td>
+                    <td style="text-align:right; white-space:nowrap;">
+                      <button class="btn btn-secondary btn-sm" data-edit-stu="${s.id}">Sửa / Đổi MK</button>
+                      <button class="btn btn-danger-outline btn-sm" data-del-stu="${s.id}">Xóa</button>
+                    </td>
+                  </tr>
+                `
+                    )
+                    .join('')
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function openStudentModal(existing = null) {
+    openModal({
+      title: existing ? `Chỉnh sửa tài khoản: @${existing.username}` : 'Tạo tài khoản học sinh mới',
+      bodyHtml: `
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Tên đăng nhập *</label>
+            <input id="stuUsername" class="input-control" placeholder="VD: hs04" value="${escapeAttr(existing?.username || '')}" ${existing ? 'disabled' : ''} />
+          </div>
+          <div class="form-group">
+            <label>${existing ? 'Đặt lại mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu khởi tạo *'}</label>
+            <input id="stuPassword" class="input-control" type="text" placeholder="${existing ? 'Không đổi' : 'VD: 123456'}" value="${existing ? '' : '123456'}" />
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Họ và tên *</label>
+            <input id="stuFullName" class="input-control" placeholder="VD: Phạm Hoàng Nam" value="${escapeAttr(existing?.fullName || '')}" />
+          </div>
+          <div class="form-group">
+            <label>Lớp</label>
+            <input id="stuClass" class="input-control" placeholder="VD: 12A1" value="${escapeAttr(existing?.className || '12A1')}" />
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Số báo danh / Mã HS</label>
+            <input id="stuCode" class="input-control" placeholder="VD: 250104" value="${escapeAttr(existing?.studentCode || '')}" />
+          </div>
+          <div class="form-group">
+            <label>Ngày sinh</label>
+            <input id="stuDob" type="date" class="input-control" value="${escapeAttr(existing?.dob || '')}" />
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Email</label>
+            <input id="stuEmail" type="email" class="input-control" placeholder="hocsinh@school.vn" value="${escapeAttr(existing?.email || '')}" />
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Số điện thoại</label>
+            <input id="stuPhone" class="input-control" placeholder="09xxxxxxxx" value="${escapeAttr(existing?.phone || '')}" />
+          </div>
+        </div>
+      `,
+      footerHtml: `
+        <button class="btn btn-secondary" id="modalCancelStu">Hủy</button>
+        <button class="btn btn-primary" id="modalSaveStu">${existing ? 'Lưu thông tin' : 'Tạo tài khoản'}</button>
+      `,
+      onMount: (modalEl) => {
+        modalEl.querySelector('#modalCancelStu').addEventListener('click', closeModal);
+        modalEl.querySelector('#modalSaveStu').addEventListener('click', async () => {
+          const payload = {
+            username: modalEl.querySelector('#stuUsername').value.trim(),
+            fullName: modalEl.querySelector('#stuFullName').value.trim(),
+            className: modalEl.querySelector('#stuClass').value.trim(),
+            studentCode: modalEl.querySelector('#stuCode').value.trim(),
+            dob: modalEl.querySelector('#stuDob').value,
+            email: modalEl.querySelector('#stuEmail').value.trim(),
+            phone: modalEl.querySelector('#stuPhone').value.trim(),
+          };
+          const pw = modalEl.querySelector('#stuPassword').value.trim();
+          try {
+            if (existing) {
+              if (pw) payload.newPassword = pw;
+              await api.updateStudent(existing.id, payload);
+              showToast('Đã cập nhật tài khoản học sinh!', 'success');
+            } else {
+              payload.password = pw;
+              await api.createStudent(payload);
+              showToast(`Đã tạo tài khoản @${payload.username} cho ${payload.fullName}!`, 'success');
+            }
+            closeModal();
+            await refresh();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      },
+    });
+  }
+
+  // =========================================================
+  // SUB-TAB 4: SUBMISSIONS & GRADES TRACKER
+  // =========================================================
+  function renderSubmissionsSection() {
+    const { submissions, assignments } = state.data;
+    const filtered = submissions.filter((s) => {
+      if (state.subFilterAsg !== 'all' && s.assignmentId !== state.subFilterAsg) return false;
+      if (state.subSearch) {
+        const q = state.subSearch.toLowerCase();
+        const hay = `${s.studentName} ${s.studentClass} ${s.studentUsername} ${s.assignmentTitle}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return `
+      <div class="section-toolbar">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; flex:1;">
+          <select id="selSubFilterAsg" class="input-control" style="max-width:340px;">
+            <option value="all">Tất cả đợt giao bài (${submissions.length})</option>
+            ${assignments
+              .map(
+                (a) =>
+                  `<option value="${a.id}" ${state.subFilterAsg === a.id ? 'selected' : ''}>${escapeHtml(a.title)}</option>`
+              )
+              .join('')}
+          </select>
+          <input id="inpSubSearch" class="input-control" style="max-width:260px;" placeholder="Tìm tên HS, lớp..." value="${escapeAttr(state.subSearch)}" />
+        </div>
+      </div>
+
+      <div class="card" style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Học sinh</th>
+              <th>Đợt giao / Đề thi</th>
+              <th>Tổng điểm</th>
+              <th>Chi tiết (P.I / P.II / P.III)</th>
+              <th>Thời gian làm &amp; Nộp lúc</th>
+              <th style="text-align:right;">Bài làm</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              filtered.length === 0
+                ? `<tr><td colspan="6" style="text-align:center; padding:32px; color:var(--text-muted);">Chưa có bài nộp nào phù hợp bộ lọc.</td></tr>`
+                : filtered
+                    .map((s) => {
+                      const r = s.result || {};
+                      return `
+                        <tr>
+                          <td>
+                            <strong>${escapeHtml(s.studentName)}</strong>
+                            <div style="font-size:0.78rem; color:var(--text-muted);">${escapeHtml(s.studentClass)} • @${escapeHtml(s.studentUsername)}</div>
+                          </td>
+                          <td>${escapeHtml(s.assignmentTitle)}</td>
+                          <td>
+                            <span class="badge badge-p1" style="font-size:0.86rem;">
+                              ${formatScoreVN(r.totalScore ?? 0)} / ${formatScoreVN(r.maxScore ?? 10)}đ
+                            </span>
+                          </td>
+                          <td style="font-size:0.82rem; color:var(--text-secondary);">
+                            P.I: <strong>${formatScoreVN(r.part1?.score ?? 0)}</strong> •
+                            P.II: <strong>${formatScoreVN(r.part2?.score ?? 0)}</strong> •
+                            P.III: <strong>${formatScoreVN(r.part3?.score ?? 0)}</strong>
+                          </td>
+                          <td style="font-size:0.82rem; color:var(--text-muted);">
+                            ${formatTime(s.elapsedSeconds)}<br/>
+                            ${escapeHtml(formatDateTimeVN(s.submittedAt))}
+                          </td>
+                          <td style="text-align:right;">
+                            <button class="btn btn-secondary btn-sm" data-view-sub="${s.id}">Xem bài làm</button>
+                          </td>
+                        </tr>
+                      `;
+                    })
+                    .join('')
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // =========================================================
+  // EVENT BINDINGS FOR TEACHER DASHBOARD
+  // =========================================================
+  function bindDashboardEvents() {
+    rootEl.querySelectorAll('[data-subtab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.subTab = btn.dataset.subtab;
+        render();
+      });
+    });
+
+    // Exams tab events
+    rootEl.querySelector('#btnImportLatex')?.addEventListener('click', () => openSmartImportModal('latex'));
+    rootEl.querySelector('#btnImportWordPdf')?.addEventListener('click', () => openSmartImportModal('word'));
+    rootEl.querySelector('#btnImportJsonTab')?.addEventListener('click', () => openSmartImportModal('json'));
+    rootEl.querySelector('#btnNewExam')?.addEventListener('click', openNewExamEditor);
+
+    rootEl.querySelectorAll('[data-edit-exam]').forEach((btn) => {
+      btn.addEventListener('click', () => openEditExamEditor(btn.dataset.editExam));
+    });
+
+    rootEl.querySelectorAll('[data-assign-exam]').forEach((btn) => {
+      btn.addEventListener('click', () => openAssignmentModal({ preselectExamId: btn.dataset.assignExam }));
+    });
+
+    rootEl.querySelectorAll('[data-preview-exam]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const exam = state.data.exams.find((e) => e.id === btn.dataset.previewExam);
+        if (!exam) return;
+        state.inRunner = true;
+        examRunner.startTaking({
+          exam,
+          studentName: state.data.user?.fullName || 'Giáo viên',
+          studentClass: 'Xem trước',
+          isPreview: true,
+          shuffle: false,
+          timedMode: true,
+          onExit: () => render(),
+        });
+      });
+    });
+
+    rootEl.querySelectorAll('[data-delete-exam]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const exam = state.data.exams.find((e) => e.id === btn.dataset.deleteExam);
+        if (!exam) return;
+        openModal({
+          title: 'Xác nhận xóa đề thi',
+          bodyHtml: `<p style="margin:0;">Bạn có chắc chắn muốn xóa đề <strong>${escapeHtml(exam.title)}</strong>? Các đợt giao bài gắn với đề này cũng sẽ bị xóa.</p>`,
+          footerHtml: `
+            <button class="btn btn-secondary" id="mCancelDel">Hủy</button>
+            <button class="btn btn-danger-outline" id="mOkDel">Xóa đề thi</button>
+          `,
+          onMount: (m) => {
+            m.querySelector('#mCancelDel').addEventListener('click', closeModal);
+            m.querySelector('#mOkDel').addEventListener('click', async () => {
+              closeModal();
+              try {
+                await api.deleteExam(exam.id);
+                showToast('Đã xóa đề thi.', 'success');
+                await refresh();
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            });
+          },
+        });
+      });
+    });
+
+    // Assignments tab events
+    rootEl.querySelector('#btnNewAssignment')?.addEventListener('click', () => openAssignmentModal());
+    rootEl.querySelectorAll('[data-edit-asg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const asg = state.data.assignments.find((a) => a.id === btn.dataset.editAsg);
+        if (asg) openAssignmentModal({ existing: asg });
+      });
+    });
+    rootEl.querySelectorAll('[data-view-asg-subs]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.subFilterAsg = btn.dataset.viewAsgSubs;
+        state.subTab = 'submissions';
+        render();
+      });
+    });
+    rootEl.querySelectorAll('[data-del-asg]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await api.deleteAssignment(btn.dataset.delAsg);
+          showToast('Đã xóa đợt giao bài tập.', 'success');
+          await refresh();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+
+    // Students tab events
+    rootEl.querySelector('#btnNewStudent')?.addEventListener('click', () => openStudentModal(null));
+    rootEl.querySelectorAll('[data-edit-stu]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const stu = state.data.students.find((s) => s.id === btn.dataset.editStu);
+        if (stu) openStudentModal(stu);
+      });
+    });
+    rootEl.querySelectorAll('[data-del-stu]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const stu = state.data.students.find((s) => s.id === btn.dataset.delStu);
+        if (!stu) return;
+        openModal({
+          title: 'Xóa tài khoản học sinh',
+          bodyHtml: `<p style="margin:0;">Xóa tài khoản <strong>@${escapeHtml(stu.username)} (${escapeHtml(stu.fullName)})</strong>?</p>`,
+          footerHtml: `
+            <button class="btn btn-secondary" id="mCancelDelS">Hủy</button>
+            <button class="btn btn-danger-outline" id="mOkDelS">Xóa tài khoản</button>
+          `,
+          onMount: (m) => {
+            m.querySelector('#mCancelDelS').addEventListener('click', closeModal);
+            m.querySelector('#mOkDelS').addEventListener('click', async () => {
+              closeModal();
+              try {
+                await api.deleteStudent(stu.id);
+                showToast('Đã xóa tài khoản học sinh.', 'success');
+                await refresh();
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            });
+          },
+        });
+      });
+    });
+
+    // Submissions tab events
+    rootEl.querySelector('#selSubFilterAsg')?.addEventListener('change', (e) => {
+      state.subFilterAsg = e.target.value;
+      render();
+    });
+    rootEl.querySelector('#inpSubSearch')?.addEventListener('input', (e) => {
+      state.subSearch = e.target.value;
+      render();
+    });
+    rootEl.querySelectorAll('[data-view-sub]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sub = state.data.submissions.find((s) => s.id === btn.dataset.viewSub);
+        const exam = state.data.exams.find((e) => e.id === sub?.examId);
+        if (!sub || !exam) {
+          showToast('Không tìm thấy đề gốc của bài nộp này.', 'error');
+          return;
+        }
+        state.inRunner = true;
+        examRunner.openReview({
+          exam,
+          answers: sub.answers,
+          result: sub.result,
+          studentName: sub.studentName,
+          studentClass: sub.studentClass,
+          elapsedSeconds: sub.elapsedSeconds,
+          assignment: { title: sub.assignmentTitle },
+          onExit: () => render(),
+        });
+      });
+    });
+  }
+
+  async function handleImportJsonText(rawText) {
+    try {
+      const parsed = parseImportedExams(rawText);
+      await api.createExams(parsed);
+      showToast(`Đã nạp thành công ${parsed.length} đề thi vào ngân hàng!`, 'success');
+      await refresh();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const res = String(reader.result || '');
+        const comma = res.indexOf(',');
+        resolve(comma >= 0 ? res.slice(comma + 1) : res);
+      };
+      reader.onerror = () => reject(new Error('Không thể đọc file vừa chọn.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openSmartImportModal(initialMode = 'latex') {
+    let mode = initialMode; // 'latex' | 'word' | 'pdf' | 'json'
+    let parsedResult = null; // { exam, warnings, sourceFormat }
+
+    const renderBody = () => `
+      <div class="import-mode-tabs">
+        <button type="button" class="import-mode-btn ${mode === 'latex' ? 'active' : ''}" data-imp-mode="latex">
+          LaTeX (ex_test) <span class="badge badge-p1">Chính</span>
+        </button>
+        <button type="button" class="import-mode-btn ${mode === 'word' ? 'active' : ''}" data-imp-mode="word">
+          Word (.docx)
+        </button>
+        <button type="button" class="import-mode-btn ${mode === 'pdf' ? 'active' : ''}" data-imp-mode="pdf">
+          PDF (.pdf)
+        </button>
+        <button type="button" class="import-mode-btn ${mode === 'json' ? 'active' : ''}" data-imp-mode="json">
+          JSON
+        </button>
+      </div>
+
+      <div id="impPanelLatex" class="${mode === 'latex' ? '' : 'hidden'}">
+        <div class="import-tip">
+          Hỗ trợ trọn bộ gói <code>ex_test</code>: môi trường <code>\\begin{ex}...\\end{ex}</code>,
+          <code>\\choice</code> (Phần I), <code>\\choiceTF</code> / <code>\\choiceTF[t]</code> (Phần II),
+          <code>\\shortans</code> (Phần III), đánh dấu đúng bằng <code>\\True</code>, <code>\\loigiai{...}</code>,
+          <code>\\heva</code>, <code>\\hoac</code>, <code>tabular</code>.
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnPickTexFile">Chọn file .tex</button>
+          <input type="file" id="inpTexFile" accept=".tex,.txt" hidden />
+          <button type="button" class="btn btn-secondary btn-sm" id="btnInsertSampleTex">Chèn mã mẫu ex_test</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnDownloadSampleTex">Tải file mẫu .tex</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnRunParseTex" style="margin-left:auto;">
+            Phân tích mã LaTeX →
+          </button>
+        </div>
+        <textarea id="texSourceArea" class="code-textarea" placeholder="Dán mã LaTeX có chứa \\begin{ex} ... \\end{ex} vào đây hoặc chọn file .tex..."></textarea>
+      </div>
+
+      <div id="impPanelWord" class="${mode === 'word' ? '' : 'hidden'}">
+        <div class="import-tip">
+          Hỗ trợ file <strong>Word (.docx)</strong> chứa công thức <strong>Microsoft Equation (OMML → tự chuyển LaTeX)</strong>
+          và <strong>MathType</strong>. Tự nhận diện đáp án đúng qua chữ <u>gạch chân</u>, tô màu đỏ hoặc bảng đáp án cuối đề.
+        </div>
+        <div class="dropzone" id="docxDropzone">
+          <input type="file" id="inpDocxFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+          <div class="dropzone-title">Kéo thả hoặc nhấn chọn file Word (.docx)</div>
+          <div class="dropzone-sub">Mẹo cho MathType: Nếu dùng MathType dạng ảnh WMF, hãy bấm "Toggle TeX" trong Word trước để công thức sắc nét 100%.</div>
+        </div>
+      </div>
+
+      <div id="impPanelPdf" class="${mode === 'pdf' ? '' : 'hidden'}">
+        <div class="import-tip">
+          Hỗ trợ nạp file <strong>PDF (.pdf)</strong> có lớp văn bản (đề xuất từ LaTeX hoặc Word). Hệ thống trích xuất tự động 3 phần và cho phép thầy rà soát lại công thức trong Trình tinh chỉnh.
+        </div>
+        <div class="dropzone" id="pdfDropzone">
+          <input type="file" id="inpPdfFile" accept=".pdf,application/pdf" hidden />
+          <div class="dropzone-title">Kéo thả hoặc nhấn chọn file PDF (.pdf)</div>
+          <div class="dropzone-sub">Tự nhận diện cấu trúc PHẦN I / PHẦN II / PHẦN III và đánh số Câu 1., Câu 2., ...</div>
+        </div>
+      </div>
+
+      <div id="impPanelJson" class="${mode === 'json' ? '' : 'hidden'}">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnPickJsonFile">Chọn file .json</button>
+          <input type="file" id="inpJsonFileModal" accept=".json,application/json" hidden />
+          <button type="button" class="btn btn-ghost btn-sm" id="btnDlJsonTpl">Tải file mẫu JSON</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnImportJsonNow" style="margin-left:auto;">Nạp JSON ngay</button>
+        </div>
+        <textarea id="jsonSourceArea" class="code-textarea">${escapeHtml(JSON.stringify(getSampleJsonTemplate(), null, 2))}</textarea>
+      </div>
+
+      <div id="impStatusMsg" class="hidden" style="margin-top:12px;"></div>
+      <div id="impPreviewBox" class="hidden" style="margin-top:14px;"></div>
+    `;
+
+    openModal({
+      title: 'Nạp đề thi vào ngân hàng (LaTeX ex_test / Word / PDF)',
+      wide: true,
+      bodyHtml: renderBody(),
+      footerHtml: `
+        <button class="btn btn-secondary" id="mCloseImp">Đóng</button>
+        <button class="btn btn-secondary hidden" id="mOpenParsedEditor">Mở trình tinh chỉnh để rà soát</button>
+        <button class="btn btn-primary hidden" id="mSaveParsedExam">Lưu ngay vào ngân hàng</button>
+      `,
+      onMount: (m) => {
+        const statusEl = m.querySelector('#impStatusMsg');
+        const previewEl = m.querySelector('#impPreviewBox');
+        const btnEditParsed = m.querySelector('#mOpenParsedEditor');
+        const btnSaveParsed = m.querySelector('#mSaveParsedExam');
+
+        function setStatus(html, type = 'info') {
+          statusEl.className = `import-status ${type}`;
+          statusEl.innerHTML = html;
+          statusEl.classList.remove('hidden');
+        }
+
+        function showParsedPreview(res) {
+          parsedResult = res;
+          const ex = res.exam;
+          const p1n = ex.part1?.length || 0;
+          const p2n = ex.part2?.length || 0;
+          const p3n = ex.part3?.length || 0;
+          const sampleQ = ex.part1?.[0] || ex.part2?.[0] || ex.part3?.[0];
+
+          previewEl.innerHTML = `
+            <div class="import-preview-card">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                <div style="flex:1; min-width:220px;">
+                  <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">TÊN ĐỀ THI NHẬN DIỆN ĐƯỢC (CÓ THỂ SỬA NHANH):</label>
+                  <input id="impExamTitleEdit" class="input-control input-compact" value="${escapeAttr(ex.title)}" />
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; align-self:flex-end;">
+                  <span class="badge badge-p1">Phần I: ${p1n} câu</span>
+                  <span class="badge badge-p2">Phần II: ${p2n} câu</span>
+                  <span class="badge badge-p3">Phần III: ${p3n} câu</span>
+                </div>
+              </div>
+
+              ${
+                res.warnings?.length
+                  ? `<div class="import-warn-box">
+                      <strong>Lưu ý cần kiểm tra (${res.warnings.length}):</strong>
+                      <ul>${res.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>
+                    </div>`
+                  : `<div style="font-size:0.83rem; color:var(--success); font-weight:600; margin-bottom:8px;">✓ Phân tích hoàn hảo — không có cảnh báo!</div>`
+              }
+
+              ${
+                sampleQ
+                  ? `<div class="import-sample-preview">
+                      <div style="font-size:0.74rem; font-weight:700; color:var(--text-muted); margin-bottom:4px;">XEM TRƯỚC CÂU ĐẦU TIÊN (ĐÃ RENDER KATEX):</div>
+                      <div style="font-size:0.88rem;">${sampleQ.stem}</div>
+                    </div>`
+                  : ''
+              }
+            </div>
+          `;
+          previewEl.classList.remove('hidden');
+          btnEditParsed.classList.remove('hidden');
+          btnSaveParsed.classList.remove('hidden');
+          renderMath(previewEl);
+        }
+
+        // Switch import mode tabs
+        m.querySelectorAll('[data-imp-mode]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            mode = btn.dataset.impMode;
+            m.querySelectorAll('[data-imp-mode]').forEach((b) => b.classList.toggle('active', b === btn));
+            m.querySelector('#impPanelLatex').classList.toggle('hidden', mode !== 'latex');
+            m.querySelector('#impPanelWord').classList.toggle('hidden', mode !== 'word');
+            m.querySelector('#impPanelPdf').classList.toggle('hidden', mode !== 'pdf');
+            m.querySelector('#impPanelJson').classList.toggle('hidden', mode !== 'json');
+          });
+        });
+
+        // === MODE 1: LATEX ex_test ===
+        const texArea = m.querySelector('#texSourceArea');
+        const texFileInp = m.querySelector('#inpTexFile');
+        let lastTexFilename = '';
+
+        async function parseTexNow() {
+          const content = texArea.value.trim();
+          if (!content) {
+            setStatus('Vui lòng dán mã LaTeX (chứa môi trường <code>\\begin{ex}...\\end{ex}</code>) hoặc chọn file <code>.tex</code>.', 'error');
+            return;
+          }
+          setStatus('Đang phân tích mã LaTeX ex_test...', 'info');
+          try {
+            const res = await api.parseExam({ format: 'latex', content, filename: lastTexFilename });
+            statusEl.classList.add('hidden');
+            showParsedPreview(res);
+          } catch (err) {
+            setStatus(escapeHtml(err.message), 'error');
+          }
+        }
+
+        m.querySelector('#btnPickTexFile').addEventListener('click', () => texFileInp.click());
+        texFileInp.addEventListener('change', async () => {
+          const f = texFileInp.files?.[0];
+          if (!f) return;
+          lastTexFilename = f.name;
+          texArea.value = await f.text();
+          texFileInp.value = '';
+          await parseTexNow();
+        });
+
+        m.querySelector('#btnInsertSampleTex').addEventListener('click', async () => {
+          lastTexFilename = 'de-mau-extest-2025.tex';
+          texArea.value = SAMPLE_EXTEST_TEX;
+          await parseTexNow();
+        });
+
+        m.querySelector('#btnDownloadSampleTex').addEventListener('click', () => {
+          const blob = new Blob([SAMPLE_EXTEST_TEX], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'de-mau-extest-2025.tex';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+
+        m.querySelector('#btnRunParseTex').addEventListener('click', parseTexNow);
+
+        // === MODE 2: WORD (.docx) ===
+        const docxDrop = m.querySelector('#docxDropzone');
+        const docxInp = m.querySelector('#inpDocxFile');
+        async function handleDocxFile(file) {
+          if (!file.name.toLowerCase().endsWith('.docx')) {
+            setStatus('Hệ thống hỗ trợ file Word định dạng <code>.docx</code> (nếu đang là .doc cũ, hãy Lưu dưới dạng .docx trong Word).', 'error');
+            return;
+          }
+          setStatus(`Đang đọc file Word <strong>${escapeHtml(file.name)}</strong> và chuyển đổi công thức...`, 'info');
+          try {
+            const base64Data = await fileToBase64(file);
+            const res = await api.parseExam({ format: 'docx', base64Data, filename: file.name });
+            statusEl.classList.add('hidden');
+            showParsedPreview(res);
+          } catch (err) {
+            setStatus(escapeHtml(err.message), 'error');
+          }
+        }
+        docxDrop.addEventListener('click', () => docxInp.click());
+        docxDrop.addEventListener('dragover', (e) => { e.preventDefault(); docxDrop.classList.add('drag-over'); });
+        docxDrop.addEventListener('dragleave', () => docxDrop.classList.remove('drag-over'));
+        docxDrop.addEventListener('drop', (e) => {
+          e.preventDefault();
+          docxDrop.classList.remove('drag-over');
+          const f = e.dataTransfer?.files?.[0];
+          if (f) handleDocxFile(f);
+        });
+        docxInp.addEventListener('change', () => {
+          const f = docxInp.files?.[0];
+          if (f) handleDocxFile(f);
+          docxInp.value = '';
+        });
+
+        // === MODE 3: PDF (.pdf) ===
+        const pdfDrop = m.querySelector('#pdfDropzone');
+        const pdfInp = m.querySelector('#inpPdfFile');
+        async function handlePdfFile(file) {
+          if (!file.name.toLowerCase().endsWith('.pdf')) {
+            setStatus('Vui lòng chọn file định dạng <code>.pdf</code>.', 'error');
+            return;
+          }
+          setStatus(`Đang trích xuất nội dung từ PDF <strong>${escapeHtml(file.name)}</strong>...`, 'info');
+          try {
+            const extractedText = await extractTextFromPdfFile(file);
+            if (!extractedText.trim()) {
+              throw new Error('File PDF không có lớp văn bản (có thể là ảnh scan). Vui lòng dùng mã LaTeX ex_test hoặc file Word .docx.');
+            }
+            const res = await api.parseExam({ format: 'pdf_text', content: extractedText, filename: file.name });
+            statusEl.classList.add('hidden');
+            showParsedPreview(res);
+          } catch (err) {
+            setStatus(escapeHtml(err.message), 'error');
+          }
+        }
+        pdfDrop.addEventListener('click', () => pdfInp.click());
+        pdfDrop.addEventListener('dragover', (e) => { e.preventDefault(); pdfDrop.classList.add('drag-over'); });
+        pdfDrop.addEventListener('dragleave', () => pdfDrop.classList.remove('drag-over'));
+        pdfDrop.addEventListener('drop', (e) => {
+          e.preventDefault();
+          pdfDrop.classList.remove('drag-over');
+          const f = e.dataTransfer?.files?.[0];
+          if (f) handlePdfFile(f);
+        });
+        pdfInp.addEventListener('change', () => {
+          const f = pdfInp.files?.[0];
+          if (f) handlePdfFile(f);
+          pdfInp.value = '';
+        });
+
+        // === MODE 4: JSON ===
+        const jsonInp = m.querySelector('#inpJsonFileModal');
+        const jsonArea = m.querySelector('#jsonSourceArea');
+        m.querySelector('#btnPickJsonFile').addEventListener('click', () => jsonInp.click());
+        jsonInp.addEventListener('change', async () => {
+          const f = jsonInp.files?.[0];
+          if (!f) return;
+          jsonArea.value = await f.text();
+          jsonInp.value = '';
+        });
+        m.querySelector('#btnDlJsonTpl').addEventListener('click', () => {
+          const blob = new Blob([JSON.stringify(getSampleJsonTemplate(), null, 2)], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'mau-ngan-hang-de-bgd-2025.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+        m.querySelector('#btnImportJsonNow').addEventListener('click', async () => {
+          const raw = jsonArea.value;
+          closeModal();
+          await handleImportJsonText(raw);
+        });
+
+        // === FOOTER ACTIONS ===
+        m.querySelector('#mCloseImp').addEventListener('click', closeModal);
+
+        btnEditParsed.addEventListener('click', () => {
+          if (!parsedResult?.exam) return;
+          const titleEl = m.querySelector('#impExamTitleEdit');
+          if (titleEl && titleEl.value.trim()) parsedResult.exam.title = titleEl.value.trim();
+          state.editingExam = { ...parsedResult.exam, id: null };
+          state.editorPartTab =
+            state.editingExam.part1.length > 0 ? 'part1' : state.editingExam.part2.length > 0 ? 'part2' : 'part3';
+          closeModal();
+          render();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        btnSaveParsed.addEventListener('click', async () => {
+          if (!parsedResult?.exam) return;
+          const titleEl = m.querySelector('#impExamTitleEdit');
+          if (titleEl && titleEl.value.trim()) parsedResult.exam.title = titleEl.value.trim();
+          try {
+            await api.createExams(parsedResult.exam);
+            closeModal();
+            showToast(`Đã nạp thành công đề "${parsedResult.exam.title}" vào ngân hàng!`, 'success');
+            await refresh();
+          } catch (err) {
+            setStatus(escapeHtml(err.message), 'error');
+          }
+        });
+      },
+    });
+  }
+
+  return {
+    init: refresh,
+    goHome: () => {
+      examRunner.cleanup();
+      state.editingExam = null;
+      state.inRunner = false;
+      state.subTab = 'exams';
+      refresh();
+    },
+  };
+}

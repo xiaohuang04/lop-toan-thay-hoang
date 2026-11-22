@@ -1,0 +1,73 @@
+% Đề mẫu chuẩn cấu trúc Bộ GD&ĐT 2025 viết bằng gói ex_test (Lớp toán thầy Hoàng)
+\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\_test}
+
+% ===== PHẦN I: TRẮC NGHIỆM NHIỀU LỰA CHỌN (\choice) =====
+\begin{ex}%[2D4N1-1]
+Họ nguyên hàm của hàm số $f(x) = 4x^3 - 2x + 5$ là:
+\choice
+{\True $x^4 - x^2 + 5x + C$}
+{$12x^2 - 2 + C$}
+{$x^4 - 2x^2 + 5x + C$}
+{$4x^4 - x^2 + 5x + C$}
+\loigiai{
+Ta có $\displaystyle \int (4x^3 - 2x + 5)\,\mathrm{d}x = x^4 - x^2 + 5x + C$.
+}
+\end{ex}
+
+\begin{ex}%[2H2N1-2]
+Trong không gian $Oxyz$, phương trình đường thẳng đi qua $A(1; -2; 3)$ và có vectơ chỉ phương $\vec{u} = (2; 1; -1)$ là:
+\choice
+{$\dfrac{x+1}{2} = \dfrac{y-2}{1} = \dfrac{z+3}{-1}$}
+{\True $\dfrac{x-1}{2} = \dfrac{y+2}{1} = \dfrac{z-3}{-1}$}
+{$\dfrac{x-2}{1} = \dfrac{y-1}{-2} = \dfrac{z+1}{3}$}
+{$\dfrac{x-1}{2} = \dfrac{y+2}{-1} = \dfrac{z-3}{1}$}
+\loigiai{
+Đường thẳng đi qua $A(x_0; y_0; z_0)$ có VTCP $\vec{u}=(a;b;c)$ có phương trình chính tắc $\dfrac{x-1}{2} = \dfrac{y+2}{1} = \dfrac{z-3}{-1}$.
+}
+\end{ex}
+
+% ===== PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI (\choiceTF) =====
+\begin{ex}%[2D1H2-2]
+Cho hàm số $y = x^3 - 3x^2 + 2$. Xét tính đúng sai của các khẳng định sau:
+\choiceTF[t]
+{\True Đạo hàm của hàm số là $y' = 3x^2 - 6x$.}
+{Hàm số đạt cực đại tại $x = 2$.}
+{\True Giá trị cực tiểu của hàm số bằng $-2$.}
+{\True Phương trình $y = 0$ có đúng $3$ nghiệm thực phân biệt.}
+\loigiai{
+Ta giải phương trình $y' = 0 \Leftrightarrow \hoac{& x = 0 \\ & x = 2.}$
+\begin{itemchoice}
+\itemch Đúng vì $y' = 3x^2 - 6x$.
+\itemch Sai vì hàm số đạt cực đại tại $x = 0$ ($y_{\text{CĐ}} = 2$) và đạt cực tiểu tại $x = 2$ ($y_{\text{CT}} = -2$).
+\itemch Đúng vì $y(2) = 8 - 12 + 2 = -2$.
+\itemch Đúng vì $y_{\text{CT}} < 0 < y_{\text{CĐ}}$ nên đồ thị cắt trục hoành tại $3$ điểm phân biệt.
+\end{itemchoice}
+}
+\end{ex}
+
+% ===== PHẦN III: TRẮC NGHIỆM TRẢ LỜI NGẮN (\shortans) =====
+\begin{ex}%[2D4H3-1]
+Tính tích phân $I = \displaystyle \int_0^3 (2x - 1)\,\mathrm{d}x$.
+\shortans[oly]{6}
+\loigiai{
+Ta có $I = \big[x^2 - x\big]_0^3 = (9 - 3) - 0 = 6$.
+}
+\end{ex}
+
+\begin{ex}%[2D3H1-3]
+Điểm kiểm tra của một nhóm $10$ học sinh được cho trong bảng sau:
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+Nhóm điểm & $[4;6)$ & $[6;8)$ & $[8;10)$ \\
+\hline
+Số học sinh & $2$ & $5$ & $3$ \\
+\hline
+\end{tabular}
+\end{center}
+Tính trung vị $M_e$ của mẫu số liệu ghép nhóm trên (viết dưới dạng số thập phân).
+\shortans{7,2}
+\loigiai{
+Cỡ mẫu $n = 10 \Rightarrow \dfrac{n}{2} = 5$. Nhóm chứa trung vị là $[6; 8)$ nên $M_e = 6 + \dfrac{5 - 2}{5}\cdot 2 = 7{,}2$.
+}
+\end{ex}

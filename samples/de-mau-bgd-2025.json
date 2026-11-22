@@ -1,0 +1,64 @@
+{
+  "id": "de-mau-vat-li-2025",
+  "title": "Đề mẫu tự nạp — Vật lí THPT 2025 (Minh họa nạp JSON)",
+  "subject": "Vật lí 12",
+  "code": "VL-2025",
+  "durationMinutes": 50,
+  "description": "File JSON mẫu chuẩn cấu trúc 3 phần Bộ GD&ĐT 2025 để thầy/cô thử kéo thả nạp trực tiếp vào hệ thống.",
+  "scoring": {
+    "part1PerQuestion": 0.25,
+    "part2Progressive": [0, 0.1, 0.25, 0.5, 1.0],
+    "part3PerQuestion": 0.25
+  },
+  "part1": [
+    {
+      "id": "vl-p1-1",
+      "topic": "Vật lí nhiệt",
+      "stem": "Quá trình chuyển từ thể lỏng sang thể khí xảy ra ở bề mặt chất lỏng được gọi là:",
+      "options": [
+        { "key": "A", "text": "Sự bay hơi" },
+        { "key": "B", "text": "Sự ngưng tụ" },
+        { "key": "C", "text": "Sự nóng chảy" },
+        { "key": "D", "text": "Sự đông đặc" }
+      ],
+      "answer": "A",
+      "explanation": "Sự bay hơi là sự hóa hơi xảy ra trên bề mặt chất lỏng ở mọi nhiệt độ."
+    },
+    {
+      "id": "vl-p1-2",
+      "topic": "Khí lí tưởng",
+      "stem": "Hệ thức nào sau đây biểu diễn đúng phương trình trạng thái của $n$ mol khí lí tưởng?",
+      "options": [
+        { "key": "A", "text": "$pV = nRT$" },
+        { "key": "B", "text": "$pT = nRV$" },
+        { "key": "C", "text": "$\\dfrac{p}{V} = nRT$" },
+        { "key": "D", "text": "$VT = nRp$" }
+      ],
+      "answer": "A",
+      "explanation": "Phương trình Clapeyron cho $n$ mol khí lí tưởng là $pV = nRT$."
+    }
+  ],
+  "part2": [
+    {
+      "id": "vl-p2-1",
+      "topic": "Định luật I Nhiệt động lực học",
+      "stem": "Người ta truyền cho một khối khí trong xilanh nhiệt lượng $Q = 100\\text{ J}$. Chất khí nở ra thực hiện công $A' = 70\\text{ J}$ đẩy pít-tông lên.",
+      "statements": [
+        { "key": "a", "text": "Khối khí nhận nhiệt lượng nên $Q = +100\\text{ J}$.", "answer": true },
+        { "key": "b", "text": "Vì khí thực hiện công nên trong công thức $\\Delta U = A + Q$ ta có $A = +70\\text{ J}$.", "answer": false },
+        { "key": "c", "text": "Độ biến thiên nội năng của khối khí là $\\Delta U = 30\\text{ J}$.", "answer": true },
+        { "key": "d", "text": "Nội năng của khối khí đã tăng thêm $30\\text{ J}$.", "answer": true }
+      ],
+      "explanation": "Khí nhận nhiệt $Q = +100\\text{ J}$ và thực hiện công nên $A = -70\\text{ J}$. Suy ra $\\Delta U = Q + A = 100 - 70 = 30\\text{ J} > 0$ (nội năng tăng)."
+    }
+  ],
+  "part3": [
+    {
+      "id": "vl-p3-1",
+      "topic": "Nhiệt dung riêng",
+      "stem": "Tính nhiệt lượng (theo đơn vị $\\text{kJ}$) cần cung cấp để đun nóng $2\\text{ kg}$ nước từ $20^\\circ\\text{C}$ lên $30^\\circ\\text{C}$, biết nhiệt dung riêng của nước là $c = 4200\\text{ J/(kg}\\cdot\\text{K)}$.",
+      "answer": "84",
+      "explanation": "$Q = m c \\Delta t = 2 \\cdot 4200 \\cdot (30 - 20) = 84\\,000\\text{ J} = 84\\text{ kJ}$."
+    }
+  ]
+}
