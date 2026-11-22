@@ -1,5 +1,9 @@
 import { api } from './api.js';
-import { extractTextFromPdfFile, renderPdfBase64ToPngDataUrl } from './pdf-reader.js';
+import {
+  extractTextFromPdfFile,
+  renderPdfBase64ToPngDataUrl,
+  renderPdfBase64AllPagesToPngs,
+} from './pdf-reader.js';
 import {
   escapeHtml,
   escapeAttr,
@@ -1571,13 +1575,33 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         let lastTexFilename = '';
 
         async function resolvePendingTikzPdfs(res) {
+          const batch = res?.pendingTikzBatchPdf;
           const pending = res?.pendingTikzPdfs;
-          if (!pending || typeof pending !== 'object') return res;
-          const entries = Object.entries(pending);
-          if (entries.length === 0) return res;
+          const hasBatch = Boolean(batch && batch.pdfBase64 && Array.isArray(batch.tokens) && batch.tokens.length > 0);
+          const entries = pending && typeof pending === 'object' ? Object.entries(pending) : [];
+          if (!hasBatch && entries.length === 0) return res;
 
-          setStatus(`Đang dựng ảnh cho ${entries.length} hình vẽ TikZ...`, 'info');
+          const totalCount = (hasBatch ? batch.tokens.length : 0) + entries.length;
+          setStatus(`Đang dựng ảnh độ nét cao cho ${totalCount} hình vẽ TikZ...`, 'info');
           const imgHtmlByToken = {};
+
+          if (hasBatch) {
+            try {
+              const pngs = await renderPdfBase64AllPagesToPngs(batch.pdfBase64, 2.5);
+              batch.tokens.forEach((tok, idx) => {
+                if (pngs[idx]) {
+                  imgHtmlByToken[tok] = `<div class="q-figure"><img src="${pngs[idx]}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>`;
+                } else {
+                  imgHtmlByToken[tok] = '<div class="tikz-placeholder">[Không thể dựng trang ảnh hình TikZ]</div>';
+                }
+              });
+            } catch {
+              batch.tokens.forEach((tok) => {
+                imgHtmlByToken[tok] = '<div class="tikz-placeholder">[Không thể dựng ảnh hình TikZ]</div>';
+              });
+            }
+          }
+
           for (const [tok, b64Pdf] of entries) {
             try {
               const pngUrl = await renderPdfBase64ToPngDataUrl(b64Pdf, 2.5);
@@ -1612,6 +1636,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             q.explanation = replaceTokens(q.explanation);
           });
           delete res.pendingTikzPdfs;
+          delete res.pendingTikzBatchPdf;
           return res;
         }
 
