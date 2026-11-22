@@ -89,13 +89,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       return;
     }
 
-    const { exams, students, assignments, submissions } = state.data;
+    const { exams, students, assignments, submissions, storageMode } = state.data;
     const openAssignments = assignments.filter((a) => !getDeadlineStatus(a.dueAt).expired).length;
+    const isCloud = storageMode === 'supabase';
 
     rootEl.innerHTML = `
       <div class="role-hero teacher-hero">
         <div>
-          <div class="hero-eyebrow">Bảng điều khiển Giáo viên (Admin)</div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
+            <div class="hero-eyebrow" style="margin-bottom:0;">Bảng điều khiển Giáo viên (Admin)</div>
+            <div class="hero-eyebrow" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : 'rgba(255,255,255,0.2)'};">
+              ${isCloud ? '● Supabase Cloud (Lưu vĩnh viễn)' : '○ Lưu trữ cục bộ'}
+            </div>
+          </div>
           <h1>Quản lý đề thi, giao bài tập &amp; tài khoản học sinh</h1>
           <p>
             Tạo hoặc tinh chỉnh đề thi 3 dạng câu hỏi chuẩn Bộ GD&amp;ĐT 2025, chọn học sinh giao bài kèm hạn nộp

@@ -23,12 +23,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from parsers import parse_docx_bytes, parse_extest_latex, parse_structured_exam_text
+from storage import StorageBackend
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-MODELS_DIR = DATA_DIR / "models"
-DB_FILE = DATA_DIR / "db.json"
-SESSIONS_FILE = DATA_DIR / "sessions.json"
 SEED_EXAMS_FILE = DATA_DIR / "seed_exams.json"
 
 LOCK = threading.Lock()
@@ -71,18 +69,7 @@ def read_json(path: Path, default):
         return default
 
 
-def init_db() -> dict:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if DB_FILE.exists():
-        db = read_json(DB_FILE, {})
-        if db and "users" in db and "exams" in db:
-            db.setdefault("assignments", [])
-            db.setdefault("submissions", [])
-            db.setdefault("models", [])
-            return db
-
+def build_seed_db() -> dict:
     seed_exams = read_json(SEED_EXAMS_FILE, [])
     due_7d = (datetime.now() + timedelta(days=7)).replace(hour=23, minute=59, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
     due_2d = (datetime.now() + timedelta(days=2)).replace(hour=22, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
@@ -172,31 +159,36 @@ def init_db() -> dict:
             "createdAt": now_iso(),
         })
 
-    db = {
+    return {
         "users": users,
         "exams": seed_exams,
         "assignments": assignments,
         "submissions": [],
         "models": [],
     }
-    atomic_write_json(DB_FILE, db)
-    return db
+
+
+STORE = StorageBackend(BASE_DIR, build_seed_db)
+
+
+def init_db() -> dict:
+    return STORE.init()
 
 
 def load_db() -> dict:
-    return init_db()
+    return STORE.load_db()
 
 
-def save_db(db: dict) -> None:
-    atomic_write_json(DB_FILE, db)
+def save_db(db: dict, keys: list[str] | None = None) -> None:
+    STORE.save_db(db, keys=keys)
 
 
 def load_sessions() -> dict:
-    return read_json(SESSIONS_FILE, {})
+    return STORE.load_sessions()
 
 
 def save_sessions(sessions: dict) -> None:
-    atomic_write_json(SESSIONS_FILE, sessions)
+    STORE.save_sessions(sessions)
 
 
 def public_user(u: dict) -> dict:
@@ -284,18 +276,20 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             db = load_db()
             user, _ = self.get_auth_user(db)
 
+            if path == "/api/health":
+                return self.send_json(200, {
+                    "ok": True,
+                    "storage": STORE.mode,
+                    "supabaseError": STORE.supabase_error,
+                })
+
             if path == "/api/me":
                 if not user:
                     return self.send_json(200, {"user": None})
                 return self.send_json(200, {"user": public_user(user)})
 
             if path == "/api/models":
-                models_out = []
-                for m in db.get("models", []):
-                    html_file = MODELS_DIR / f"{m['id']}.html"
-                    html_content = html_file.read_text(encoding="utf-8") if html_file.exists() else ""
-                    models_out.append({**m, "html": html_content})
-                return self.send_json(200, {"models": models_out})
+                return self.send_json(200, {"models": STORE.list_models()})
 
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
@@ -306,6 +300,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 students = [public_user(u) for u in db["users"] if u["role"] == "student"]
                 return self.send_json(200, {
                     "user": public_user(user),
+                    "storageMode": STORE.mode,
+                    "storageError": STORE.supabase_error,
                     "exams": db["exams"],
                     "students": students,
                     "assignments": db["assignments"],
@@ -559,7 +555,6 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 if not html_content.strip():
                     return self.send_json(400, {"error": "Nội dung file HTML rỗng."})
                 model_id = gen_id("html")
-                (MODELS_DIR / f"{model_id}.html").write_text(html_content, encoding="utf-8")
                 meta = {
                     "id": model_id,
                     "name": name,
@@ -567,9 +562,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "addedAt": datetime.now().strftime("%d/%m/%Y"),
                     "isBuiltin": False,
                 }
-                db.setdefault("models", []).insert(0, meta)
-                save_db(db)
-                return self.send_json(201, {"model": {**meta, "html": html_content}})
+                saved_model = STORE.add_model(meta, html_content)
+                return self.send_json(201, {"model": saved_model})
 
             return self.send_json(404, {"error": "API không tồn tại."})
 
@@ -716,11 +710,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
             if path.startswith("/api/models/"):
                 model_id = path.split("/api/models/", 1)[1]
-                db["models"] = [m for m in db.get("models", []) if m["id"] != model_id]
-                html_file = MODELS_DIR / f"{model_id}.html"
-                if html_file.exists():
-                    html_file.unlink()
-                save_db(db)
+                STORE.delete_model(model_id)
                 return self.send_json(200, {"ok": True})
 
             return self.send_json(404, {"error": "API không tồn tại."})
@@ -731,7 +721,7 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else default_port
     init_db()
     server = ThreadingHTTPServer(("0.0.0.0", port), EduLabHandler)
-    print(f"Lớp toán thầy Hoàng Server running at http://localhost:{port}")
+    print(f"Lớp toán thầy Hoàng Server running at http://localhost:{port} (storage: {STORE.mode})")
     sys.stdout.flush()
     try:
         server.serve_forever()
