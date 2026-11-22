@@ -103,16 +103,12 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       <div class="role-hero teacher-hero">
         <div>
           <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
-            <div class="hero-eyebrow" style="margin-bottom:0;">Bảng điều khiển Giáo viên (Admin)</div>
+            <div class="hero-eyebrow" style="margin-bottom:0;">Bảng điều khiển Giáo viên</div>
             <div class="hero-eyebrow" title="${escapeAttr(storageError || '')}" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : storageError ? 'rgba(225, 29, 72, 0.28)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : storageError ? 'rgba(254, 205, 211, 0.6)' : 'rgba(255,255,255,0.2)'};">
               ${isCloud ? '● Supabase Cloud (Lưu vĩnh viễn)' : storageError ? '⚠ Lỗi kết nối Supabase (đang dùng tạm cục bộ)' : '○ Lưu trữ cục bộ'}
             </div>
           </div>
-          <h1>Quản lý đề thi, giao bài tập &amp; tài khoản học sinh</h1>
-          <p>
-            Tạo hoặc tinh chỉnh đề thi 3 dạng câu hỏi chuẩn Bộ GD&amp;ĐT 2025, chọn học sinh giao bài kèm hạn nộp
-            và theo dõi điểm số chi tiết ngay sau khi học sinh nộp bài.
-          </p>
+          <h1 style="margin-bottom:0;">Xin chào thầy Hoàng!</h1>
         </div>
         <div class="kpi-strip">
           <div class="kpi-box"><div class="kpi-num">${exams.length}</div><div class="kpi-lbl">Đề thi</div></div>
