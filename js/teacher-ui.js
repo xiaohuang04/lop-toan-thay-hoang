@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { extractTextFromPdfFile } from './pdf-reader.js';
+import { extractTextFromPdfFile, renderPdfBase64ToPngDataUrl } from './pdf-reader.js';
 import {
   escapeHtml,
   escapeAttr,
@@ -1570,15 +1570,61 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         const texFileInp = m.querySelector('#inpTexFile');
         let lastTexFilename = '';
 
+        async function resolvePendingTikzPdfs(res) {
+          const pending = res?.pendingTikzPdfs;
+          if (!pending || typeof pending !== 'object') return res;
+          const entries = Object.entries(pending);
+          if (entries.length === 0) return res;
+
+          setStatus(`Đang dựng ảnh cho ${entries.length} hình vẽ TikZ...`, 'info');
+          const imgHtmlByToken = {};
+          for (const [tok, b64Pdf] of entries) {
+            try {
+              const pngUrl = await renderPdfBase64ToPngDataUrl(b64Pdf, 2.5);
+              imgHtmlByToken[tok] = `<div class="q-figure"><img src="${pngUrl}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>`;
+            } catch {
+              imgHtmlByToken[tok] = '<div class="tikz-placeholder">[Không thể dựng ảnh hình TikZ]</div>';
+            }
+          }
+
+          const replaceTokens = (str) => {
+            if (typeof str !== 'string') return str;
+            let out = str;
+            for (const [tok, html] of Object.entries(imgHtmlByToken)) {
+              if (out.includes(tok)) out = out.split(tok).join(html);
+            }
+            return out;
+          };
+
+          const ex = res.exam;
+          (ex.part1 || []).forEach((q) => {
+            q.stem = replaceTokens(q.stem);
+            q.explanation = replaceTokens(q.explanation);
+            (q.options || []).forEach((o) => (o.text = replaceTokens(o.text)));
+          });
+          (ex.part2 || []).forEach((q) => {
+            q.stem = replaceTokens(q.stem);
+            q.explanation = replaceTokens(q.explanation);
+            (q.statements || []).forEach((st) => (st.text = replaceTokens(st.text)));
+          });
+          (ex.part3 || []).forEach((q) => {
+            q.stem = replaceTokens(q.stem);
+            q.explanation = replaceTokens(q.explanation);
+          });
+          delete res.pendingTikzPdfs;
+          return res;
+        }
+
         async function parseTexNow() {
           const content = texArea.value.trim();
           if (!content) {
             setStatus('Vui lòng dán mã LaTeX (chứa môi trường <code>\\begin{ex}...\\end{ex}</code>) hoặc chọn file <code>.tex</code>.', 'error');
             return;
           }
-          setStatus('Đang phân tích mã LaTeX ex_test...', 'info');
+          setStatus('Đang phân tích mã LaTeX ex_test & biên dịch hình vẽ TikZ...', 'info');
           try {
             const res = await api.parseExam({ format: 'latex', content, filename: lastTexFilename });
+            await resolvePendingTikzPdfs(res);
             statusEl.classList.add('hidden');
             showParsedPreview(res);
           } catch (err) {
@@ -1626,6 +1672,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           try {
             const base64Data = await fileToBase64(file);
             const res = await api.parseExam({ format: 'docx', base64Data, filename: file.name });
+            await resolvePendingTikzPdfs(res);
             statusEl.classList.add('hidden');
             showParsedPreview(res);
           } catch (err) {
@@ -1662,6 +1709,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
               throw new Error('File PDF không có lớp văn bản (có thể là ảnh scan). Vui lòng dùng mã LaTeX ex_test hoặc file Word .docx.');
             }
             const res = await api.parseExam({ format: 'pdf_text', content: extractedText, filename: file.name });
+            await resolvePendingTikzPdfs(res);
             statusEl.classList.add('hidden');
             showParsedPreview(res);
           } catch (err) {

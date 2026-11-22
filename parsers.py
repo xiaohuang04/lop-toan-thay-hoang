@@ -18,6 +18,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
@@ -167,15 +168,16 @@ def convert_tabular_to_html(body: str) -> str:
 
 
 def _build_tikz_standalone_doc(tikz_code: str) -> str:
+    cleaned_tikz = re.sub(r"\\usetkzobj\{[^}]*\}", "", tikz_code)
     extra_pkgs = []
-    if "\\tkzTab" in tikz_code or "tkz-tab" in tikz_code:
+    if "\\tkzTab" in cleaned_tikz or "tkz-tab" in cleaned_tikz:
         extra_pkgs.append(r"\usepackage{tkz-tab}")
-    if re.search(r"\\tkz(?!Tab)[A-Za-z]+", tikz_code):
+    if re.search(r"\\tkz(?!Tab)[A-Za-z]+", cleaned_tikz):
         extra_pkgs.append(r"\usepackage{tkz-euclide}")
-    if "\\begin{axis}" in tikz_code or "\\addplot" in tikz_code:
+    if "\\begin{axis}" in cleaned_tikz or "\\addplot" in cleaned_tikz:
         extra_pkgs.append(r"\usepackage{pgfplots}")
         extra_pkgs.append(r"\pgfplotsset{compat=1.18}")
-    if "\\tdplot" in tikz_code:
+    if "\\tdplot" in cleaned_tikz:
         extra_pkgs.append(r"\usepackage{tikz-3dplot}")
 
     extra_block = "\n".join(extra_pkgs)
@@ -183,12 +185,15 @@ def _build_tikz_standalone_doc(tikz_code: str) -> str:
         r"\documentclass[tikz,border=4pt]{standalone}" "\n"
         r"\usepackage[utf8]{inputenc}" "\n"
         r"\usepackage[T5]{fontenc}" "\n"
+        r"\usepackage[dvipsnames,svgnames]{xcolor}" "\n"
         r"\usepackage{amsmath,amssymb,mathrsfs}" "\n"
         r"\usepackage{tikz}" "\n"
-        r"\usetikzlibrary{calc,angles,quotes,intersections,patterns,arrows,arrows.meta,shapes.geometric,decorations.markings,decorations.pathreplacing,positioning,3d}" "\n"
+        r"\usetikzlibrary{calc,angles,quotes,intersections,patterns,arrows,arrows.meta,shapes.geometric,decorations.markings,decorations.pathreplacing,positioning,3d,backgrounds,fit}" "\n"
+        r"\providecommand{\heva}[1]{\left\{\begin{aligned}#1\end{aligned}\right.}" "\n"
+        r"\providecommand{\hoac}[1]{\left[\begin{aligned}#1\end{aligned}\right.}" "\n"
         f"{extra_block}\n"
         r"\begin{document}" "\n"
-        f"{tikz_code}\n"
+        f"{cleaned_tikz}\n"
         r"\end{document}" "\n"
     )
 
@@ -255,41 +260,69 @@ def _compile_single_tikz_local(tikz_code: str) -> tuple[str | None, str | None]:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _compile_single_tikz_cloud(tikz_code: str) -> tuple[str | None, str | None]:
-    """Cloud fallback (for Render.com where pdflatex is not installed) via latex.ytotech.com."""
+def _compile_single_tikz_cloud(tikz_code: str) -> tuple[str | None, str | None, str | None]:
+    """
+    Cloud compiler (for Render.com where pdflatex is not installed) via latex.ytotech.com.
+    Returns (html_or_none, pdf_b64_or_none, err_or_none).
+    - If local pdftocairo exists, converts PDF -> SVG immediately.
+    - Otherwise returns pdf_b64 so the browser renders crisp 2.5x PNG via PDF.js!
+    """
     doc = _build_tikz_standalone_doc(tikz_code)
     payload = json.dumps({
         "compiler": "pdflatex",
         "resources": [{"main": True, "content": doc}],
-        "options": {"outputFormat": "png"},
     }).encode("utf-8")
     req = urllib.request.Request(
         "https://latex.ytotech.com/builds/sync",
         data=payload,
-        headers={"Content-Type": "application/json", "Accept": "image/png, application/pdf"},
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             ctype = resp.headers.get("Content-Type", "")
             raw = resp.read()
-            if "image/png" in ctype and raw:
-                b64 = base64.b64encode(raw).decode("ascii")
-                return f'<div class="q-figure"><img src="data:image/png;base64,{b64}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>', None
+            if ("application/pdf" in ctype or raw.startswith(b"%PDF")) and raw:
+                # If pdftocairo exists locally, convert directly to SVG
+                pdftocairo = shutil.which("pdftocairo")
+                if pdftocairo:
+                    tmp_dir = Path(tempfile.mkdtemp(prefix="edulab_cpdf_"))
+                    try:
+                        (tmp_dir / "fig.pdf").write_bytes(raw)
+                        p2 = subprocess.run([pdftocairo, "-svg", "fig.pdf", "fig.svg"], cwd=str(tmp_dir), capture_output=True, timeout=15)
+                        if p2.returncode == 0 and (tmp_dir / "fig.svg").exists():
+                            b64 = base64.b64encode((tmp_dir / "fig.svg").read_bytes()).decode("ascii")
+                            return f'<div class="q-figure"><img src="data:image/svg+xml;base64,{b64}" class="tikz-figure" alt="Hình vẽ TikZ" /></div>', None, None
+                    finally:
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                # Otherwise hand base64 PDF to browser PDF.js -> crisp PNG
+                return None, base64.b64encode(raw).decode("ascii"), None
+            return None, None, "Phản hồi biên dịch không phải PDF"
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        try:
+            j = json.loads(body)
+            logs = str(j.get("logs", ""))
+            err_lines = [ln.strip() for ln in logs.splitlines() if ln.strip().startswith("!")]
+            if err_lines:
+                return None, None, err_lines[0][:120]
+        except Exception:
+            pass
+        return None, None, f"HTTP {e.code}"
     except Exception as exc:
-        return None, str(exc)
-    return None, "Cloud TikZ service unavailable"
+        return None, None, str(exc)
 
 
-def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, dict[str, str]]:
+def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, dict[str, str], dict[str, str]]:
     """
     Find all \\begin{tikzpicture}...\\end{tikzpicture} blocks in raw_tex,
-    compile them in parallel to embedded SVG/PNG images, and replace with safe tokens.
+    compile them in parallel (local MiKTeX -> SVG, or cloud TeX Live -> PDF for browser PNG render),
+    and replace with safe tokens.
     """
     pattern = re.compile(r"\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}")
     matches = list(pattern.finditer(raw_tex))
     if not matches:
-        return raw_tex, {}
+        return raw_tex, {}, {}
 
     has_local = bool(shutil.which("pdflatex") and (shutil.which("pdftocairo") or shutil.which("dvisvgm")))
     unique_codes: list[str] = []
@@ -300,17 +333,19 @@ def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, 
             code_to_idx[code] = len(unique_codes)
             unique_codes.append(code)
 
-    def _compile_one(code: str) -> tuple[str | None, str | None]:
+    def _compile_one(code: str) -> tuple[str | None, str | None, str | None]:
         if has_local:
             html, err = _compile_single_tikz_local(code)
             if html:
-                return html, None
-            # Try cloud fallback if local failed (e.g. missing package)
-            html2, _ = _compile_single_tikz_cloud(code)
-            return (html2, None) if html2 else (None, err)
+                return html, None, None
+            # Try cloud fallback if local failed (e.g., missing package)
+            html2, pdf_b64, err2 = _compile_single_tikz_cloud(code)
+            if html2 or pdf_b64:
+                return html2, pdf_b64, None
+            return None, None, err or err2
         return _compile_single_tikz_cloud(code)
 
-    results: list[tuple[str | None, str | None]] = [None] * len(unique_codes)  # type: ignore
+    results: list[tuple[str | None, str | None, str | None]] = [None] * len(unique_codes)  # type: ignore
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(unique_codes))) as pool:
         futs = {pool.submit(_compile_one, code): idx for idx, code in enumerate(unique_codes)}
         for fut in concurrent.futures.as_completed(futs):
@@ -318,23 +353,27 @@ def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, 
             try:
                 results[idx] = fut.result()
             except Exception as exc:
-                results[idx] = (None, str(exc))
+                results[idx] = (None, None, str(exc))
 
     tokens: dict[str, str] = {}
-    for idx, (html, err) in enumerate(results):
+    pending_pdfs: dict[str, str] = {}
+    for idx, (html, pdf_b64, err) in enumerate(results):
         tok = f"EDULABTIKZTOKEN{idx}END"
         if html:
             tokens[tok] = html
+        elif pdf_b64:
+            pdf_tok = f"EDULABTIKZPDF{idx}END"
+            tokens[tok] = pdf_tok
+            pending_pdfs[pdf_tok] = pdf_b64
         else:
             warnings.append(f"Hình TikZ #{idx + 1} chưa biên dịch được ({err or 'lỗi cú pháp'}).")
             tokens[tok] = '<div class="tikz-placeholder">[Hình vẽ TikZ chưa biên dịch được — kiểm tra mã nguồn]</div>'
 
-    # Replace matches in reverse order so indices stay valid
     out = raw_tex
     for m in reversed(matches):
         idx = code_to_idx[m.group(0)]
         out = out[:m.start()] + f" EDULABTIKZTOKEN{idx}END " + out[m.end():]
-    return out, tokens
+    return out, tokens, pending_pdfs
 
 
 def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) -> str:
@@ -563,7 +602,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         title_hint = re.sub(r"\.tex$", "", filename, flags=re.IGNORECASE).strip()
 
     # Compile all TikZ diagrams in parallel before stripping LaTeX comments/commands
-    processed_tex, tikz_tokens = compile_tikz_blocks_in_tex(raw_tex, warnings)
+    processed_tex, tikz_tokens, pending_tikz_pdfs = compile_tikz_blocks_in_tex(raw_tex, warnings)
 
     # Find all \begin{ex}...\end{ex} blocks (also accept \begin{bt}...\end{bt})
     ex_blocks = re.findall(r"\\begin\{(ex|bt)\}([\s\S]*?)\\end\{\1\}", processed_tex)
@@ -738,6 +777,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         },
         "warnings": warnings,
         "sourceFormat": "latex_extest",
+        "pendingTikzPdfs": pending_tikz_pdfs,
     }
 
 
