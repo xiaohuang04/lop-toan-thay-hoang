@@ -546,7 +546,6 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           <div class="q-head-left">
             <span class="q-number">Câu ${index + 1}</span>
             <span class="badge badge-p1">Phần I</span>
-            ${q.topic ? `<span class="q-topic">• ${escapeHtml(q.topic)}</span>` : ''}
           </div>
           ${
             isReview && detail
@@ -597,7 +596,6 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           <div class="q-head-left">
             <span class="q-number" style="background:var(--p2-bg);color:var(--p2-text);border-color:var(--p2-border);">Câu ${index + 1}</span>
             <span class="badge badge-p2">Phần II • Đúng/Sai</span>
-            ${q.topic ? `<span class="q-topic">• ${escapeHtml(q.topic)}</span>` : ''}
           </div>
           ${
             isReview && detail
@@ -653,7 +651,6 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           <div class="q-head-left">
             <span class="q-number" style="background:var(--p3-bg);color:var(--p3-text);border-color:var(--p3-border);">Câu ${index + 1}</span>
             <span class="badge badge-p3">Phần III • Trả lời ngắn</span>
-            ${q.topic ? `<span class="q-topic">• ${escapeHtml(q.topic)}</span>` : ''}
           </div>
           ${
             isReview && detail

@@ -128,9 +128,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                       </span>
                       <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
                     </div>
-                    <p class="exam-card-desc">
-                      ${escapeHtml(asg.note || ex.description || 'Đề thi trực tuyến chuẩn cấu trúc Bộ GD&ĐT 2025.')}
-                    </p>
+                    ${asg.note ? `<p class="exam-card-desc">${escapeHtml(asg.note)}</p>` : ''}
                   </div>
                   <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
                     ${

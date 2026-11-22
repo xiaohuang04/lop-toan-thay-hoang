@@ -182,7 +182,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                       <div class="exam-card-top">
                         <div>
                           <h3 class="exam-card-title">${escapeHtml(ex.title)}</h3>
-                          <p class="exam-card-desc">${escapeHtml(ex.description || 'Đề thi chuẩn cấu trúc 3 dạng câu hỏi Bộ GD&ĐT 2025.')}</p>
+                          ${ex.description ? `<p class="exam-card-desc">${escapeHtml(ex.description)}</p>` : ''}
                         </div>
                         <span class="badge badge-p1">${escapeHtml(ex.code || 'MĐ')}</span>
                       </div>
@@ -220,11 +220,11 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   function openNewExamEditor() {
     state.editingExam = {
       id: null, // null means create new
-      title: 'Đề kiểm tra mới — Chuẩn BGD 2025',
+      title: 'Đề kiểm tra mới',
       subject: 'Toán học 12',
       code: 'MĐ ' + String(Math.floor(100 + Math.random() * 899)),
       durationMinutes: 45,
-      description: 'Đề thi gồm 3 phần theo form trắc nghiệm Bộ GD&ĐT 2025.',
+      description: '',
       scoring: {
         part1PerQuestion: 0.25,
         part2Progressive: [0, 0.1, 0.25, 0.5, 1.0],
@@ -233,13 +233,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       part1: [
         {
           id: 'p1-' + Date.now().toString(36),
-          topic: 'Chủ đề 1',
-          stem: 'Nhập nội dung câu hỏi Phần I (hỗ trợ LaTeX như $x^2 + 1 = 0$):',
+          topic: '',
+          stem: '',
           options: [
-            { key: 'A', text: 'Phương án A' },
-            { key: 'B', text: 'Phương án B' },
-            { key: 'C', text: 'Phương án C' },
-            { key: 'D', text: 'Phương án D' },
+            { key: 'A', text: '' },
+            { key: 'B', text: '' },
+            { key: 'C', text: '' },
+            { key: 'D', text: '' },
           ],
           answer: 'A',
           explanation: '',
@@ -358,10 +358,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <div style="display:flex; gap:8px; align-items:center;">
-            <span class="badge badge-p1">Phần I • Câu ${idx + 1}</span>
-            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
-          </div>
+          <span class="badge badge-p1">Phần I • Câu ${idx + 1}</span>
           <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
         </div>
         <div class="form-group">
@@ -405,10 +402,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <div style="display:flex; gap:8px; align-items:center;">
-            <span class="badge badge-p2">Phần II • Câu ${idx + 1}</span>
-            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
-          </div>
+          <span class="badge badge-p2">Phần II • Câu ${idx + 1}</span>
           <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
         </div>
         <div class="form-group">
@@ -450,10 +444,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <div style="display:flex; gap:8px; align-items:center;">
-            <span class="badge badge-p3">Phần III • Câu ${idx + 1}</span>
-            <input class="input-control input-compact" data-field="topic" placeholder="Chủ đề" value="${escapeAttr(q.topic || '')}" style="width:180px;" />
-          </div>
+          <span class="badge badge-p3">Phần III • Câu ${idx + 1}</span>
           <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
         </div>
         <div class="form-group">
@@ -554,7 +545,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       if (p === 'part1') {
         state.editingExam.part1.push({
           id: uid,
-          topic: 'Chủ đề mới',
+          topic: '',
           stem: '',
           options: [
             { key: 'A', text: '' },
@@ -568,7 +559,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       } else if (p === 'part2') {
         state.editingExam.part2.push({
           id: uid,
-          topic: 'Chủ đề mới',
+          topic: '',
           stem: '',
           statements: [
             { key: 'a', text: '', answer: true },
@@ -581,7 +572,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       } else {
         state.editingExam.part3.push({
           id: uid,
-          topic: 'Chủ đề mới',
+          topic: '',
           stem: '',
           answer: '0',
           explanation: '',
@@ -822,14 +813,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           <div class="asg-opt-row" style="margin-top:10px;">
             <label class="checkbox-pill" style="margin:0;">
               <input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} />
-              <span>Trộn câu hỏi (nội bộ từng dạng thức; Phần II chỉ trộn câu, không trộn ý a, b, c, d)</span>
+              <span>Trộn câu hỏi</span>
             </label>
           </div>
         </div>
 
         <div class="form-group" style="margin-top:12px;">
           <label>Ghi chú / Dặn dò cho học sinh</label>
-          <input id="asgNote" class="input-control" placeholder="VD: Làm nghiêm túc, nộp đúng giờ..." value="${escapeAttr(existing?.note || '')}" />
+          <input id="asgNote" class="input-control" placeholder="" value="${escapeAttr(existing?.note || '')}" />
         </div>
 
         <div style="border-top:1px solid var(--border); padding-top:12px;">

@@ -737,7 +737,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 })
             part2.append({
                 "id": f"tex-p2-{len(part2)+1}-{stamp}",
-                "topic": topic or "Phần II",
+                "topic": "",
                 "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "statements": statements,
                 "explanation": explanation,
@@ -761,7 +761,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 warnings.append(f"Câu ex #{idx} (\\shortans) chưa có đáp án số.")
             part3.append({
                 "id": f"tex-p3-{len(part3)+1}-{stamp}",
-                "topic": topic or "Phần III",
+                "topic": "",
                 "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "answer": ans_clean or "0",
                 "explanation": explanation,
@@ -798,7 +798,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 warnings.append(f"Câu Phần I #{len(part1)+1} (ex #{idx}) không thấy \\True, tạm đặt đáp án A.")
             part1.append({
                 "id": f"tex-p1-{len(part1)+1}-{stamp}",
-                "topic": topic or "Phần I",
+                "topic": "",
                 "stem": clean_latex_fragment(stem_raw, tikz_tokens),
                 "options": options,
                 "answer": correct_key,
@@ -816,7 +816,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             "subject": "Toán học 12",
             "code": f"TEX-{stamp[-3:].upper()}",
             "durationMinutes": 90 if len(part1) >= 10 else 45,
-            "description": f"Nạp tự động từ LaTeX ex_test: {len(part1)} câu Phần I, {len(part2)} câu Phần II, {len(part3)} câu Phần III.",
+            "description": "",
             "scoring": {
                 "part1PerQuestion": 0.25,
                 "part2Progressive": [0, 0.1, 0.25, 0.5, 1.0],
@@ -1334,7 +1334,7 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
             options = [{"key": k, "text": opt_map.get(k, "")} for k in ("A", "B", "C", "D")]
             part1.append({
                 "id": f"{source_format}-p1-{len(part1)+1}-{stamp}",
-                "topic": "Phần I",
+                "topic": "",
                 "stem": stem.replace("\n", "<br/>"),
                 "options": options,
                 "answer": detected_ans,
@@ -1367,7 +1367,7 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
             ]
             part2.append({
                 "id": f"{source_format}-p2-{len(part2)+1}-{stamp}",
-                "topic": "Phần II",
+                "topic": "",
                 "stem": stem.replace("\n", "<br/>"),
                 "statements": statements,
                 "explanation": explanation,
@@ -1389,7 +1389,7 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
                 warnings.append(f"Phần III - Câu {qnum}: Chưa thấy đáp số ngắn, tạm đặt 0 (hãy nhập đáp số trong Trình tinh chỉnh).")
             part3.append({
                 "id": f"{source_format}-p3-{len(part3)+1}-{stamp}",
-                "topic": "Phần III",
+                "topic": "",
                 "stem": clean_body.replace("\n", "<br/>"),
                 "answer": ans_val.replace(".", ",")[:4],
                 "explanation": explanation,
@@ -1410,7 +1410,7 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
             "subject": "Toán học 12",
             "code": f"{source_format.upper()[:3]}-{stamp[-3:].upper()}",
             "durationMinutes": 90 if len(part1) >= 10 else 45,
-            "description": f"Nạp tự động từ {src_label}: {len(part1)} câu Phần I, {len(part2)} câu Phần II, {len(part3)} câu Phần III.",
+            "description": "",
             "scoring": {
                 "part1PerQuestion": 0.25,
                 "part2Progressive": [0, 0.1, 0.25, 0.5, 1.0],

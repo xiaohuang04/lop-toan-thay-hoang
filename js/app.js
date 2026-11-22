@@ -13,6 +13,7 @@ const loginError = document.getElementById('loginError');
 
 const userRoleBadge = document.getElementById('userRoleBadge');
 const userNameText = document.getElementById('userNameText');
+const btnAdminChangePw = document.getElementById('btnAdminChangePw');
 const btnLogout = document.getElementById('btnLogout');
 
 const modalBackdrop = document.getElementById('modalBackdrop');
@@ -193,7 +194,62 @@ function updateUserHeader() {
   userRoleBadge.textContent = isAdmin ? 'Giáo viên' : 'Học sinh';
   userRoleBadge.className = `badge ${isAdmin ? 'badge-p2' : 'badge-p1'}`;
   userNameText.textContent = currentUser.fullName || currentUser.username;
+  if (btnAdminChangePw) btnAdminChangePw.classList.toggle('hidden', !isAdmin);
 }
+
+btnAdminChangePw?.addEventListener('click', () => {
+  openModal({
+    title: 'Đổi mật khẩu tài khoản Giáo viên (Admin)',
+    bodyHtml: `
+      <form id="formAdminChangePw">
+        <div class="form-group">
+          <label for="adminPwCurrent">Mật khẩu hiện tại *</label>
+          <input id="adminPwCurrent" type="password" class="input-control" placeholder="Nhập mật khẩu đang dùng" required />
+        </div>
+        <div class="form-group">
+          <label for="adminPwNew">Mật khẩu mới *</label>
+          <input id="adminPwNew" type="password" class="input-control" placeholder="Tối thiểu 4 ký tự" required />
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="adminPwConfirm">Nhập lại mật khẩu mới *</label>
+          <input id="adminPwConfirm" type="password" class="input-control" placeholder="Nhập khớp mật khẩu mới" required />
+        </div>
+      </form>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" id="mCancelAdminPw">Hủy</button>
+      <button class="btn btn-primary" id="mSaveAdminPw">Cập nhật mật khẩu</button>
+    `,
+    onMount: (m) => {
+      m.querySelector('#mCancelAdminPw').addEventListener('click', closeModal);
+      const submitPw = async () => {
+        const cur = m.querySelector('#adminPwCurrent').value;
+        const nw = m.querySelector('#adminPwNew').value;
+        const cf = m.querySelector('#adminPwConfirm').value;
+        if (!cur || !nw) {
+          showToast('Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.', 'error');
+          return;
+        }
+        if (nw !== cf) {
+          showToast('Mật khẩu mới nhập lại không khớp.', 'error');
+          return;
+        }
+        try {
+          await api.changePassword(cur, nw);
+          closeModal();
+          showToast('Đổi mật khẩu Admin thành công!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      };
+      m.querySelector('#mSaveAdminPw').addEventListener('click', submitPw);
+      m.querySelector('#formAdminChangePw').addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitPw();
+      });
+    },
+  });
+});
 
 function showAuthScreen() {
   examRunner.cleanup();
