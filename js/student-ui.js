@@ -1,24 +1,25 @@
-import { api } from './api.js';
+import { api } from './api.js?v=20261122e';
 import {
   escapeHtml,
   escapeAttr,
   formatScoreVN,
   formatTime,
   formatDateTimeVN,
-  formatDateOnlyVN,
-  parseVnDateOnlyToIso,
   getDeadlineStatus,
-} from './exam-engine.js';
+} from './exam-engine.js?v=20261122e';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261122e';
 
 export function createStudentController({ rootEl, examRunner, uiHelpers, onUserUpdated }) {
-  const { showToast, setHeaderStatus } = uiHelpers;
+  const { showToast, setHeaderStatus, renderMath } = uiHelpers;
 
   const state = {
-    subTab: 'assigned', // 'assigned' | 'history' | 'profile'
+    subTab: 'feed', // 'feed' | 'assigned' | 'history'
+    feedSearch: '',
     data: {
       user: null,
       assignments: [],
       submissions: [],
+      posts: [],
       examsById: {},
     },
     inRunner: false,
@@ -26,19 +27,38 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
 
   async function refresh() {
     try {
-      state.data = await api.studentDashboard();
+      const res = await api.studentDashboard();
+      state.data = {
+        user: res.user || null,
+        assignments: res.assignments || [],
+        submissions: res.submissions || [],
+        posts: res.posts || [],
+        examsById: res.examsById || {},
+      };
       if (state.data.user && typeof onUserUpdated === 'function') {
         onUserUpdated(state.data.user);
       }
       if (!state.inRunner) render();
     } catch (err) {
-      showToast(err.message || 'Không thể tải danh sách bài tập.', 'error');
+      showToast(err.message || 'Không thể tải dữ liệu lớp học.', 'error');
     }
+  }
+
+  function filterPosts(posts) {
+    const q = state.feedSearch.trim().toLowerCase();
+    if (!q) return posts;
+    return posts.filter((p) => {
+      const attNames = (p.attachments || [])
+        .map((a) => `${a.title || ''} ${a.fileName || ''} ${a.url || ''}`)
+        .join(' ');
+      const hay = `${p.title || ''} ${p.content || ''} ${attNames}`.toLowerCase();
+      return hay.includes(q);
+    });
   }
 
   function render() {
     state.inRunner = false;
-    const { user, assignments, submissions } = state.data;
+    const { user, assignments, submissions, posts } = state.data;
     if (!user) return;
     setHeaderStatus('');
 
@@ -55,10 +75,11 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     rootEl.innerHTML = `
       <div class="role-hero student-hero">
         <div>
-          <div class="hero-eyebrow">Góc học tập Học sinh • @${escapeHtml(user.username)}</div>
+          <div class="hero-eyebrow">Lớp học của tôi${user.className ? ` • Lớp ${escapeHtml(user.className)}` : ''}</div>
           <h1 style="margin-bottom:0;">Xin chào, ${escapeHtml(user.fullName)}!</h1>
         </div>
         <div class="kpi-strip">
+          <div class="kpi-box"><div class="kpi-num">${posts.length}</div><div class="kpi-lbl">Bài giảng</div></div>
           <div class="kpi-box"><div class="kpi-num">${pendingCount}</div><div class="kpi-lbl">Bài chưa làm</div></div>
           <div class="kpi-box"><div class="kpi-num">${completedAsgIds.size}</div><div class="kpi-lbl">Bài đã nộp</div></div>
           <div class="kpi-box"><div class="kpi-num">${submissions.length ? formatScoreVN(avgScore) : '—'}</div><div class="kpi-lbl">Điểm TB</div></div>
@@ -66,25 +87,63 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       </div>
 
       <div class="subtab-bar">
+        <button class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}" data-stu-tab="feed">
+          Bảng tin lớp học <span class="badge badge-neutral">${posts.length}</span>
+        </button>
         <button class="subtab-btn ${state.subTab === 'assigned' ? 'active' : ''}" data-stu-tab="assigned">
-          Đề thi được giao <span class="badge badge-neutral">${assignments.length}</span>
+          Thi Online <span class="badge badge-neutral">${assignments.length}</span>
         </button>
         <button class="subtab-btn ${state.subTab === 'history' ? 'active' : ''}" data-stu-tab="history">
           Lịch sử &amp; Kết quả <span class="badge badge-neutral">${submissions.length}</span>
         </button>
-        <button class="subtab-btn ${state.subTab === 'profile' ? 'active' : ''}" data-stu-tab="profile">
-          Hồ sơ cá nhân &amp; Đổi mật khẩu
-        </button>
       </div>
 
       <div id="studentSubContent">
+        ${state.subTab === 'feed' ? renderFeedSection() : ''}
         ${state.subTab === 'assigned' ? renderAssignedSection() : ''}
         ${state.subTab === 'history' ? renderHistorySection() : ''}
-        ${state.subTab === 'profile' ? renderProfileSection() : ''}
       </div>
     `;
 
     bindEvents();
+    renderMath(rootEl);
+  }
+
+  function renderFeedSection() {
+    const posts = state.data.posts || [];
+    const filtered = filterPosts(posts);
+
+    return `
+      ${
+        posts.length > 0
+          ? `
+            <div class="feed-toolbar">
+              <div class="feed-search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  id="inpStuFeedSearch"
+                  type="search"
+                  placeholder="Tìm kiếm bài giảng, video YouTube, tài liệu PDF..."
+                  value="${escapeAttr(state.feedSearch)}"
+                />
+              </div>
+            </div>
+          `
+          : ''
+      }
+      <div id="studentFeedList">
+        ${renderFeedList({
+          posts: filtered,
+          isAdmin: false,
+          emptyTitle: posts.length ? 'Không tìm thấy bài viết phù hợp' : 'Chưa có bài giảng hoặc tài liệu nào',
+          emptyText: posts.length
+            ? 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.'
+            : 'Khi thầy Hoàng đăng video bài giảng, handout PDF hoặc tài liệu mới, nội dung sẽ xuất hiện ngay tại đây.',
+        })}
+      </div>
+    `;
   }
 
   function renderAssignedSection() {
@@ -228,73 +287,6 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     `;
   }
 
-  function renderProfileSection() {
-    const u = state.data.user;
-    return `
-      <div class="profile-grid">
-        <div class="card panel-card">
-          <h3>Thông tin cá nhân</h3>
-          <form id="formStudentProfile">
-            <div class="form-row-2">
-              <div class="form-group">
-                <label>Tên đăng nhập (không thể sửa)</label>
-                <input class="input-control" value="${escapeAttr(u.username)}" disabled />
-              </div>
-              <div class="form-group">
-                <label>Số báo danh / Mã HS</label>
-                <input id="profCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="VD: 250101" />
-              </div>
-            </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label>Họ và tên *</label>
-                <input id="profFullName" class="input-control" value="${escapeAttr(u.fullName || '')}" required />
-              </div>
-              <div class="form-group">
-                <label>Lớp</label>
-                <input id="profClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="VD: 12A1" />
-              </div>
-            </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label>Ngày sinh (dd/mm/yyyy)</label>
-                <input id="profDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(u.dob || ''))}" />
-              </div>
-              <div class="form-group">
-                <label>Số điện thoại</label>
-                <input id="profPhone" class="input-control" value="${escapeAttr(u.phone || '')}" placeholder="09xxxxxxxx" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Email</label>
-              <input id="profEmail" type="email" class="input-control" value="${escapeAttr(u.email || '')}" placeholder="email@school.vn" />
-            </div>
-            <button type="submit" class="btn btn-primary">Lưu thông tin cá nhân</button>
-          </form>
-        </div>
-
-        <div class="card panel-card">
-          <h3>Đổi mật khẩu đăng nhập</h3>
-          <form id="formChangePassword">
-            <div class="form-group">
-              <label>Mật khẩu hiện tại *</label>
-              <input id="pwCurrent" type="password" class="input-control" placeholder="Nhập mật khẩu đang dùng" required />
-            </div>
-            <div class="form-group">
-              <label>Mật khẩu mới *</label>
-              <input id="pwNew" type="password" class="input-control" placeholder="Tối thiểu 4 ký tự" required />
-            </div>
-            <div class="form-group">
-              <label>Nhập lại mật khẩu mới *</label>
-              <input id="pwConfirm" type="password" class="input-control" placeholder="Nhập khớp mật khẩu mới" required />
-            </div>
-            <button type="submit" class="btn btn-primary">Cập nhật mật khẩu</button>
-          </form>
-        </div>
-      </div>
-    `;
-  }
-
   function bindEvents() {
     rootEl.querySelectorAll('[data-stu-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -311,49 +303,25 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       btn.addEventListener('click', () => openSubmissionReview(btn.dataset.reviewSub));
     });
 
-    rootEl.querySelector('#formStudentProfile')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      let dobIso = '';
-      try {
-        dobIso = parseVnDateOnlyToIso(rootEl.querySelector('#profDob').value, 'Ngày sinh');
-      } catch (err) {
-        showToast(err.message, 'error');
-        return;
-      }
-      try {
-        const res = await api.updateProfile({
-          fullName: rootEl.querySelector('#profFullName').value.trim(),
-          className: rootEl.querySelector('#profClass').value.trim(),
-          studentCode: rootEl.querySelector('#profCode').value.trim(),
-          dob: dobIso,
-          phone: rootEl.querySelector('#profPhone').value.trim(),
-          email: rootEl.querySelector('#profEmail').value.trim(),
-        });
-        state.data.user = res.user;
-        onUserUpdated?.(res.user);
-        showToast('Đã cập nhật thông tin cá nhân thành công!', 'success');
-        render();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
+    const feedListEl = rootEl.querySelector('#studentFeedList');
+    if (feedListEl) {
+      bindFeedEvents(feedListEl, { uiHelpers });
+    }
 
-    rootEl.querySelector('#formChangePassword')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const cur = rootEl.querySelector('#pwCurrent').value;
-      const nw = rootEl.querySelector('#pwNew').value;
-      const cf = rootEl.querySelector('#pwConfirm').value;
-      if (nw !== cf) {
-        showToast('Mật khẩu mới nhập lại không khớp.', 'error');
-        return;
-      }
-      try {
-        await api.changePassword(cur, nw);
-        showToast('Đổi mật khẩu thành công!', 'success');
-        e.target.reset();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+    rootEl.querySelector('#inpStuFeedSearch')?.addEventListener('input', (e) => {
+      state.feedSearch = e.target.value;
+      const listEl = rootEl.querySelector('#studentFeedList');
+      if (!listEl) return;
+      const posts = state.data.posts || [];
+      const filtered = filterPosts(posts);
+      listEl.innerHTML = renderFeedList({
+        posts: filtered,
+        isAdmin: false,
+        emptyTitle: 'Không tìm thấy bài viết phù hợp',
+        emptyText: 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.',
+      });
+      bindFeedEvents(listEl, { uiHelpers });
+      renderMath(listEl);
     });
   }
 
@@ -439,7 +407,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     goHome: () => {
       examRunner.cleanup();
       state.inRunner = false;
-      state.subTab = 'assigned';
+      state.subTab = 'feed';
       refresh();
     },
   };

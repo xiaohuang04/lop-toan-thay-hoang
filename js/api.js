@@ -54,6 +54,17 @@ export const api = {
   updateAssignment: (id, asg) => request(`/api/admin/assignments/${encodeURIComponent(id)}`, { method: 'PUT', body: asg }),
   deleteAssignment: (id) => request(`/api/admin/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  // Classroom Newsfeed Posts & Files
+  uploadFile: (payload) => request('/api/admin/files', { method: 'POST', body: payload }),
+  deleteFile: (id) => request(`/api/admin/files/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  createPost: (post) => request('/api/admin/posts', { method: 'POST', body: post }),
+  updatePost: (id, post) => request(`/api/admin/posts/${encodeURIComponent(id)}`, { method: 'PUT', body: post }),
+  deletePost: (id) => request(`/api/admin/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Supabase / Local Storage Quota Manager
+  getStorageStats: () => request('/api/admin/storage'),
+  cleanupOrphanFiles: () => request('/api/admin/storage/cleanup-orphans', { method: 'POST', body: {} }),
+
   // Student
   studentDashboard: () => request('/api/student/dashboard'),
   submitExam: (payload) => request('/api/student/submissions', { method: 'POST', body: payload }),
@@ -61,5 +72,6 @@ export const api = {
   // Interactive HTML Models
   getModels: () => request('/api/models'),
   uploadModel: (payload) => request('/api/models', { method: 'POST', body: payload }),
+  updateModel: (id, payload) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }),
   deleteModel: (id) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

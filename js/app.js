@@ -1,8 +1,9 @@
-import { api, setToken } from './api.js';
-import { createExamRunner } from './exam-runner.js';
-import { createTeacherController } from './teacher-ui.js';
-import { createStudentController } from './student-ui.js';
-import { createHtmlLabController } from './html-lab.js';
+import { api, setToken } from './api.js?v=20261122e';
+import { createExamRunner } from './exam-runner.js?v=20261122e';
+import { createTeacherController } from './teacher-ui.js?v=20261122e';
+import { createStudentController } from './student-ui.js?v=20261122e';
+import { createHtmlLabController } from './html-lab.js?v=20261122e';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122e';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -13,8 +14,13 @@ const loginError = document.getElementById('loginError');
 
 const userRoleBadge = document.getElementById('userRoleBadge');
 const userNameText = document.getElementById('userNameText');
-const btnAdminChangePw = document.getElementById('btnAdminChangePw');
-const btnLogout = document.getElementById('btnLogout');
+const userMenuWrap = document.getElementById('userMenuWrap');
+const userMenuTrigger = document.getElementById('userMenuTrigger');
+const userDropdown = document.getElementById('userDropdown');
+const menuItemProfile = document.getElementById('menuItemProfile');
+const menuItemStorage = document.getElementById('menuItemStorage');
+const menuItemChangePw = document.getElementById('menuItemChangePw');
+const menuItemLogout = document.getElementById('menuItemLogout');
 
 const modalBackdrop = document.getElementById('modalBackdrop');
 const modalCard = document.getElementById('modalCard');
@@ -106,6 +112,7 @@ const uiHelpers = {
   closeModal,
   renderMath,
   setHeaderStatus,
+  openStorageModal: () => openStorageManagerModal(),
 };
 
 const examRoot = document.getElementById('examRoot');
@@ -136,6 +143,7 @@ const labCtrl = createHtmlLabController({
 // 2-Tab Navigation
 const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
+const tabExamLabel = document.getElementById('tabExamLabel');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
@@ -143,27 +151,12 @@ const panels = {
 
 function updateLabTabLock() {
   if (!tabBtnLab) return;
-  const isStudent = currentUser?.role === 'student';
-  tabBtnLab.classList.toggle('is-locked', isStudent);
-  tabBtnLab.title = isStudent ? 'Tính năng này hiện đang tạm khóa cho Học sinh' : 'Mô hình tương tác HTML';
-  let lockSpan = tabBtnLab.querySelector('.tab-lock-icon');
-  if (isStudent) {
-    if (!lockSpan) {
-      lockSpan = document.createElement('span');
-      lockSpan.className = 'tab-lock-icon';
-      lockSpan.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
-      tabBtnLab.appendChild(lockSpan);
-    }
-  } else if (lockSpan) {
-    lockSpan.remove();
-  }
+  tabBtnLab.classList.remove('is-locked');
+  tabBtnLab.title = 'Mô hình tương tác';
+  tabBtnLab.querySelector('.tab-lock-icon')?.remove();
 }
 
 function switchTab(tabName) {
-  if (tabName === 'lab' && currentUser?.role === 'student') {
-    showToast('Chức năng Mô hình tương tác hiện đang tạm khóa cho Học sinh.');
-    return;
-  }
   tabButtons.forEach((btn) => {
     const active = btn.dataset.tab === tabName;
     btn.classList.toggle('active', active);
@@ -188,44 +181,365 @@ document.getElementById('brandHome').addEventListener('click', () => {
   activeRoleCtrl?.goHome();
 });
 
+function closeUserDropdown() {
+  if (!userDropdown) return;
+  userDropdown.classList.add('hidden');
+  userMenuTrigger?.setAttribute('aria-expanded', 'false');
+  userMenuWrap?.classList.remove('open');
+}
+
+function toggleUserDropdown() {
+  if (!userDropdown) return;
+  const willOpen = userDropdown.classList.contains('hidden');
+  userDropdown.classList.toggle('hidden', !willOpen);
+  userMenuTrigger?.setAttribute('aria-expanded', String(willOpen));
+  userMenuWrap?.classList.toggle('open', willOpen);
+}
+
+userMenuTrigger?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleUserDropdown();
+});
+
+document.addEventListener('click', (e) => {
+  if (userMenuWrap && !userMenuWrap.contains(e.target)) {
+    closeUserDropdown();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeUserDropdown();
+});
+
 function updateUserHeader() {
   if (!currentUser) return;
   const isAdmin = currentUser.role === 'admin';
   userRoleBadge.textContent = isAdmin ? 'Giáo viên' : 'Học sinh';
   userRoleBadge.className = `badge ${isAdmin ? 'badge-p2' : 'badge-p1'}`;
   userNameText.textContent = currentUser.fullName || currentUser.username;
-  if (btnAdminChangePw) btnAdminChangePw.classList.toggle('hidden', !isAdmin);
+  if (tabExamLabel) {
+    tabExamLabel.textContent = isAdmin ? 'Quản lý lớp học' : 'Lớp học của tôi';
+  }
+  if (menuItemStorage) {
+    menuItemStorage.classList.toggle('hidden', !isAdmin);
+  }
 }
 
-btnAdminChangePw?.addEventListener('click', () => {
+function formatBytesVN(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1).replace('.', ',')} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2).replace('.', ',')} MB`;
+}
+
+async function openStorageManagerModal() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+
   openModal({
-    title: 'Đổi mật khẩu tài khoản Giáo viên (Admin)',
+    title: 'Quản lý bộ nhớ Supabase',
+    wide: true,
+    bodyHtml: `<div style="padding:28px; text-align:center; color:var(--text-muted);">Đang đo dung lượng lưu trữ...</div>`,
+    footerHtml: `<button class="btn btn-primary" id="mCloseStorage">Đóng</button>`,
+    onMount: async (m) => {
+      m.querySelector('#mCloseStorage').addEventListener('click', closeModal);
+
+      async function renderStats(stats) {
+        const isCloud = stats.mode === 'supabase';
+        const pct = Math.min(100, Number(stats.percentUsed) || 0);
+        const barCls = pct >= 85 ? 'is-danger' : pct >= 60 ? 'is-warn' : 'is-ok';
+        const bd = stats.breakdown || {};
+        const items = stats.items || [];
+        const orphans = stats.orphans || { count: 0, bytes: 0 };
+
+        modalBody.innerHTML = `
+          <div class="storage-summary-card">
+            <div class="storage-summary-top">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                  <span class="badge ${isCloud ? 'badge-success' : 'badge-neutral'}">
+                    ${isCloud ? '● Đang lưu trên Supabase Cloud' : '○ Đang chạy cục bộ (Local)'}
+                  </span>
+                  <span style="font-size:0.78rem; color:var(--text-muted);">Hạn mức gói miễn phí Supabase: 500 MB</span>
+                </div>
+                <div class="storage-big-num">
+                  <strong>${formatBytesVN(stats.totalBytes)}</strong>
+                  <span>/ 500 MB (${String(pct).replace('.', ',')}%)</span>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                ${
+                  orphans.count > 0
+                    ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCleanupOrphans">Dọn ${orphans.count} tệp thừa (${formatBytesVN(orphans.bytes)})</button>`
+                    : ''
+                }
+                <button type="button" class="btn btn-ghost btn-sm" id="btnRefreshStorage">Làm mới</button>
+              </div>
+            </div>
+            <div class="storage-bar-track">
+              <div class="storage-bar-fill ${barCls}" style="width:${Math.max(pct, stats.totalBytes > 0 ? 1.5 : 0)}%;"></div>
+            </div>
+          </div>
+
+          <div class="storage-breakdown-grid">
+            <div class="storage-stat-box">
+              <div class="storage-stat-lbl">Tệp đính kèm (PDF, ảnh...)</div>
+              <div class="storage-stat-val">${formatBytesVN(bd.files?.bytes || 0)}</div>
+              <div class="storage-stat-sub">${bd.files?.count || 0} tệp</div>
+            </div>
+            <div class="storage-stat-box">
+              <div class="storage-stat-lbl">Mô hình tương tác (.html)</div>
+              <div class="storage-stat-val">${formatBytesVN(bd.models?.bytes || 0)}</div>
+              <div class="storage-stat-sub">${bd.models?.count || 0} mô hình</div>
+            </div>
+            <div class="storage-stat-box">
+              <div class="storage-stat-lbl">Ngân hàng đề thi</div>
+              <div class="storage-stat-val">${formatBytesVN(bd.exams?.bytes || 0)}</div>
+              <div class="storage-stat-sub">${bd.exams?.count || 0} đề thi</div>
+            </div>
+            <div class="storage-stat-box">
+              <div class="storage-stat-lbl">Bài viết, HS &amp; Bài nộp</div>
+              <div class="storage-stat-val">${formatBytesVN(bd.other?.bytes || 0)}</div>
+              <div class="storage-stat-sub">${bd.other?.postsCount || 0} bài viết</div>
+            </div>
+          </div>
+
+          <div class="storage-list-head">
+            <strong>Chi tiết tệp &amp; mô hình đang chiếm dung lượng (${items.length})</strong>
+            <span style="font-size:0.76rem; color:var(--text-muted);">Xếp từ nặng nhất đến nhẹ nhất</span>
+          </div>
+
+          ${
+            items.length === 0
+              ? `<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:0.86rem; border:1px solid var(--border); border-radius:12px;">Chưa có tệp đính kèm hoặc mô hình HTML nào được tải lên.</div>`
+              : `
+                <div class="storage-item-list">
+                  ${items
+                    .map((it) => {
+                      const isModel = it.kind === 'model';
+                      const ext = isModel ? 'HTML' : (it.name.split('.').pop() || 'FILE').toUpperCase().slice(0, 4);
+                      const badgeCls = isModel
+                        ? 'file-badge-html'
+                        : ext === 'PDF'
+                          ? 'file-badge-pdf'
+                          : ['PNG', 'JPG', 'JPEG', 'WEBP', 'GIF'].includes(ext)
+                            ? 'file-badge-img'
+                            : 'file-badge-doc';
+                      const subInfo = isModel
+                        ? `Mô hình Toán ${escapeHtml(it.grade || '12')} • ${it.visible ? 'Đang hiện' : 'Đang ẩn'}`
+                        : it.isOrphan
+                          ? `<span style="color:var(--danger); font-weight:700;">Không còn gắn trong bài viết nào (tệp thừa)</span>`
+                          : `Đang gắn ở: ${escapeHtml((it.usedIn || []).join(', '))}`;
+
+                      return `
+                        <div class="storage-item-row">
+                          <span class="file-type-badge ${badgeCls}">${escapeHtml(ext)}</span>
+                          <div style="flex:1; min-width:0;">
+                            <div class="storage-item-name" title="${escapeAttr(it.name)}">${escapeHtml(it.name)}</div>
+                            <div class="storage-item-sub">${subInfo}</div>
+                          </div>
+                          <div class="storage-item-size">${formatBytesVN(it.storedBytes)}</div>
+                          <button
+                            type="button"
+                            class="btn btn-danger-outline btn-sm"
+                            data-storage-del-kind="${it.kind}"
+                            data-storage-del-id="${escapeAttr(it.id)}"
+                            data-storage-del-name="${escapeAttr(it.name)}"
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      `;
+                    })
+                    .join('')}
+                </div>
+              `
+          }
+
+          <p style="margin:12px 0 0; font-size:0.78rem; color:var(--text-muted); line-height:1.5;">
+            Lưu ý: Video YouTube chỉ lưu đường link nhúng nên hầu như không tốn bộ nhớ. Tệp PDF/ảnh tải lên Supabase có hệ số mã hóa JSON khoảng 1,34 lần dung lượng gốc — nên ưu tiên nén PDF dưới 5 MB để tiết kiệm không gian lưu trữ.
+          </p>
+        `;
+
+        modalBody.querySelector('#btnRefreshStorage')?.addEventListener('click', loadAndRender);
+        modalBody.querySelector('#btnCleanupOrphans')?.addEventListener('click', async () => {
+          try {
+            const res = await api.cleanupOrphanFiles();
+            showToast(`Đã dọn sạch ${res.removedCount} tệp thừa khỏi bộ nhớ!`, 'success');
+            await renderStats(res.stats);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+
+        modalBody.querySelectorAll('[data-storage-del-id]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const kind = btn.dataset.storageDelKind;
+            const id = btn.dataset.storageDelId;
+            const name = btn.dataset.storageDelName;
+            if (!window.confirm(`Xóa vĩnh viễn "${name}" khỏi bộ nhớ lưu trữ?`)) return;
+            try {
+              if (kind === 'model') {
+                await api.deleteModel(id);
+                showToast(`Đã xóa mô hình "${name}".`, 'success');
+                await loadAndRender();
+                if (activeRoleCtrl && !examRunner.isTaking()) await activeRoleCtrl.init();
+                await labCtrl.init();
+              } else {
+                const res = await api.deleteFile(id);
+                showToast(`Đã xóa tệp "${name}" khỏi bộ nhớ.`, 'success');
+                await renderStats(res.stats);
+                if (activeRoleCtrl && !examRunner.isTaking()) await activeRoleCtrl.init();
+              }
+            } catch (err) {
+              showToast(err.message, 'error');
+            }
+          });
+        });
+      }
+
+      async function loadAndRender() {
+        try {
+          const stats = await api.getStorageStats();
+          await renderStats(stats);
+        } catch (err) {
+          modalBody.innerHTML = `<div style="padding:20px; color:var(--danger);">${escapeHtml(err.message)}</div>`;
+        }
+      }
+
+      await loadAndRender();
+    },
+  });
+}
+
+menuItemStorage?.addEventListener('click', () => {
+  closeUserDropdown();
+  openStorageManagerModal();
+});
+
+menuItemProfile?.addEventListener('click', () => {
+  closeUserDropdown();
+  if (!currentUser) return;
+  const u = currentUser;
+  const isStudent = u.role === 'student';
+
+  openModal({
+    title: 'Hồ sơ cá nhân',
     bodyHtml: `
-      <form id="formAdminChangePw">
-        <div class="form-group">
-          <label for="adminPwCurrent">Mật khẩu hiện tại *</label>
-          <input id="adminPwCurrent" type="password" class="input-control" placeholder="Nhập mật khẩu đang dùng" required />
+      <form id="formGlobalProfile">
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Tên đăng nhập</label>
+            <input class="input-control" value="${escapeAttr(u.username)}" disabled />
+          </div>
+          <div class="form-group">
+            <label>${isStudent ? 'Số báo danh / Mã HS' : 'Mã giáo viên'}</label>
+            <input id="gProfCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="${isStudent ? 'VD: 250101' : 'VD: GV001'}" />
+          </div>
         </div>
-        <div class="form-group">
-          <label for="adminPwNew">Mật khẩu mới *</label>
-          <input id="adminPwNew" type="password" class="input-control" placeholder="Tối thiểu 4 ký tự" required />
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Họ và tên *</label>
+            <input id="gProfFullName" class="input-control" value="${escapeAttr(u.fullName || '')}" required />
+          </div>
+          <div class="form-group">
+            <label>${isStudent ? 'Lớp' : 'Tổ chuyên môn / Đơn vị'}</label>
+            <input id="gProfClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="${isStudent ? 'VD: 12A1' : 'VD: Tổ Toán'}" />
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Ngày sinh (dd/mm/yyyy)</label>
+            <input id="gProfDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(u.dob || ''))}" />
+          </div>
+          <div class="form-group">
+            <label>Số điện thoại</label>
+            <input id="gProfPhone" class="input-control" value="${escapeAttr(u.phone || '')}" placeholder="09xxxxxxxx" />
+          </div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label for="adminPwConfirm">Nhập lại mật khẩu mới *</label>
-          <input id="adminPwConfirm" type="password" class="input-control" placeholder="Nhập khớp mật khẩu mới" required />
+          <label>Email</label>
+          <input id="gProfEmail" type="email" class="input-control" value="${escapeAttr(u.email || '')}" placeholder="email@school.vn" />
         </div>
       </form>
     `,
     footerHtml: `
-      <button class="btn btn-secondary" id="mCancelAdminPw">Hủy</button>
-      <button class="btn btn-primary" id="mSaveAdminPw">Cập nhật mật khẩu</button>
+      <button class="btn btn-secondary" id="mCancelGProf">Hủy</button>
+      <button class="btn btn-primary" id="mSaveGProf">Lưu thông tin</button>
     `,
     onMount: (m) => {
-      m.querySelector('#mCancelAdminPw').addEventListener('click', closeModal);
+      m.querySelector('#mCancelGProf').addEventListener('click', closeModal);
+      const saveProf = async () => {
+        const fullName = m.querySelector('#gProfFullName').value.trim();
+        if (!fullName) {
+          showToast('Họ và tên không được để trống.', 'error');
+          return;
+        }
+        let dobIso = '';
+        try {
+          dobIso = parseVnDateOnlyToIso(m.querySelector('#gProfDob').value, 'Ngày sinh');
+        } catch (err) {
+          showToast(err.message, 'error');
+          return;
+        }
+        try {
+          const res = await api.updateProfile({
+            fullName,
+            className: m.querySelector('#gProfClass').value.trim(),
+            studentCode: m.querySelector('#gProfCode').value.trim(),
+            dob: dobIso,
+            phone: m.querySelector('#gProfPhone').value.trim(),
+            email: m.querySelector('#gProfEmail').value.trim(),
+          });
+          currentUser = res.user;
+          updateUserHeader();
+          closeModal();
+          showToast('Đã cập nhật hồ sơ cá nhân!', 'success');
+          if (activeRoleCtrl && !examRunner.isTaking()) {
+            await activeRoleCtrl.init();
+          }
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      };
+      m.querySelector('#mSaveGProf').addEventListener('click', saveProf);
+      m.querySelector('#formGlobalProfile').addEventListener('submit', (e) => {
+        e.preventDefault();
+        saveProf();
+      });
+    },
+  });
+});
+
+menuItemChangePw?.addEventListener('click', () => {
+  closeUserDropdown();
+  openModal({
+    title: 'Đổi mật khẩu đăng nhập',
+    bodyHtml: `
+      <form id="formGlobalChangePw">
+        <div class="form-group">
+          <label for="gPwCurrent">Mật khẩu hiện tại *</label>
+          <input id="gPwCurrent" type="password" class="input-control" placeholder="Nhập mật khẩu đang dùng" required />
+        </div>
+        <div class="form-group">
+          <label for="gPwNew">Mật khẩu mới *</label>
+          <input id="gPwNew" type="password" class="input-control" placeholder="Tối thiểu 4 ký tự" required />
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="gPwConfirm">Nhập lại mật khẩu mới *</label>
+          <input id="gPwConfirm" type="password" class="input-control" placeholder="Nhập khớp mật khẩu mới" required />
+        </div>
+      </form>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" id="mCancelGPw">Hủy</button>
+      <button class="btn btn-primary" id="mSaveGPw">Cập nhật mật khẩu</button>
+    `,
+    onMount: (m) => {
+      m.querySelector('#mCancelGPw').addEventListener('click', closeModal);
       const submitPw = async () => {
-        const cur = m.querySelector('#adminPwCurrent').value;
-        const nw = m.querySelector('#adminPwNew').value;
-        const cf = m.querySelector('#adminPwConfirm').value;
+        const cur = m.querySelector('#gPwCurrent').value;
+        const nw = m.querySelector('#gPwNew').value;
+        const cf = m.querySelector('#gPwConfirm').value;
         if (!cur || !nw) {
           showToast('Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.', 'error');
           return;
@@ -237,13 +551,13 @@ btnAdminChangePw?.addEventListener('click', () => {
         try {
           await api.changePassword(cur, nw);
           closeModal();
-          showToast('Đổi mật khẩu Admin thành công!', 'success');
+          showToast('Đổi mật khẩu thành công!', 'success');
         } catch (err) {
           showToast(err.message, 'error');
         }
       };
-      m.querySelector('#mSaveAdminPw').addEventListener('click', submitPw);
-      m.querySelector('#formAdminChangePw').addEventListener('submit', (e) => {
+      m.querySelector('#mSaveGPw').addEventListener('click', submitPw);
+      m.querySelector('#formGlobalChangePw').addEventListener('submit', (e) => {
         e.preventDefault();
         submitPw();
       });
@@ -296,7 +610,8 @@ loginForm.addEventListener('submit', async (e) => {
 });
 
 // Logout
-btnLogout.addEventListener('click', async () => {
+menuItemLogout?.addEventListener('click', async () => {
+  closeUserDropdown();
   try {
     await api.logout();
   } catch {

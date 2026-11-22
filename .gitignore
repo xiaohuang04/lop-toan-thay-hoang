@@ -6,3 +6,5 @@ Thumbs.db
 data/db.json
 data/sessions.json
 data/*.tmp
+data/models/
+data/uploads/

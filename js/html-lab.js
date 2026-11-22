@@ -1,381 +1,760 @@
-import { api } from './api.js';
-import { escapeHtml } from './exam-engine.js';
+import { api } from './api.js?v=20261122e';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122e';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122e';
 
-const DEMO_CUBIC_HTML = `<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8" />
-<style>
-  * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-  body { margin: 0; padding: 18px; background: #f8fafc; color: #0f172a; }
-  .wrap { max-width: 860px; margin: 0 auto; display: grid; grid-template-columns: 270px 1fr; gap: 18px; align-items: start; }
-  .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
-  h2 { margin: 0 0 8px; font-size: 1rem; color: #1d4ed8; }
-  .eq { font-family: ui-monospace, monospace; background: #eff6ff; color: #1e40af; padding: 8px 10px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; margin-bottom: 14px; }
-  .ctrl { margin-bottom: 12px; }
-  .ctrl label { display: flex; justify-content: space-between; font-size: 0.84rem; font-weight: 600; margin-bottom: 4px; }
-  input[type=range] { width: 100%; accent-color: #1d4ed8; }
-  .info { font-size: 0.82rem; color: #475569; background: #f1f5f9; padding: 10px; border-radius: 8px; line-height: 1.5; }
-  canvas { width: 100%; height: 460px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; display: block; }
-  @media (max-width: 720px) { .wrap { grid-template-columns: 1fr; } }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="panel">
-    <h2>Khảo sát hàm số bậc ba</h2>
-    <div class="eq" id="eqText">y = 1x³ + 0x² - 3x + 1</div>
-    <div class="ctrl"><label>Hệ số a <span id="va">1</span></label><input id="sa" type="range" min="-2" max="2" step="0.2" value="1"></div>
-    <div class="ctrl"><label>Hệ số b <span id="vb">0</span></label><input id="sb" type="range" min="-4" max="4" step="0.2" value="0"></div>
-    <div class="ctrl"><label>Hệ số c <span id="vc">-3</span></label><input id="sc" type="range" min="-6" max="6" step="0.2" value="-3"></div>
-    <div class="ctrl"><label>Hệ số d <span id="vd">1</span></label><input id="sd" type="range" min="-4" max="4" step="0.2" value="1"></div>
-    <div class="info" id="extremaInfo"></div>
-  </div>
-  <canvas id="cv" width="580" height="460"></canvas>
-</div>
-<script>
-  const cv = document.getElementById('cv');
-  const ctx = cv.getContext('2d');
-  const ids = ['a','b','c','d'];
-  function draw() {
-    const a = parseFloat(document.getElementById('sa').value);
-    const b = parseFloat(document.getElementById('sb').value);
-    const c = parseFloat(document.getElementById('sc').value);
-    const d = parseFloat(document.getElementById('sd').value);
-    ids.forEach((k, i) => document.getElementById('v'+k).textContent = [a,b,c,d][i].toFixed(1));
-    document.getElementById('eqText').textContent =
-      'y = ' + a.toFixed(1) + 'x³ ' + (b>=0?'+ ':'- ') + Math.abs(b).toFixed(1) + 'x² ' +
-      (c>=0?'+ ':'- ') + Math.abs(c).toFixed(1) + 'x ' + (d>=0?'+ ':'- ') + Math.abs(d).toFixed(1);
-    const W = cv.width, H = cv.height, cx = W/2, cy = H/2, scale = 48;
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = '#f1f5f9'; ctx.lineWidth = 1;
-    for (let x = cx % scale; x < W; x += scale) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = cy % scale; y < H; y += scale) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-    ctx.strokeStyle = '#334155'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
-    ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 3;
-    ctx.beginPath();
-    let started = false;
-    for (let px = 0; px <= W; px += 2) {
-      const x = (px - cx) / scale;
-      const y = a*x*x*x + b*x*x + c*x + d;
-      const py = cy - y * scale;
-      if (py < -200 || py > H + 200) { started = false; continue; }
-      if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-    const delta = 4*b*b - 12*a*c;
-    const info = document.getElementById('extremaInfo');
-    if (Math.abs(a) < 0.05) {
-      info.innerHTML = '<strong>Lưu ý:</strong> Hệ số a ≈ 0 (suy biến về bậc hai / bậc nhất).';
-    } else if (delta > 0) {
-      const x1 = (-2*b - Math.sqrt(delta)) / (6*a);
-      const x2 = (-2*b + Math.sqrt(delta)) / (6*a);
-      const pts = [x1, x2].map(x => ({ x, y: a*x*x*x + b*x*x + c*x + d }));
-      pts.forEach(p => {
-        ctx.fillStyle = '#e11d48';
-        ctx.beginPath(); ctx.arc(cx + p.x*scale, cy - p.y*scale, 5.5, 0, Math.PI*2); ctx.fill();
-      });
-      info.innerHTML = '<strong>2 điểm cực trị:</strong><br>• (' + pts[0].x.toFixed(2) + '; ' + pts[0].y.toFixed(2) + ')<br>• (' + pts[1].x.toFixed(2) + '; ' + pts[1].y.toFixed(2) + ')';
-    } else {
-      info.innerHTML = '<strong>Không có cực trị</strong> (hàm số đơn điệu trên ℝ).';
-    }
-  }
-  ids.forEach(k => document.getElementById('s'+k).addEventListener('input', draw));
-  draw();
-</script>
-</body>
-</html>`;
-
-const DEMO_HARMONIC_HTML = `<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8" />
-<style>
-  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
-  body { margin: 0; padding: 18px; background: #f8fafc; color: #0f172a; }
-  .box { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
-  .top { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .ctrls { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; font-weight: 600; }
-  canvas { width: 100%; height: 360px; background: #0f172a; border-radius: 12px; display: block; }
-  button { padding: 7px 14px; border-radius: 8px; border: none; background: #0f766e; color: #fff; font-weight: 700; cursor: pointer; }
-</style>
-</head>
-<body>
-<div class="box">
-  <div class="top">
-    <div class="ctrls">
-      <label>Biên độ A: <input id="amp" type="range" min="30" max="110" value="80"></label>
-      <label>Tần số góc ω: <input id="omg" type="range" min="1" max="5" step="0.2" value="2.2"></label>
-    </div>
-    <button id="toggleBtn">Tạm dừng</button>
-  </div>
-  <canvas id="c" width="820" height="360"></canvas>
-</div>
-<script>
-  const c = document.getElementById('c'), ctx = c.getContext('2d');
-  let t = 0, running = true;
-  document.getElementById('toggleBtn').onclick = (e) => {
-    running = !running;
-    e.target.textContent = running ? 'Tạm dừng' : 'Tiếp tục';
-  };
-  function frame() {
-    const A = +document.getElementById('amp').value;
-    const w = +document.getElementById('omg').value;
-    ctx.clearRect(0, 0, c.width, c.height);
-    const ox = 160, oy = 180;
-    ctx.strokeStyle = '#334155'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(ox, oy, A, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(30, oy); ctx.lineTo(800, oy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ox, 30); ctx.lineTo(ox, 330); ctx.stroke();
-    const angle = w * t;
-    const px = ox + A * Math.cos(angle);
-    const py = oy - A * Math.sin(angle);
-    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(px, py); ctx.stroke();
-    ctx.fillStyle = '#f43f5e';
-    ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI*2); ctx.fill();
-    const waveX = 320;
-    ctx.strokeStyle = 'rgba(244,63,94,0.6)'; ctx.setLineDash([5,5]); ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(waveX, py); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.strokeStyle = '#2dd4bf'; ctx.lineWidth = 3;
-    ctx.beginPath();
-    for (let dx = 0; dx < 460; dx += 2) {
-      const y = oy - A * Math.sin(angle - dx * 0.025);
-      if (dx === 0) ctx.moveTo(waveX + dx, y); else ctx.lineTo(waveX + dx, y);
-    }
-    ctx.stroke();
-    ctx.fillStyle = '#2dd4bf';
-    ctx.beginPath(); ctx.arc(waveX, py, 5, 0, Math.PI*2); ctx.fill();
-    if (running) t += 0.016;
-    requestAnimationFrame(frame);
-  }
-  frame();
-</script>
-</body>
-</html>`;
-
-const BUILTIN_MODELS = [
-  {
-    id: 'builtin-cubic',
-    name: 'Khảo sát đồ thị hàm số bậc 3 (Demo HTML)',
-    fileName: 'khao-sat-ham-bac-3.html',
-    isBuiltin: true,
-    addedAt: 'Mẫu có sẵn',
-    html: DEMO_CUBIC_HTML,
-  },
-  {
-    id: 'builtin-harmonic',
-    name: 'Dao động điều hòa & Đường tròn lượng giác (Demo HTML)',
-    fileName: 'dao-dong-dieu-hoa.html',
-    isBuiltin: true,
-    addedAt: 'Mẫu có sẵn',
-    html: DEMO_HARMONIC_HTML,
-  },
-];
+/**
+ * Resize an uploaded preview image to a crisp lightweight JPEG data URL (max 680px wide)
+ * so it loads instantaneously and stays compact in Supabase/local storage.
+ */
+function compressImageToDataUrl(file, maxWidth = 680) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / (img.width || maxWidth));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('Không thể đọc file ảnh xem trước.'));
+      img.src = String(reader.result || '');
+    };
+    reader.onerror = () => reject(new Error('Lỗi đọc file ảnh.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
-  const { showToast } = uiHelpers;
+  const { showToast, openModal, closeModal } = uiHelpers;
+
   const state = {
-    serverModels: [],
-    activeId: BUILTIN_MODELS[0].id,
+    models: [],
+    grade: '12', // '10' | '11' | '12'
+    mode: 'showcase', // 'showcase' (Trình bày - default) | 'manage' (Chỉnh sửa - admin only)
+    search: '',
+    collapsedChapters: new Set(),
+    hasInitializedGrade: false,
   };
 
-  function getAllModels() {
-    return [...state.serverModels, ...BUILTIN_MODELS];
-  }
-
-  function getActiveModel() {
-    const all = getAllModels();
-    return all.find((m) => m.id === state.activeId) || all[0];
+  function isAdmin() {
+    return getUser?.()?.role === 'admin';
   }
 
   async function init() {
+    // Default to showcase view whenever entering the tab
+    state.mode = 'showcase';
+    await refresh(true);
+  }
+
+  async function refresh(autoPickGrade = false) {
     try {
       const res = await api.getModels();
-      state.serverModels = res.models || [];
-    } catch {
-      state.serverModels = [];
+      state.models = Array.isArray(res.models) ? res.models : [];
+    } catch (err) {
+      state.models = [];
+      showToast(err.message || 'Không thể tải danh sách mô hình.', 'error');
+    }
+
+    if (autoPickGrade && !state.hasInitializedGrade) {
+      state.hasInitializedGrade = true;
+      const visibleModels = state.models.filter((m) => m.visible !== false);
+      const currentHas = visibleModels.some((m) => String(m.grade) === state.grade);
+      if (!currentHas) {
+        const firstWithModel = ['12', '11', '10'].find((g) => visibleModels.some((m) => String(m.grade) === g));
+        if (firstWithModel) state.grade = firstWithModel;
+      }
     }
     render();
   }
 
+  function countModelsForGrade(grade, onlyVisible) {
+    return state.models.filter((m) => String(m.grade) === String(grade) && (!onlyVisible || m.visible !== false)).length;
+  }
+
+  function getModelsForLesson(lessonId, onlyVisible) {
+    return state.models.filter((m) => m.lessonId === lessonId && (!onlyVisible || m.visible !== false));
+  }
+
   function render() {
-    const user = getUser?.();
-    const isAdmin = user?.role === 'admin';
-    const models = getAllModels();
-    const active = getActiveModel();
-    if (active) state.activeId = active.id;
+    const admin = isAdmin();
+    if (!admin) state.mode = 'showcase';
+    const inManage = admin && state.mode === 'manage';
 
     rootEl.innerHTML = `
-      <div class="lab-layout">
-        <aside class="lab-sidebar">
-          ${
-            isAdmin
-              ? `
-                <div class="card panel-card">
-                  <h3 style="margin-bottom:10px;">Tải lên mô hình (.html)</h3>
-                  <div class="dropzone" id="htmlDropzone">
-                    <input type="file" id="htmlFileInput" accept=".html,.htm,text/html" multiple hidden />
-                    <div class="dropzone-icon" style="color:var(--p3-text);">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-                      </svg>
-                    </div>
-                    <div class="dropzone-title">Thả file mô hình .html vào đây</div>
-                    <div class="dropzone-sub">Lưu trên máy chủ • Toàn bộ học sinh có thể xem &amp; tương tác</div>
-                  </div>
-                </div>
-              `
-              : ''
-          }
+      <div class="lab-shell">
+        <div class="lab-topbar">
+          <div class="lab-grade-tabs" role="tablist">
+            ${['10', '11', '12']
+              .map((g) => {
+                const cnt = countModelsForGrade(g, !inManage);
+                return `
+                  <button class="lab-grade-btn ${state.grade === g ? 'active' : ''}" data-lab-grade="${g}">
+                    <span>Toán ${g}</span>
+                    <span class="lab-grade-count">${cnt}</span>
+                  </button>
+                `;
+              })
+              .join('')}
+          </div>
 
-          <div class="card panel-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-              <strong style="font-size:0.95rem;">Thư viện mô hình</strong>
-              <span class="badge badge-p3">${models.length} mô hình</span>
+          <div class="lab-topbar-right">
+            ${
+              inManage
+                ? `
+                  <input
+                    id="labSearchInput"
+                    class="input-control input-compact"
+                    style="width:230px;"
+                    type="text"
+                    placeholder="Tìm tên chương, bài học..."
+                    value="${escapeAttr(state.search)}"
+                  />
+                  <button class="btn btn-secondary btn-sm" id="btnSwitchShowcase">
+                    ← Xem thư viện
+                  </button>
+                `
+                : admin
+                  ? `
+                    <button class="btn btn-primary btn-sm" id="btnSwitchManage">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1">
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                      </svg>
+                      Quản lý mô hình
+                    </button>
+                  `
+                  : ''
+            }
+          </div>
+        </div>
+
+        <div id="labBody">
+          ${inManage ? renderManageView() : renderShowcaseView()}
+        </div>
+      </div>
+    `;
+
+    bindEvents(inManage);
+    populateLivePreviewIframes();
+  }
+
+  // =========================================================
+  // VIEW A: SHOWCASE (TRÌNH BÀY — HỌC SINH & MẶC ĐỊNH CỦA GV)
+  // =========================================================
+  function renderShowcaseView() {
+    const curriculum = MATH_CURRICULUM[state.grade];
+    if (!curriculum) return '';
+
+    // Filter ONLY chapters & lessons that have at least 1 visible model!
+    const visibleChapters = curriculum.chapters
+      .map((ch) => {
+        const lessonsWithModels = ch.lessons
+          .map((ls) => ({ lesson: ls, models: getModelsForLesson(ls.id, true) }))
+          .filter((entry) => entry.models.length > 0);
+        return { chapter: ch, lessons: lessonsWithModels };
+      })
+      .filter((entry) => entry.lessons.length > 0);
+
+    if (visibleChapters.length === 0) {
+      return `
+        <div class="card lab-empty-state">
+          <div class="lab-empty-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+              <polyline points="2 17 12 22 22 17"/>
+              <polyline points="2 12 12 17 22 12"/>
+            </svg>
+          </div>
+          <h3>Chưa có mô hình nào cho ${escapeHtml(curriculum.label)}</h3>
+          <p>${
+            isAdmin()
+              ? 'Nhấn nút <strong>"Quản lý mô hình"</strong> ở góc trên bên phải để tải lên file mô hình <code>.html</code> theo từng bài học.'
+              : 'Giáo viên sẽ cập nhật các mô hình tương tác cho khối này trong thời gian tới.'
+          }</p>
+        </div>
+      `;
+    }
+
+    return visibleChapters
+      .map(
+        ({ chapter, lessons }) => `
+      <section class="lab-chapter-showcase">
+        <div class="lab-chapter-heading">
+          <h2>${escapeHtml(chapter.title)}</h2>
+        </div>
+
+        ${lessons
+          .map(
+            ({ lesson, models }) => `
+          <div class="lab-lesson-showcase">
+            <div class="lab-lesson-title-bar">
+              <span class="lab-lesson-code">${escapeHtml(lesson.code)}</span>
+              <h3>${escapeHtml(lesson.title)}</h3>
             </div>
-            <div class="lab-model-list">
+            <div class="lab-preview-grid">
               ${models
                 .map(
                   (m) => `
-                <div class="lab-model-item ${m.id === state.activeId ? 'active' : ''}" data-model-id="${m.id}">
-                  <div class="lab-model-title">
-                    <span>${escapeHtml(m.name)}</span>
-                    <span class="badge ${m.isBuiltin ? 'badge-neutral' : 'badge-p3'}">${m.isBuiltin ? 'Mẫu' : 'GV tải lên'}</span>
+                <a
+                  class="model-preview-card"
+                  href="/model/${encodeURIComponent(m.id)}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Mở toàn màn hình trong tab mới"
+                >
+                  <div class="model-thumb-frame">
+                    ${
+                      m.thumbnail
+                        ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" class="model-thumb-img" />`
+                        : `<iframe class="model-thumb-iframe" data-live-preview-id="${escapeAttr(m.id)}" sandbox="allow-scripts" tabindex="-1" aria-hidden="true"></iframe>`
+                    }
+                    <div class="model-thumb-overlay">
+                      <span class="model-open-pill">
+                        Mở toàn màn hình
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                          <polyline points="15 3 21 3 21 9"/>
+                          <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                      </span>
+                    </div>
                   </div>
-                  <div class="lab-model-meta">${escapeHtml(m.fileName)} • ${escapeHtml(m.addedAt)}</div>
-                </div>
+                  <div class="model-card-body">
+                    <div class="model-card-name">${escapeHtml(m.name)}</div>
+                  </div>
+                </a>
               `
                 )
                 .join('')}
             </div>
           </div>
-        </aside>
-
-        <section class="lab-stage">
-          <div class="lab-stage-bar">
-            <div>
-              <strong style="font-size:0.96rem;">${active ? escapeHtml(active.name) : 'Chưa chọn mô hình'}</strong>
-              <div style="font-size:0.76rem; color:var(--text-muted);">${active ? escapeHtml(active.fileName) : ''}</div>
-            </div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn-secondary btn-sm" id="btnReloadModel">Tải lại</button>
-              <button class="btn btn-secondary btn-sm" id="btnOpenNewTab">Mở tab mới</button>
-              <button class="btn btn-primary btn-sm" id="btnFullscreenModel">Toàn màn hình</button>
-              ${
-                isAdmin && active && !active.isBuiltin
-                  ? `<button class="btn btn-danger-outline btn-sm" id="btnDeleteModel">Xóa</button>`
-                  : ''
-              }
-            </div>
-          </div>
-          <div class="lab-iframe-wrap" id="labIframeWrap">
-            <iframe
-              id="labIframe"
-              class="lab-iframe"
-              sandbox="allow-scripts allow-forms allow-modals allow-popups"
-              title="Trình chạy mô hình tương tác HTML"
-            ></iframe>
-          </div>
-        </section>
-      </div>
-    `;
-
-    const iframe = rootEl.querySelector('#labIframe');
-    if (iframe && active) iframe.srcdoc = active.html;
-
-    bindEvents(active, isAdmin);
+        `
+          )
+          .join('')}
+      </section>
+    `
+      )
+      .join('');
   }
 
-  function bindEvents(active, isAdmin) {
-    if (isAdmin) {
-      const dropzone = rootEl.querySelector('#htmlDropzone');
-      const fileInput = rootEl.querySelector('#htmlFileInput');
-      if (dropzone && fileInput) {
-        dropzone.addEventListener('click', () => fileInput.click());
-        dropzone.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          dropzone.classList.add('drag-over');
-        });
-        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-        dropzone.addEventListener('drop', (e) => {
-          e.preventDefault();
-          dropzone.classList.remove('drag-over');
-          if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
-        });
-        fileInput.addEventListener('change', () => {
-          if (fileInput.files?.length) handleFiles(fileInput.files);
-          fileInput.value = '';
-        });
-      }
+  // =========================================================
+  // VIEW B: MANAGE (CHỈNH SỬA — CHỈ GIÁO VIÊN)
+  // =========================================================
+  function renderManageView() {
+    const curriculum = MATH_CURRICULUM[state.grade];
+    if (!curriculum) return '';
+    const q = state.search.trim().toLowerCase();
+
+    const chs = curriculum.chapters
+      .map((ch) => {
+        const matchedLessons = q
+          ? ch.lessons.filter(
+              (ls) =>
+                `${ls.code} ${ls.title}`.toLowerCase().includes(q) ||
+                ch.title.toLowerCase().includes(q) ||
+                getModelsForLesson(ls.id, false).some((m) => m.name.toLowerCase().includes(q))
+            )
+          : ch.lessons;
+        return { chapter: ch, lessons: matchedLessons };
+      })
+      .filter((x) => x.lessons.length > 0);
+
+    if (chs.length === 0) {
+      return `<div class="card lab-empty-state"><p>Không tìm thấy bài học nào khớp với "${escapeHtml(state.search)}".</p></div>`;
     }
 
-    rootEl.querySelectorAll('[data-model-id]').forEach((item) => {
-      item.addEventListener('click', () => {
-        state.activeId = item.dataset.modelId;
+    return chs
+      .map(({ chapter, lessons }) => {
+        const chapterModels = chapter.lessons.flatMap((ls) => getModelsForLesson(ls.id, false));
+        const visibleCnt = chapterModels.filter((m) => m.visible !== false).length;
+        const isCollapsed = !q && state.collapsedChapters.has(chapter.id);
+
+        return `
+          <div class="card lab-chapter-acc ${isCollapsed ? 'is-collapsed' : ''}">
+            <button type="button" class="lab-chapter-acc-head" data-toggle-ch="${chapter.id}">
+              <div class="lab-chapter-acc-title">
+                <svg class="acc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+                <span>${escapeHtml(chapter.title)}</span>
+              </div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                ${
+                  chapterModels.length > 0
+                    ? `<span class="badge badge-p3">${visibleCnt}/${chapterModels.length} đang hiện</span>`
+                    : `<span class="badge badge-neutral">0 mô hình</span>`
+                }
+              </div>
+            </button>
+
+            <div class="lab-chapter-acc-body">
+              ${lessons
+                .map((ls) => {
+                  const lsModels = getModelsForLesson(ls.id, false);
+                  return `
+                    <div class="lab-lesson-row" data-drop-lesson="${ls.id}" data-drop-chapter="${chapter.id}">
+                      <div class="lab-lesson-row-head">
+                        <div class="lab-lesson-row-info">
+                          <span class="lab-lesson-code">${escapeHtml(ls.code)}</span>
+                          <span class="lab-lesson-name">${escapeHtml(ls.title)}</span>
+                          ${
+                            lsModels.length > 0
+                              ? `<span class="badge badge-p1">${lsModels.length} mô hình</span>`
+                              : ''
+                          }
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          data-upload-lesson="${ls.id}"
+                          data-upload-chapter="${chapter.id}"
+                        >
+                          + Tải lên .html
+                        </button>
+                      </div>
+
+                      ${
+                        lsModels.length > 0
+                          ? `
+                            <div class="lab-manage-model-list">
+                              ${lsModels
+                                .map((m) => {
+                                  const isVis = m.visible !== false;
+                                  return `
+                                    <div class="lab-manage-model-item ${isVis ? '' : 'is-hidden-model'}">
+                                      <div class="lab-mini-thumb">
+                                        ${
+                                          m.thumbnail
+                                            ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" />`
+                                            : `<iframe class="model-thumb-iframe mini" data-live-preview-id="${escapeAttr(m.id)}" sandbox="allow-scripts" tabindex="-1"></iframe>`
+                                        }
+                                      </div>
+                                      <div class="lab-manage-model-info">
+                                        <div class="lab-manage-model-name">
+                                          ${escapeHtml(m.name)}
+                                          ${
+                                            !isVis
+                                              ? `<span class="badge badge-neutral">Đang ẩn</span>`
+                                              : `<span class="badge badge-success">Đang hiện</span>`
+                                          }
+                                        </div>
+                                        <div class="lab-manage-model-meta">${escapeHtml(m.fileName)} • ${escapeHtml(m.addedAt)}</div>
+                                      </div>
+                                      <div class="lab-manage-model-actions">
+                                        <label class="switch" title="${isVis ? 'Đang hiện — nhấn để ẩn' : 'Đang ẩn — nhấn để hiện'}">
+                                          <input type="checkbox" data-toggle-vis="${m.id}" ${isVis ? 'checked' : ''} />
+                                          <span class="slider"></span>
+                                        </label>
+                                        <a class="btn btn-secondary btn-sm" href="/model/${encodeURIComponent(m.id)}" target="_blank" rel="noopener noreferrer">
+                                          Mở ↗
+                                        </a>
+                                        <button type="button" class="btn btn-secondary btn-sm" data-edit-model="${m.id}">Sửa</button>
+                                        <button type="button" class="btn btn-danger-outline btn-sm" data-del-model="${m.id}">Xóa</button>
+                                      </div>
+                                    </div>
+                                  `;
+                                })
+                                .join('')}
+                            </div>
+                          `
+                          : ''
+                      }
+                    </div>
+                  `;
+                })
+                .join('')}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  /**
+   * Inject srcdoc into live preview iframes (for models without a custom thumbnail image)
+   */
+  function populateLivePreviewIframes() {
+    const byId = new Map(state.models.map((m) => [m.id, m]));
+    rootEl.querySelectorAll('iframe[data-live-preview-id]').forEach((iframe) => {
+      const m = byId.get(iframe.dataset.livePreviewId);
+      if (m && m.html) {
+        iframe.srcdoc = m.html;
+      }
+    });
+  }
+
+  // =========================================================
+  // UPLOAD / EDIT MODEL MODAL
+  // =========================================================
+  function openModelModal({ existing = null, grade = state.grade, chapterId = '', lessonId = '' } = {}) {
+    const initGrade = existing?.grade || grade;
+    const initLessonId = existing?.lessonId || lessonId;
+    const initChapterId = existing?.chapterId || chapterId;
+    let selectedHtmlText = existing?.html || '';
+    let selectedFileName = existing?.fileName || '';
+    let selectedThumbnail = existing?.thumbnail || '';
+
+    const buildLessonOptions = (g, currentLessonId) => {
+      const cur = MATH_CURRICULUM[g];
+      if (!cur) return '';
+      return cur.chapters
+        .map(
+          (ch) => `
+          <optgroup label="${escapeAttr(ch.title)}">
+            ${ch.lessons
+              .map(
+                (ls) =>
+                  `<option value="${ls.id}" data-ch="${ch.id}" ${ls.id === currentLessonId ? 'selected' : ''}>${escapeHtml(`${ls.code}: ${ls.title}`)}</option>`
+              )
+              .join('')}
+          </optgroup>
+        `
+        )
+        .join('');
+    };
+
+    openModal({
+      title: existing ? 'Chỉnh sửa mô hình tương tác' : 'Tải lên mô hình tương tác (.html)',
+      wide: true,
+      bodyHtml: `
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Khối lớp</label>
+            <select id="mdlGrade" class="input-control">
+              <option value="10" ${initGrade === '10' ? 'selected' : ''}>Toán 10</option>
+              <option value="11" ${initGrade === '11' ? 'selected' : ''}>Toán 11</option>
+              <option value="12" ${initGrade === '12' ? 'selected' : ''}>Toán 12</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Thuộc bài học *</label>
+            <select id="mdlLesson" class="input-control">
+              ${buildLessonOptions(initGrade, initLessonId)}
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Tên hiển thị của mô hình *</label>
+          <input id="mdlName" class="input-control" placeholder="VD: Mô phỏng 3D hình chóp S.ABCD" value="${escapeAttr(existing?.name || '')}" />
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>${existing ? 'Thay file mô hình .html (tùy chọn)' : 'Chọn file mô hình (.html) *'}</label>
+            <div class="dropzone" id="mdlHtmlDrop" style="padding:14px;">
+              <input type="file" id="mdlHtmlInput" accept=".html,.htm,text/html" hidden />
+              <div class="dropzone-title" id="mdlHtmlLabel" style="font-size:0.84rem;">
+                ${selectedFileName ? `Đã chọn: ${escapeHtml(selectedFileName)}` : 'Kéo thả hoặc nhấn chọn file .html'}
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Ảnh xem trước (tùy chọn — bỏ trống tự lấy ảnh từ HTML)</label>
+            <div class="dropzone" id="mdlThumbDrop" style="padding:14px;">
+              <input type="file" id="mdlThumbInput" accept="image/*" hidden />
+              <div id="mdlThumbPreviewWrap">
+                ${
+                  selectedThumbnail
+                    ? `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`
+                    : `<div class="dropzone-title" style="font-size:0.84rem;">Nhấn chọn ảnh .png / .jpg (tùy chọn)</div>`
+                }
+              </div>
+            </div>
+            ${
+              selectedThumbnail
+                ? `<button type="button" class="btn btn-ghost btn-sm" id="btnClearThumb" style="margin-top:4px;">Bỏ ảnh đại diện (dùng xem trước tự động)</button>`
+                : ''
+            }
+          </div>
+        </div>
+
+        <div class="toggle-row" style="margin-bottom:0;">
+          <div>
+            <div class="toggle-label">Hiển thị mô hình</div>
+            <div class="toggle-sub">Bật để hiển thị ngay trong danh sách; tắt để tạm ẩn</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="mdlVisible" ${existing ? (existing.visible !== false ? 'checked' : '') : 'checked'} />
+            <span class="slider"></span>
+          </label>
+        </div>
+      `,
+      footerHtml: `
+        <button class="btn btn-secondary" id="mCancelMdl">Hủy</button>
+        <button class="btn btn-primary" id="mSaveMdl">${existing ? 'Lưu thay đổi' : 'Tải lên mô hình'}</button>
+      `,
+      onMount: (m) => {
+        const gradeSel = m.querySelector('#mdlGrade');
+        const lessonSel = m.querySelector('#mdlLesson');
+        const nameInp = m.querySelector('#mdlName');
+        const htmlDrop = m.querySelector('#mdlHtmlDrop');
+        const htmlInp = m.querySelector('#mdlHtmlInput');
+        const htmlLbl = m.querySelector('#mdlHtmlLabel');
+        const thumbDrop = m.querySelector('#mdlThumbDrop');
+        const thumbInp = m.querySelector('#mdlThumbInput');
+        const thumbWrap = m.querySelector('#mdlThumbPreviewWrap');
+
+        gradeSel.addEventListener('change', () => {
+          lessonSel.innerHTML = buildLessonOptions(gradeSel.value, '');
+        });
+
+        async function loadHtmlFile(file) {
+          if (!/\.html?$/i.test(file.name)) {
+            showToast('Vui lòng chọn file có đuôi .html hoặc .htm.', 'error');
+            return;
+          }
+          selectedHtmlText = await file.text();
+          selectedFileName = file.name;
+          htmlLbl.textContent = `Đã chọn: ${file.name}`;
+          if (!nameInp.value.trim()) {
+            const tm = selectedHtmlText.match(/<title[^>]*>([^<]+)<\/title>/i);
+            nameInp.value = tm ? tm[1].trim() : file.name.replace(/\.html?$/i, '');
+          }
+        }
+
+        htmlDrop.addEventListener('click', () => htmlInp.click());
+        htmlDrop.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          htmlDrop.classList.add('drag-over');
+        });
+        htmlDrop.addEventListener('dragleave', () => htmlDrop.classList.remove('drag-over'));
+        htmlDrop.addEventListener('drop', (e) => {
+          e.preventDefault();
+          htmlDrop.classList.remove('drag-over');
+          const f = e.dataTransfer?.files?.[0];
+          if (f) loadHtmlFile(f);
+        });
+        htmlInp.addEventListener('change', () => {
+          const f = htmlInp.files?.[0];
+          if (f) loadHtmlFile(f);
+          htmlInp.value = '';
+        });
+
+        async function loadThumbFile(file) {
+          if (!file.type.startsWith('image/')) {
+            showToast('Vui lòng chọn file ảnh (.png, .jpg, .webp).', 'error');
+            return;
+          }
+          try {
+            selectedThumbnail = await compressImageToDataUrl(file);
+            thumbWrap.innerHTML = `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`;
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        }
+
+        thumbDrop.addEventListener('click', () => thumbInp.click());
+        thumbInp.addEventListener('change', () => {
+          const f = thumbInp.files?.[0];
+          if (f) loadThumbFile(f);
+          thumbInp.value = '';
+        });
+
+        m.querySelector('#btnClearThumb')?.addEventListener('click', () => {
+          selectedThumbnail = '';
+          thumbWrap.innerHTML = `<div class="dropzone-title" style="font-size:0.84rem;">Nhấn chọn ảnh .png / .jpg (tùy chọn)</div>`;
+        });
+
+        m.querySelector('#mCancelMdl').addEventListener('click', closeModal);
+        m.querySelector('#mSaveMdl').addEventListener('click', async () => {
+          const name = nameInp.value.trim();
+          if (!name) {
+            showToast('Vui lòng nhập tên hiển thị của mô hình.', 'error');
+            return;
+          }
+          if (!existing && !selectedHtmlText.trim()) {
+            showToast('Vui lòng chọn file mô hình (.html).', 'error');
+            return;
+          }
+          const chosenLessonId = lessonSel.value;
+          const info = findLessonInfo(chosenLessonId);
+          const payload = {
+            name,
+            grade: info?.grade || gradeSel.value,
+            chapterId: info?.chapter?.id || initChapterId,
+            lessonId: chosenLessonId,
+            visible: m.querySelector('#mdlVisible').checked,
+            thumbnail: selectedThumbnail,
+          };
+          if (selectedHtmlText.trim()) {
+            payload.html = selectedHtmlText;
+            payload.fileName = selectedFileName || 'model.html';
+          }
+          try {
+            if (existing) {
+              await api.updateModel(existing.id, payload);
+              showToast('Đã cập nhật mô hình thành công!', 'success');
+            } else {
+              await api.uploadModel(payload);
+              showToast(`Đã tải lên mô hình "${name}"!`, 'success');
+            }
+            closeModal();
+            state.grade = payload.grade;
+            await refresh(false);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      },
+    });
+  }
+
+  // =========================================================
+  // EVENTS
+  // =========================================================
+  function bindEvents(inManage) {
+    rootEl.querySelectorAll('[data-lab-grade]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.grade = btn.dataset.labGrade;
         render();
       });
     });
 
-    rootEl.querySelector('#btnReloadModel')?.addEventListener('click', () => {
-      const iframe = rootEl.querySelector('#labIframe');
-      if (iframe && active) {
-        iframe.srcdoc = '';
-        requestAnimationFrame(() => {
-          iframe.srcdoc = active.html;
+    rootEl.querySelector('#btnSwitchManage')?.addEventListener('click', () => {
+      state.mode = 'manage';
+      render();
+    });
+
+    rootEl.querySelector('#btnSwitchShowcase')?.addEventListener('click', () => {
+      state.mode = 'showcase';
+      render();
+    });
+
+    if (!inManage) return;
+
+    rootEl.querySelector('#labSearchInput')?.addEventListener('input', (e) => {
+      state.search = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const inp = rootEl.querySelector('#labSearchInput');
+      if (inp) {
+        inp.focus();
+        if (typeof pos === 'number') inp.setSelectionRange(pos, pos);
+      }
+    });
+
+    rootEl.querySelectorAll('[data-toggle-ch]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const chId = btn.dataset.toggleCh;
+        if (state.collapsedChapters.has(chId)) state.collapsedChapters.delete(chId);
+        else state.collapsedChapters.add(chId);
+        btn.closest('.lab-chapter-acc')?.classList.toggle('is-collapsed', state.collapsedChapters.has(chId));
+      });
+    });
+
+    rootEl.querySelectorAll('[data-upload-lesson]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        openModelModal({
+          grade: state.grade,
+          chapterId: btn.dataset.uploadChapter,
+          lessonId: btn.dataset.uploadLesson,
         });
-      }
+      });
     });
 
-    rootEl.querySelector('#btnFullscreenModel')?.addEventListener('click', () => {
-      const wrap = rootEl.querySelector('#labIframeWrap');
-      if (wrap?.requestFullscreen) wrap.requestFullscreen();
+    // Quick drag-and-drop .html directly onto any lesson row!
+    rootEl.querySelectorAll('[data-drop-lesson]').forEach((row) => {
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        row.classList.add('is-drop-hover');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('is-drop-hover'));
+      row.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        row.classList.remove('is-drop-hover');
+        const files = Array.from(e.dataTransfer?.files || []).filter((f) => /\.html?$/i.test(f.name));
+        if (files.length === 0) return;
+        const lessonId = row.dataset.dropLesson;
+        const chapterId = row.dataset.dropChapter;
+        let uploaded = 0;
+        for (const f of files) {
+          const html = await f.text();
+          const tm = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          const name = tm ? tm[1].trim() : f.name.replace(/\.html?$/i, '');
+          try {
+            await api.uploadModel({
+              name,
+              fileName: f.name,
+              grade: state.grade,
+              chapterId,
+              lessonId,
+              visible: true,
+              thumbnail: '',
+              html,
+            });
+            uploaded++;
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        }
+        if (uploaded > 0) {
+          showToast(`Đã tải lên ${uploaded} mô hình vào bài học!`, 'success');
+          await refresh(false);
+        }
+      });
     });
 
-    rootEl.querySelector('#btnOpenNewTab')?.addEventListener('click', () => {
-      if (!active) return;
-      const blob = new Blob([active.html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener');
+    // Toggle visible / hidden
+    rootEl.querySelectorAll('[data-toggle-vis]').forEach((chk) => {
+      chk.addEventListener('change', async () => {
+        const id = chk.dataset.toggleVis;
+        const nextVis = chk.checked;
+        try {
+          await api.updateModel(id, { visible: nextVis });
+          const target = state.models.find((m) => m.id === id);
+          if (target) target.visible = nextVis;
+          showToast(nextVis ? 'Đã hiển thị mô hình.' : 'Đã ẩn mô hình.', 'success');
+          render();
+        } catch (err) {
+          chk.checked = !nextVis;
+          showToast(err.message, 'error');
+        }
+      });
     });
 
-    rootEl.querySelector('#btnDeleteModel')?.addEventListener('click', async () => {
-      if (!active || active.isBuiltin) return;
-      try {
-        await api.deleteModel(active.id);
-        showToast(`Đã xóa mô hình "${active.name}".`, 'success');
-        await init();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+    rootEl.querySelectorAll('[data-edit-model]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const m = state.models.find((x) => x.id === btn.dataset.editModel);
+        if (m) openModelModal({ existing: m });
+      });
     });
-  }
 
-  async function handleFiles(fileList) {
-    let added = 0;
-    for (const file of Array.from(fileList)) {
-      if (!/\.html?$/i.test(file.name)) {
-        showToast(`Bỏ qua "${file.name}" (chỉ hỗ trợ file .html).`, 'error');
-        continue;
-      }
-      const html = await file.text();
-      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const niceName = titleMatch ? titleMatch[1].trim() : file.name.replace(/\.html?$/i, '');
-      try {
-        const res = await api.uploadModel({ name: niceName, fileName: file.name, html });
-        if (res.model) state.activeId = res.model.id;
-        added++;
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    }
-    if (added > 0) {
-      showToast(`Đã tải lên ${added} mô hình HTML lên máy chủ!`, 'success');
-      await init();
-    }
+    rootEl.querySelectorAll('[data-del-model]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const m = state.models.find((x) => x.id === btn.dataset.delModel);
+        if (!m) return;
+        openModal({
+          title: 'Xác nhận xóa mô hình',
+          bodyHtml: `<p style="margin:0;">Bạn có chắc chắn muốn xóa mô hình <strong>${escapeHtml(m.name)}</strong>?</p>`,
+          footerHtml: `
+            <button class="btn btn-secondary" id="mCancelDelM">Hủy</button>
+            <button class="btn btn-danger-outline" id="mOkDelM">Xóa mô hình</button>
+          `,
+          onMount: (modalEl) => {
+            modalEl.querySelector('#mCancelDelM').addEventListener('click', closeModal);
+            modalEl.querySelector('#mOkDelM').addEventListener('click', async () => {
+              closeModal();
+              try {
+                await api.deleteModel(m.id);
+                showToast('Đã xóa mô hình.', 'success');
+                await refresh(false);
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            });
+          },
+        });
+      });
+    });
   }
 
   return { init };

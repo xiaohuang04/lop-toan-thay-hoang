@@ -1,9 +1,9 @@
-import { api } from './api.js';
+import { api } from './api.js?v=20261122e';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
   renderPdfBase64AllPagesToPngs,
-} from './pdf-reader.js';
+} from './pdf-reader.js?v=20261122e';
 import {
   escapeHtml,
   escapeAttr,
@@ -16,7 +16,12 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js';
+} from './exam-engine.js?v=20261122e';
+import {
+  renderFeedList,
+  bindFeedEvents,
+  openPostComposerModal,
+} from './classroom-feed.js?v=20261122e';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -62,16 +67,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
 
   const state = {
-    subTab: 'exams', // 'exams' | 'assignments' | 'students' | 'submissions'
+    subTab: 'feed', // 'feed' | 'exams' | 'assignments' | 'students' | 'submissions'
     data: {
       user: null,
       exams: [],
       students: [],
       assignments: [],
       submissions: [],
+      posts: [],
     },
     editingExam: null, // null | cloned exam draft
     editorPartTab: 'part1', // 'part1' | 'part2' | 'part3'
+    feedClassFilter: 'all',
+    feedSearch: '',
     subFilterAsg: 'all',
     subSearch: '',
     inRunner: false,
@@ -79,11 +87,52 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
   async function refresh() {
     try {
-      state.data = await api.adminOverview();
+      const res = await api.adminOverview();
+      state.data = {
+        ...res,
+        exams: res.exams || [],
+        students: res.students || [],
+        assignments: res.assignments || [],
+        submissions: res.submissions || [],
+        posts: res.posts || [],
+      };
       if (!state.inRunner) render();
     } catch (err) {
       showToast(err.message || 'Không thể tải dữ liệu quản trị.', 'error');
     }
+  }
+
+  function getKnownClasses() {
+    const set = new Set();
+    (state.data.students || []).forEach((s) => {
+      if (s.className && s.className.trim()) set.add(s.className.trim());
+    });
+    (state.data.posts || []).forEach((p) => {
+      (p.targetClasses || []).forEach((c) => {
+        if (c && c.trim()) set.add(c.trim());
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }
+
+  function filterAdminPosts(posts) {
+    const clsFilter = state.feedClassFilter;
+    const q = state.feedSearch.trim().toLowerCase();
+    return posts.filter((p) => {
+      if (clsFilter === '__all_classes__') {
+        if (!p.targetAll) return false;
+      } else if (clsFilter !== 'all') {
+        if (!p.targetAll && !(p.targetClasses || []).includes(clsFilter)) return false;
+      }
+      if (q) {
+        const attNames = (p.attachments || [])
+          .map((a) => `${a.title || ''} ${a.fileName || ''} ${a.url || ''}`)
+          .join(' ');
+        const hay = `${p.title || ''} ${p.content || ''} ${attNames}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
   }
 
   function render() {
@@ -95,8 +144,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       return;
     }
 
-    const { exams, students, assignments, submissions, storageMode, storageError } = state.data;
-    const openAssignments = assignments.filter((a) => !getDeadlineStatus(a.dueAt).expired).length;
+    const { exams, students, assignments, submissions, posts, storageMode, storageError } = state.data;
     const isCloud = storageMode === 'supabase';
 
     rootEl.innerHTML = `
@@ -104,21 +152,24 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <div>
           <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
             <div class="hero-eyebrow" style="margin-bottom:0;">Bảng điều khiển Giáo viên</div>
-            <div class="hero-eyebrow" title="${escapeAttr(storageError || '')}" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : storageError ? 'rgba(225, 29, 72, 0.28)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : storageError ? 'rgba(254, 205, 211, 0.6)' : 'rgba(255,255,255,0.2)'};">
-              ${isCloud ? '● Supabase Cloud (Lưu vĩnh viễn)' : storageError ? '⚠ Lỗi kết nối Supabase (đang dùng tạm cục bộ)' : '○ Lưu trữ cục bộ'}
-            </div>
+            <button type="button" id="btnOpenStorageHero" class="hero-eyebrow hero-eyebrow-btn" title="${escapeAttr(storageError || 'Bấm để xem & quản lý dung lượng bộ nhớ Supabase')}" style="margin-bottom:0; background:${isCloud ? 'rgba(16, 185, 129, 0.22)' : storageError ? 'rgba(225, 29, 72, 0.28)' : 'rgba(255,255,255,0.12)'}; border-color:${isCloud ? 'rgba(110, 231, 183, 0.5)' : storageError ? 'rgba(254, 205, 211, 0.6)' : 'rgba(255,255,255,0.2)'};">
+              ${isCloud ? '● Supabase Cloud • Quản lý bộ nhớ' : storageError ? '⚠ Lỗi Supabase • Kiểm tra bộ nhớ' : '○ Lưu trữ cục bộ • Quản lý bộ nhớ'}
+            </button>
           </div>
           <h1 style="margin-bottom:0;">Xin chào thầy Hoàng!</h1>
         </div>
         <div class="kpi-strip">
+          <div class="kpi-box"><div class="kpi-num">${posts.length}</div><div class="kpi-lbl">Bài giảng &amp; Tin</div></div>
           <div class="kpi-box"><div class="kpi-num">${exams.length}</div><div class="kpi-lbl">Đề thi</div></div>
-          <div class="kpi-box"><div class="kpi-num">${openAssignments}</div><div class="kpi-lbl">Đợt giao đang mở</div></div>
           <div class="kpi-box"><div class="kpi-num">${students.length}</div><div class="kpi-lbl">Học sinh</div></div>
           <div class="kpi-box"><div class="kpi-num">${submissions.length}</div><div class="kpi-lbl">Lượt nộp bài</div></div>
         </div>
       </div>
 
       <div class="subtab-bar">
+        <button class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}" data-subtab="feed">
+          Bảng tin &amp; Tài liệu <span class="badge badge-neutral">${posts.length}</span>
+        </button>
         <button class="subtab-btn ${state.subTab === 'exams' ? 'active' : ''}" data-subtab="exams">
           Ngân hàng đề thi <span class="badge badge-neutral">${exams.length}</span>
         </button>
@@ -134,6 +185,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       </div>
 
       <div id="teacherSubContent">
+        ${state.subTab === 'feed' ? renderFeedSection() : ''}
         ${state.subTab === 'exams' ? renderExamsSection() : ''}
         ${state.subTab === 'assignments' ? renderAssignmentsSection() : ''}
         ${state.subTab === 'students' ? renderStudentsSection() : ''}
@@ -143,6 +195,59 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
     bindDashboardEvents();
     renderMath(rootEl);
+  }
+
+  // =========================================================
+  // SUB-TAB 0: CLASSROOM NEWSFEED & MATERIALS
+  // =========================================================
+  function renderFeedSection() {
+    const posts = state.data.posts || [];
+    const classes = getKnownClasses();
+    const filtered = filterAdminPosts(posts);
+
+    return `
+      <div class="section-toolbar">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn btn-primary" id="btnNewPost">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Đăng bài giảng / tài liệu
+          </button>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <select id="selFeedClassFilter" class="input-control" style="width:auto; min-width:170px;">
+            <option value="all" ${state.feedClassFilter === 'all' ? 'selected' : ''}>Tất cả bài đăng (${posts.length})</option>
+            <option value="__all_classes__" ${state.feedClassFilter === '__all_classes__' ? 'selected' : ''}>Gửi tất cả các lớp</option>
+            ${classes
+              .map(
+                (c) =>
+                  `<option value="${escapeAttr(c)}" ${state.feedClassFilter === c ? 'selected' : ''}>Lớp ${escapeHtml(c)}</option>`
+              )
+              .join('')}
+          </select>
+          <input
+            id="inpTeacherFeedSearch"
+            type="search"
+            class="input-control"
+            style="width:230px;"
+            placeholder="Tìm bài viết, tài liệu..."
+            value="${escapeAttr(state.feedSearch)}"
+          />
+        </div>
+      </div>
+
+      <div id="teacherFeedList">
+        ${renderFeedList({
+          posts: filtered,
+          isAdmin: true,
+          emptyTitle: posts.length ? 'Không tìm thấy bài viết phù hợp' : 'Chưa có bài đăng nào trong lớp học',
+          emptyText: posts.length
+            ? 'Thử chọn lớp khác hoặc đổi từ khóa tìm kiếm.'
+            : 'Nhấn <strong>"Đăng bài giảng / tài liệu"</strong> để đăng video YouTube, handout PDF, hình ảnh hoặc đường link cho học sinh.',
+        })}
+      </div>
+    `;
   }
 
   // =========================================================
@@ -168,7 +273,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         ${
           exams.length === 0
             ? `<div class="card panel-card" style="text-align:center; padding:40px; color:var(--text-muted);">
-                Chưa có đề thi nào. Nhấn <strong>"+ Tạo đề thi mới"</strong> hoặc <strong>"Nạp file JSON"</strong> để bắt đầu.
+                Chưa có đề thi nào. Nhấn <strong>"Nạp đề LaTeX (ex_test)"</strong> hoặc <strong>"+ Tạo đề thủ công"</strong> để bắt đầu.
               </div>`
             : exams
                 .map((ex) => {
@@ -1242,11 +1347,101 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   // EVENT BINDINGS FOR TEACHER DASHBOARD
   // =========================================================
   function bindDashboardEvents() {
+    rootEl.querySelector('#btnOpenStorageHero')?.addEventListener('click', () => {
+      uiHelpers.openStorageModal?.();
+    });
+
     rootEl.querySelectorAll('[data-subtab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.subTab = btn.dataset.subtab;
         render();
       });
+    });
+
+    // Feed tab events
+    const wireAdminFeedList = (container) => {
+      if (!container) return;
+      bindFeedEvents(container, {
+        uiHelpers,
+        onTogglePin: async (postId) => {
+          const post = (state.data.posts || []).find((p) => p.id === postId);
+          if (!post) return;
+          try {
+            await api.updatePost(post.id, { pinned: !post.pinned });
+            showToast(post.pinned ? 'Đã bỏ ghim bài viết.' : 'Đã ghim bài viết lên đầu.', 'success');
+            await refresh();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+        onEdit: (postId) => {
+          const post = (state.data.posts || []).find((p) => p.id === postId);
+          if (!post) return;
+          openPostComposerModal({
+            existing: post,
+            classes: getKnownClasses(),
+            uiHelpers,
+            onSaved: refresh,
+          });
+        },
+        onDelete: (postId) => {
+          const post = (state.data.posts || []).find((p) => p.id === postId);
+          if (!post) return;
+          openModal({
+            title: 'Xác nhận xóa bài viết',
+            bodyHtml: `<p style="margin:0;">Thầy có chắc muốn xóa bài <strong>${escapeHtml(post.title || 'không tiêu đề')}</strong> và các tệp đính kèm không?</p>`,
+            footerHtml: `
+              <button class="btn btn-secondary" id="mCancelDelPost">Hủy</button>
+              <button class="btn btn-danger-outline" id="mOkDelPost">Xóa bài viết</button>
+            `,
+            onMount: (m) => {
+              m.querySelector('#mCancelDelPost').addEventListener('click', closeModal);
+              m.querySelector('#mOkDelPost').addEventListener('click', async () => {
+                closeModal();
+                try {
+                  await api.deletePost(post.id);
+                  showToast('Đã xóa bài viết.', 'success');
+                  await refresh();
+                } catch (err) {
+                  showToast(err.message, 'error');
+                }
+              });
+            },
+          });
+        },
+      });
+    };
+
+    wireAdminFeedList(rootEl.querySelector('#teacherFeedList'));
+
+    rootEl.querySelector('#btnNewPost')?.addEventListener('click', () => {
+      openPostComposerModal({
+        existing: null,
+        classes: getKnownClasses(),
+        uiHelpers,
+        onSaved: refresh,
+      });
+    });
+
+    rootEl.querySelector('#selFeedClassFilter')?.addEventListener('change', (e) => {
+      state.feedClassFilter = e.target.value;
+      render();
+    });
+
+    rootEl.querySelector('#inpTeacherFeedSearch')?.addEventListener('input', (e) => {
+      state.feedSearch = e.target.value;
+      const listEl = rootEl.querySelector('#teacherFeedList');
+      if (!listEl) return;
+      const posts = state.data.posts || [];
+      const filtered = filterAdminPosts(posts);
+      listEl.innerHTML = renderFeedList({
+        posts: filtered,
+        isAdmin: true,
+        emptyTitle: 'Không tìm thấy bài viết phù hợp',
+        emptyText: 'Thử chọn lớp khác hoặc đổi từ khóa tìm kiếm.',
+      });
+      wireAdminFeedList(listEl);
+      renderMath(listEl);
     });
 
     // Exams tab events
@@ -1781,7 +1976,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       examRunner.cleanup();
       state.editingExam = null;
       state.inRunner = false;
-      state.subTab = 'exams';
+      state.subTab = 'feed';
       refresh();
     },
   };

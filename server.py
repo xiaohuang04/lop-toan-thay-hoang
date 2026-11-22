@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from parsers import parse_docx_bytes, parse_extest_latex, parse_structured_exam_text
 from storage import StorageBackend
@@ -232,6 +232,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE_DIR), **kwargs)
 
+    def end_headers(self):
+        if (
+            not self.path.startswith("/api/")
+            and not self.path.startswith("/model/")
+            and not self.path.startswith("/file/")
+        ):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
+
     def log_message(self, format, *args):
         # Clean concise server log
         sys.stdout.write(f"[EduLab] {self.address_string()} - {format % args}\n")
@@ -250,8 +261,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or "0")
         if length <= 0:
             return {}
-        if length > 25 * 1024 * 1024:
-            raise ValueError("Dữ liệu gửi lên vượt quá giới hạn 25MB.")
+        if length > 32 * 1024 * 1024:
+            raise ValueError("Dữ liệu gửi lên vượt quá giới hạn cho phép (tối đa 20MB mỗi tệp).")
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
@@ -284,6 +295,46 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+
+        # Full-viewport standalone HTML model page (opened in separate tab!)
+        if path.startswith("/model/"):
+            model_id = path.split("/model/", 1)[1].strip("/")
+            with LOCK:
+                model = STORE.get_model_by_id(model_id)
+            if not model:
+                self.send_error(404, "Không tìm thấy mô hình tương tác.")
+                return
+            html_bytes = (model.get("html") or "").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html_bytes)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(html_bytes)
+            return
+
+        # Classroom uploaded files (PDF handout inline viewer / image / download)
+        if path.startswith("/file/"):
+            file_id = path.split("/file/", 1)[1].strip("/")
+            qs = parse_qs(parsed.query)
+            force_dl = qs.get("download", ["0"])[0] == "1"
+            with LOCK:
+                meta, raw_bytes = STORE.get_file(file_id)
+            if not meta or raw_bytes is None:
+                self.send_error(404, "Không tìm thấy tệp đính kèm.")
+                return
+            fname = meta.get("fileName", "document")
+            mime = meta.get("mimeType", "application/octet-stream")
+            disp = "attachment" if force_dl else "inline"
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(raw_bytes)))
+            self.send_header("Content-Disposition", f"{disp}; filename*=UTF-8''{quote(fname)}")
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(raw_bytes)
+            return
+
         if not path.startswith("/api/"):
             if self.block_private_paths(path):
                 return
@@ -306,15 +357,28 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 return self.send_json(200, {"user": public_user(user)})
 
             if path == "/api/models":
-                return self.send_json(200, {"models": STORE.list_models()})
+                all_models = STORE.list_models()
+                if not user or user.get("role") != "admin":
+                    all_models = [m for m in all_models if m.get("visible", True)]
+                return self.send_json(200, {"models": all_models})
 
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
+
+            if path == "/api/admin/storage":
+                if user["role"] != "admin":
+                    return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền xem dung lượng."})
+                return self.send_json(200, STORE.get_storage_stats(db))
 
             if path == "/api/admin/overview":
                 if user["role"] != "admin":
                     return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền truy cập."})
                 students = [public_user(u) for u in db["users"] if u["role"] == "student"]
+                posts = sorted(
+                    db.get("posts", []),
+                    key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
+                    reverse=True,
+                )
                 return self.send_json(200, {
                     "user": public_user(user),
                     "storageMode": STORE.mode,
@@ -323,6 +387,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "students": students,
                     "assignments": db["assignments"],
                     "submissions": db["submissions"],
+                    "posts": posts,
                 })
 
             if path == "/api/student/dashboard":
@@ -352,11 +417,24 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                         "mySubmissions": asg_subs,
                     })
 
+                stu_class = str(user.get("className", "")).strip().lower()
+                visible_posts = [
+                    p
+                    for p in db.get("posts", [])
+                    if p.get("targetAll", True)
+                    or any(str(c).strip().lower() == stu_class for c in p.get("targetClasses", []))
+                ]
+                visible_posts.sort(
+                    key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
+                    reverse=True,
+                )
+
                 return self.send_json(200, {
                     "user": public_user(user),
                     "assignments": assigned_list,
                     "submissions": sorted(my_subs, key=lambda x: x["submittedAt"], reverse=True),
                     "examsById": exams_by_id,
+                    "posts": visible_posts,
                 })
 
             return self.send_json(404, {"error": "API không tồn tại."})
@@ -600,11 +678,82 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "id": model_id,
                     "name": name,
                     "fileName": file_name,
+                    "grade": str(body.get("grade", "12")),
+                    "chapterId": str(body.get("chapterId", "12-c1")),
+                    "lessonId": str(body.get("lessonId", "12-b4")),
+                    "visible": bool(body.get("visible", True)),
+                    "thumbnail": str(body.get("thumbnail", "")),
                     "addedAt": datetime.now().strftime("%d/%m/%Y"),
                     "isBuiltin": False,
                 }
-                saved_model = STORE.add_model(meta, html_content)
+                try:
+                    saved_model = STORE.add_model(meta, html_content)
+                except Exception as e:
+                    return self.send_json(500, {"error": f"Lỗi lưu mô hình lên máy chủ: {e}"})
                 return self.send_json(201, {"model": saved_model})
+
+            # Upload Classroom Attachment File (PDF handout, image, doc...)
+            if path == "/api/admin/files":
+                fname = str(body.get("fileName", "document.pdf")).strip()
+                mime = str(body.get("mimeType", "application/octet-stream")).strip()
+                b64 = str(body.get("base64Data", ""))
+                if not b64:
+                    return self.send_json(400, {"error": "Thiếu dữ liệu tệp tải lên."})
+                try:
+                    raw_bytes = base64.b64decode(b64)
+                except Exception:
+                    return self.send_json(400, {"error": "Dữ liệu tệp không hợp lệ."})
+                if len(raw_bytes) > 20 * 1024 * 1024:
+                    return self.send_json(400, {"error": "Kích thước tệp vượt quá giới hạn 20MB."})
+                fid = gen_id("file")
+                meta = {
+                    "id": fid,
+                    "fileName": fname,
+                    "mimeType": mime,
+                    "size": len(raw_bytes),
+                    "url": f"/file/{fid}",
+                    "uploadedAt": now_iso(),
+                }
+                try:
+                    STORE.add_file(meta, raw_bytes)
+                except Exception as e:
+                    return self.send_json(500, {"error": f"Lỗi lưu tệp đính kèm lên máy chủ: {e}"})
+                return self.send_json(201, {"file": meta})
+
+            # Cleanup orphan uploaded files not referenced by any post (Admin)
+            if path == "/api/admin/storage/cleanup-orphans":
+                used_ids = set()
+                for p in db.get("posts", []):
+                    for att in p.get("attachments", []):
+                        if att.get("fileId"):
+                            used_ids.add(att["fileId"])
+                orphan_ids = [f["id"] for f in db.get("files", []) if f["id"] not in used_ids]
+                for fid in orphan_ids:
+                    STORE.delete_file(fid)
+                return self.send_json(200, {"removedCount": len(orphan_ids), "stats": STORE.get_storage_stats(db)})
+
+            # Create Classroom Newsfeed Post (Admin)
+            if path == "/api/admin/posts":
+                title = str(body.get("title", "")).strip()
+                content = str(body.get("content", "")).strip()
+                attachments = body.get("attachments", [])
+                if not title and not content and not attachments:
+                    return self.send_json(400, {"error": "Vui lòng nhập nội dung hoặc đính kèm ít nhất 1 tài liệu/video."})
+                post = {
+                    "id": gen_id("post"),
+                    "title": title,
+                    "content": content,
+                    "authorName": user.get("fullName", "Lê Viết Hoàng"),
+                    "targetAll": bool(body.get("targetAll", True)),
+                    "targetClasses": list(body.get("targetClasses", [])),
+                    "pinned": bool(body.get("pinned", False)),
+                    "attachments": attachments if isinstance(attachments, list) else [],
+                    "createdAt": now_iso(),
+                    "updatedAt": now_iso(),
+                }
+                db.setdefault("posts", []).insert(0, post)
+                save_db(db, keys=["posts"])
+                return self.send_json(201, {"post": post})
 
             return self.send_json(404, {"error": "API không tồn tại."})
 
@@ -731,6 +880,36 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 save_db(db, keys=["assignments"])
                 return self.send_json(200, {"assignment": asg})
 
+            # Update Classroom Newsfeed Post (Admin)
+            if path.startswith("/api/admin/posts/"):
+                post_id = path.split("/api/admin/posts/", 1)[1]
+                post = next((p for p in db.get("posts", []) if p["id"] == post_id), None)
+                if not post:
+                    return self.send_json(404, {"error": "Không tìm thấy bài viết."})
+                if "title" in body:
+                    post["title"] = str(body["title"]).strip()
+                if "content" in body:
+                    post["content"] = str(body["content"]).strip()
+                if "targetAll" in body:
+                    post["targetAll"] = bool(body["targetAll"])
+                if "targetClasses" in body:
+                    post["targetClasses"] = list(body["targetClasses"])
+                if "pinned" in body:
+                    post["pinned"] = bool(body["pinned"])
+                if "attachments" in body and isinstance(body["attachments"], list):
+                    post["attachments"] = body["attachments"]
+                post["updatedAt"] = now_iso()
+                save_db(db, keys=["posts"])
+                return self.send_json(200, {"post": post})
+
+            # Update HTML Model metadata / visibility / file (Admin)
+            if path.startswith("/api/models/"):
+                model_id = path.split("/api/models/", 1)[1]
+                updated = STORE.update_model(model_id, body)
+                if not updated:
+                    return self.send_json(404, {"error": "Không tìm thấy mô hình."})
+                return self.send_json(200, {"model": updated})
+
             return self.send_json(404, {"error": "API không tồn tại."})
 
     def do_DELETE(self):
@@ -767,6 +946,31 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["assignments"] = [a for a in db["assignments"] if a["id"] != asg_id]
                 save_db(db)
                 return self.send_json(200, {"ok": True})
+
+            if path.startswith("/api/admin/posts/"):
+                post_id = path.split("/api/admin/posts/", 1)[1]
+                target = next((p for p in db.get("posts", []) if p["id"] == post_id), None)
+                if target:
+                    for att in target.get("attachments", []):
+                        if att.get("fileId"):
+                            STORE.delete_file(att["fileId"])
+                db["posts"] = [p for p in db.get("posts", []) if p["id"] != post_id]
+                save_db(db, keys=["posts"])
+                return self.send_json(200, {"ok": True})
+
+            if path.startswith("/api/admin/files/"):
+                file_id = path.split("/api/admin/files/", 1)[1]
+                STORE.delete_file(file_id)
+                posts_changed = False
+                for p in db.get("posts", []):
+                    orig_len = len(p.get("attachments", []))
+                    if orig_len:
+                        p["attachments"] = [a for a in p["attachments"] if a.get("fileId") != file_id]
+                        if len(p["attachments"]) != orig_len:
+                            posts_changed = True
+                if posts_changed:
+                    save_db(db, keys=["posts"])
+                return self.send_json(200, {"ok": True, "stats": STORE.get_storage_stats(db)})
 
             if path.startswith("/api/models/"):
                 model_id = path.split("/api/models/", 1)[1]
