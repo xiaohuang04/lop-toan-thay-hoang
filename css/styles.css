@@ -3688,3 +3688,510 @@ body.test-lock-active .exam-sidebar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* =========================================================
+   PASSWORD VISIBILITY TOGGLE (LOGIN SCREEN)
+   ========================================================= */
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrap .input-control {
+  padding-right: 44px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.password-toggle-btn:hover {
+  background: var(--surface-subtle);
+  color: var(--primary);
+}
+
+
+/* =========================================================
+   MOBILE & TABLET RESPONSIVE OPTIMIZATION
+   ========================================================= */
+html,
+body {
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
+}
+
+img,
+video,
+iframe {
+  max-width: 100%;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 4px 0;
+}
+
+/* Tablet & Mobile Header: clean 2-row layout (Brand + Account on row 1, full-width Tabs on row 2) */
+@media (max-width: 768px) {
+  .app-header {
+    height: auto;
+  }
+
+  .header-inner {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    row-gap: 8px;
+    column-gap: 10px;
+  }
+
+  .brand {
+    gap: 9px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .brand-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    flex-shrink: 0;
+  }
+
+  .brand-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .brand-name {
+    font-size: 0.94rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-user-bar {
+    flex-shrink: 0;
+  }
+
+  .user-menu-trigger {
+    padding: 5px 9px 5px 6px;
+    gap: 5px;
+  }
+
+  .user-chip-name {
+    display: none;
+  }
+
+  .main-tabs {
+    order: 3;
+    width: 100%;
+    padding: 4px;
+    border-radius: 12px;
+    gap: 4px;
+  }
+
+  .main-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.84rem;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .main-tab svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  .app-main {
+    padding: 14px 12px 44px;
+  }
+}
+
+/* Mobile Content Layout (Phones <= 680px) */
+@media (max-width: 680px) {
+  /* Prevent iOS Safari auto-zoom on input focus */
+  .input-control,
+  .short-ans-input,
+  .feed-search-box input,
+  .lab-search-box input,
+  textarea.input-control,
+  select.input-control {
+    font-size: 16px;
+  }
+
+  /* Auth screen */
+  .auth-screen {
+    padding: 16px;
+  }
+
+  .auth-card {
+    padding: 24px 18px;
+    border-radius: 18px;
+  }
+
+  .auth-title {
+    font-size: 1.25rem;
+  }
+
+  /* Hero Banner & KPIs */
+  .role-hero {
+    padding: 18px 16px;
+    border-radius: 16px;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .role-hero h1 {
+    font-size: 1.26rem;
+  }
+
+  .hero-eyebrow {
+    font-size: 0.68rem;
+    padding: 4px 9px;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .kpi-box {
+    padding: 10px 8px;
+    border-radius: 12px;
+  }
+
+  .kpi-num {
+    font-size: 1.28rem;
+  }
+
+  .kpi-lbl {
+    font-size: 0.72rem;
+  }
+
+  /* Horizontal swipeable sub-tab bar (no awkward multi-row stacking) */
+  .subtab-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+
+  .subtab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subtab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.83rem;
+  }
+
+  /* Toolbars & Filters */
+  .section-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .section-toolbar > div {
+    width: 100%;
+  }
+
+  .section-toolbar .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .section-toolbar select.input-control,
+  .section-toolbar input.input-control {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Exam & Assignment Cards */
+  .exam-card {
+    padding: 16px 14px;
+    border-radius: 14px;
+  }
+
+  .exam-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .exam-card-title {
+    font-size: 0.98rem;
+  }
+
+  .exam-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .exam-card-footer > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .exam-card-footer > div:last-child .btn {
+    flex: 1;
+    min-height: 38px;
+  }
+
+  /* Classroom Newsfeed Cards */
+  .feed-toolbar {
+    margin-bottom: 12px;
+  }
+
+  .feed-post-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .feed-post-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .feed-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 0.82rem;
+  }
+
+  .feed-admin-actions {
+    justify-content: flex-end;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .feed-post-title {
+    font-size: 1rem;
+  }
+
+  .feed-post-body {
+    font-size: 0.9rem;
+  }
+
+  .feed-video-caption-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  /* Active Exam Room (Phòng thi trên điện thoại) */
+  .exam-topbar {
+    padding: 12px 14px;
+    border-radius: 14px;
+    gap: 10px;
+  }
+
+  .exam-topbar-info h2 {
+    font-size: 0.96rem;
+  }
+
+  .question-card {
+    padding: 16px 14px;
+    border-radius: 14px;
+  }
+
+  .question-stem {
+    font-size: 0.94rem;
+  }
+
+  .mcq-option {
+    padding: 12px;
+    min-height: 46px;
+  }
+
+  .tf-row {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .tf-btn-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .tf-btn {
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  .omr-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .omr-cell {
+    height: 40px;
+    font-size: 0.82rem;
+  }
+
+  /* Interactive 3D Lab */
+  .lab-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .lab-grade-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .lab-grade-btn {
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 0.82rem;
+  }
+
+  .lab-topbar-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lab-search-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .lab-chapter-heading h2 {
+    font-size: 0.98rem;
+  }
+
+  .lab-manage-lesson-head,
+  .lab-manage-model-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .lab-manage-model-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* Data Tables */
+  .data-table th,
+  .data-table td {
+    padding: 10px 11px;
+    font-size: 0.82rem;
+  }
+
+  /* Modals: full-width responsive dialog with fixed header/footer & smooth scroll body */
+  .modal-backdrop {
+    padding: 10px;
+    align-items: flex-end;
+  }
+
+  .modal-card,
+  .modal-card.modal-wide {
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+    flex-shrink: 0;
+  }
+
+  .modal-header h3 {
+    font-size: 0.98rem;
+  }
+
+  .modal-body {
+    padding: 14px 16px;
+    max-height: none;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .modal-footer .btn {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  /* Composer & Assignment modals on mobile */
+  .composer-add-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .composer-add-row .input-control,
+  .composer-add-row .btn {
+    width: 100%;
+    flex: none !important;
+  }
+
+  .composer-upload-zone {
+    padding: 12px;
+  }
+
+  .asg-type-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .storage-item-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Toast notifications */
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .toast {
+    max-width: none;
+    width: 100%;
+  }
+}

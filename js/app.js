@@ -1,15 +1,16 @@
-import { api, setToken } from './api.js?v=20261122f';
-import { createExamRunner } from './exam-runner.js?v=20261122f';
-import { createTeacherController } from './teacher-ui.js?v=20261122f';
-import { createStudentController } from './student-ui.js?v=20261122f';
-import { createHtmlLabController } from './html-lab.js?v=20261122f';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122f';
+import { api, setToken } from './api.js?v=20261122g';
+import { createExamRunner } from './exam-runner.js?v=20261122g';
+import { createTeacherController } from './teacher-ui.js?v=20261122g';
+import { createStudentController } from './student-ui.js?v=20261122g';
+import { createHtmlLabController } from './html-lab.js?v=20261122g';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122g';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
 const loginForm = document.getElementById('loginForm');
 const loginUsername = document.getElementById('loginUsername');
 const loginPassword = document.getElementById('loginPassword');
+const btnToggleLoginPw = document.getElementById('btnToggleLoginPw');
 const loginError = document.getElementById('loginError');
 
 const userRoleBadge = document.getElementById('userRoleBadge');
@@ -576,6 +577,20 @@ menuItemChangePw?.addEventListener('click', () => {
   });
 });
 
+function setLoginPasswordVisible(visible) {
+  if (!loginPassword || !btnToggleLoginPw) return;
+  loginPassword.type = visible ? 'text' : 'password';
+  btnToggleLoginPw.querySelector('.pw-icon-show')?.classList.toggle('hidden', visible);
+  btnToggleLoginPw.querySelector('.pw-icon-hide')?.classList.toggle('hidden', !visible);
+  const lbl = visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu';
+  btnToggleLoginPw.setAttribute('aria-label', lbl);
+  btnToggleLoginPw.setAttribute('title', lbl);
+}
+
+btnToggleLoginPw?.addEventListener('click', () => {
+  setLoginPasswordVisible(loginPassword.type === 'password');
+});
+
 function showAuthScreen() {
   examRunner.cleanup();
   currentUser = null;
@@ -584,6 +599,7 @@ function showAuthScreen() {
   authScreen.classList.remove('hidden');
   loginError.classList.add('hidden');
   loginPassword.value = '';
+  setLoginPasswordVisible(false);
 }
 
 async function enterApp(user) {
