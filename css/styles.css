@@ -3998,6 +3998,144 @@ body.test-lock-active .exam-sidebar {
 
 
 /* =========================================================
+   MODERN FLOATING OVERLAY SCROLLBAR & THIN INNER SCROLLBARS
+   ========================================================= */
+/* Hide clunky native Windows viewport scrollbar so page stays 100% centered (0px gutter) */
+@media (hover: hover) and (pointer: fine) {
+  html {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  html::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+/* Floating macOS-style overlay scrollbar rail & thumb */
+.floating-scrollbar {
+  position: fixed;
+  top: 4px;
+  right: 3px;
+  bottom: 4px;
+  width: 12px;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  user-select: none;
+}
+
+.floating-scrollbar.is-scrollable {
+  pointer-events: auto;
+}
+
+.floating-scrollbar.is-visible,
+.floating-scrollbar.is-dragging,
+.floating-scrollbar.is-scrollable:hover {
+  opacity: 1;
+}
+
+.floating-scrollbar-thumb {
+  position: absolute;
+  right: 2px;
+  top: 0;
+  width: 6px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: width 0.16s ease, background 0.16s ease, right 0.16s ease;
+}
+
+.floating-scrollbar:hover .floating-scrollbar-thumb,
+.floating-scrollbar.is-dragging .floating-scrollbar-thumb {
+  width: 8px;
+  right: 1px;
+  background: rgba(37, 99, 235, 0.58);
+}
+
+.floating-scrollbar.is-dragging .floating-scrollbar-thumb {
+  background: rgba(29, 78, 216, 0.78);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .floating-scrollbar {
+    display: none !important;
+  }
+}
+
+/* Modern thin rounded scrollbars for inner containers (modals, PDF viewer, tables, code) */
+.modal-body,
+.pdf-viewer-scroll,
+.storage-item-list,
+.student-pick-list,
+.lab-model-list,
+.html-code-textarea,
+.code-textarea,
+.katex-display {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+.modal-body::-webkit-scrollbar,
+.pdf-viewer-scroll::-webkit-scrollbar,
+.storage-item-list::-webkit-scrollbar,
+.student-pick-list::-webkit-scrollbar,
+.lab-model-list::-webkit-scrollbar,
+.html-code-textarea::-webkit-scrollbar,
+.code-textarea::-webkit-scrollbar,
+.katex-display::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.modal-body::-webkit-scrollbar-track,
+.pdf-viewer-scroll::-webkit-scrollbar-track,
+.storage-item-list::-webkit-scrollbar-track,
+.student-pick-list::-webkit-scrollbar-track,
+.lab-model-list::-webkit-scrollbar-track,
+.html-code-textarea::-webkit-scrollbar-track,
+.code-textarea::-webkit-scrollbar-track,
+.katex-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb,
+.pdf-viewer-scroll::-webkit-scrollbar-thumb,
+.storage-item-list::-webkit-scrollbar-thumb,
+.student-pick-list::-webkit-scrollbar-thumb,
+.lab-model-list::-webkit-scrollbar-thumb,
+.code-textarea::-webkit-scrollbar-thumb,
+.katex-display::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.32);
+  border-radius: 999px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover,
+.pdf-viewer-scroll::-webkit-scrollbar-thumb:hover,
+.storage-item-list::-webkit-scrollbar-thumb:hover,
+.student-pick-list::-webkit-scrollbar-thumb:hover,
+.lab-model-list::-webkit-scrollbar-thumb:hover,
+.code-textarea::-webkit-scrollbar-thumb:hover,
+.katex-display::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.55);
+}
+
+.html-code-textarea::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+.html-code-textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.65);
+}
+
+/* =========================================================
    MOBILE & TABLET RESPONSIVE OPTIMIZATION
    ========================================================= */
 html,

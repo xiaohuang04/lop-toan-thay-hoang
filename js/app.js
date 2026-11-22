@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261122j';
-import { createExamRunner } from './exam-runner.js?v=20261122j';
-import { createTeacherController } from './teacher-ui.js?v=20261122j';
-import { createStudentController } from './student-ui.js?v=20261122j';
-import { createHtmlLabController } from './html-lab.js?v=20261122j';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122j';
+import { api, setToken } from './api.js?v=20261122k';
+import { createExamRunner } from './exam-runner.js?v=20261122k';
+import { createTeacherController } from './teacher-ui.js?v=20261122k';
+import { createStudentController } from './student-ui.js?v=20261122k';
+import { createHtmlLabController } from './html-lab.js?v=20261122k';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122k';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -648,6 +648,133 @@ menuItemLogout?.addEventListener('click', async () => {
   showToast('Đã đăng xuất khỏi hệ thống.');
   showAuthScreen();
 });
+
+// Modern Floating Overlay Scrollbar (0px layout footprint, macOS-style pill)
+function initFloatingScrollbar() {
+  if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    return;
+  }
+  const rail = document.createElement('div');
+  rail.className = 'floating-scrollbar';
+  rail.setAttribute('aria-hidden', 'true');
+  const thumb = document.createElement('div');
+  thumb.className = 'floating-scrollbar-thumb';
+  rail.appendChild(thumb);
+  document.body.appendChild(rail);
+
+  let hideTimer = null;
+  let rafPending = false;
+  let dragging = false;
+  let dragStartY = 0;
+  let dragStartScroll = 0;
+  let currentMaxScroll = 0;
+  let currentMaxThumbTop = 0;
+
+  function showTemporarily() {
+    if (currentMaxScroll <= 2) return;
+    rail.classList.add('is-visible');
+    clearTimeout(hideTimer);
+    if (!dragging) {
+      hideTimer = setTimeout(() => {
+        if (!dragging) rail.classList.remove('is-visible');
+      }, 1100);
+    }
+  }
+
+  function syncGeometry() {
+    rafPending = false;
+    const doc = document.documentElement;
+    const viewH = window.innerHeight;
+    const scrollH = Math.max(doc.scrollHeight, document.body.scrollHeight);
+    const maxScroll = Math.max(0, scrollH - viewH);
+    currentMaxScroll = maxScroll;
+
+    if (maxScroll <= 2) {
+      rail.classList.remove('is-scrollable', 'is-visible');
+      return;
+    }
+
+    rail.classList.add('is-scrollable');
+    const railH = Math.max(40, rail.clientHeight || viewH - 8);
+    const thumbH = Math.max(40, Math.min(railH * 0.85, Math.round((viewH / scrollH) * railH)));
+    const maxTop = Math.max(1, railH - thumbH);
+    currentMaxThumbTop = maxTop;
+
+    const scrollTop = window.scrollY || doc.scrollTop || 0;
+    const ratio = Math.min(1, Math.max(0, scrollTop / maxScroll));
+    const topPx = Math.round(ratio * maxTop);
+
+    thumb.style.height = `${thumbH}px`;
+    thumb.style.transform = `translate3d(0, ${topPx}px, 0)`;
+  }
+
+  function scheduleSync(reveal = false) {
+    if (reveal) showTemporarily();
+    if (!rafPending) {
+      rafPending = true;
+      window.requestAnimationFrame(syncGeometry);
+    }
+  }
+
+  window.addEventListener('scroll', () => scheduleSync(true), { passive: true });
+  window.addEventListener('resize', () => scheduleSync(false), { passive: true });
+
+  // Reveal gently when pointer moves near right edge of viewport
+  window.addEventListener(
+    'mousemove',
+    (e) => {
+      if (currentMaxScroll > 2 && window.innerWidth - e.clientX <= 28) {
+        showTemporarily();
+      }
+    },
+    { passive: true }
+  );
+
+  // Dragging the floating thumb
+  thumb.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = true;
+    dragStartY = e.clientY;
+    dragStartScroll = window.scrollY || document.documentElement.scrollTop || 0;
+    rail.classList.add('is-dragging', 'is-visible');
+    clearTimeout(hideTimer);
+    thumb.setPointerCapture?.(e.pointerId);
+  });
+
+  thumb.addEventListener('pointermove', (e) => {
+    if (!dragging || currentMaxThumbTop <= 0) return;
+    const dy = e.clientY - dragStartY;
+    const nextScroll = dragStartScroll + (dy / currentMaxThumbTop) * currentMaxScroll;
+    window.scrollTo({ top: Math.max(0, Math.min(currentMaxScroll, nextScroll)), behavior: 'auto' });
+  });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    rail.classList.remove('is-dragging');
+    showTemporarily();
+  };
+  thumb.addEventListener('pointerup', endDrag);
+  thumb.addEventListener('pointercancel', endDrag);
+
+  // Clicking on the floating rail jumps to that region
+  rail.addEventListener('pointerdown', (e) => {
+    if (e.target === thumb || currentMaxScroll <= 0) return;
+    const rect = rail.getBoundingClientRect();
+    const clickRatio = Math.min(1, Math.max(0, (e.clientY - rect.top) / Math.max(1, rect.height)));
+    window.scrollTo({ top: clickRatio * currentMaxScroll, behavior: 'smooth' });
+    showTemporarily();
+  });
+
+  if (typeof window.ResizeObserver === 'function') {
+    const ro = new ResizeObserver(() => scheduleSync(false));
+    ro.observe(document.body);
+  }
+  scheduleSync(false);
+}
+
+initFloatingScrollbar();
 
 // Boot session check
 async function boot() {
