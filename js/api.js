@@ -70,7 +70,8 @@ export const api = {
   submitExam: (payload) => request('/api/student/submissions', { method: 'POST', body: payload }),
 
   // Interactive HTML Models
-  getModels: () => request('/api/models'),
+  getModels: () => request('/api/models?summary=1'),
+  getModel: (id) => request(`/api/models/${encodeURIComponent(id)}`),
   uploadModel: (payload) => request('/api/models', { method: 'POST', body: payload }),
   updateModel: (id, payload) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }),
   deleteModel: (id) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),

@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261122i';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122i';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122i';
+import { api } from './api.js?v=20261122j';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122j';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122j';
 
 /**
  * Resize an uploaded preview image to a crisp lightweight JPEG data URL (max 680px wide)
@@ -42,7 +42,11 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     search: '',
     collapsedChapters: new Set(),
     hasInitializedGrade: false,
+    renderRev: Date.now(),
   };
+
+  let previewObserver = null;
+  let previewSessionId = 0;
 
   function isAdmin() {
     return getUser?.()?.role === 'admin';
@@ -58,6 +62,7 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     try {
       const res = await api.getModels();
       state.models = Array.isArray(res.models) ? res.models : [];
+      state.renderRev = Date.now();
     } catch (err) {
       state.models = [];
       showToast(err.message || 'Không thể tải danh sách mô hình.', 'error');
@@ -212,8 +217,19 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
                   <div class="model-thumb-frame">
                     ${
                       m.thumbnail
-                        ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" class="model-thumb-img" />`
-                        : `<iframe class="model-thumb-iframe" data-live-preview-id="${escapeAttr(m.id)}" sandbox="allow-scripts" tabindex="-1" aria-hidden="true"></iframe>`
+                        ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" class="model-thumb-img" loading="lazy" decoding="async" />`
+                        : `
+                          <div class="model-thumb-skeleton">
+                            <span>Đang tải xem trước...</span>
+                          </div>
+                          <iframe
+                            class="model-thumb-iframe"
+                            data-live-preview-id="${escapeAttr(m.id)}"
+                            sandbox="allow-scripts"
+                            tabindex="-1"
+                            aria-hidden="true"
+                          ></iframe>
+                        `
                     }
                     <div class="model-thumb-overlay">
                       <span class="model-open-pill">
@@ -332,8 +348,14 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
                                       <div class="lab-mini-thumb">
                                         ${
                                           m.thumbnail
-                                            ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" />`
-                                            : `<iframe class="model-thumb-iframe mini" data-live-preview-id="${escapeAttr(m.id)}" sandbox="allow-scripts" tabindex="-1"></iframe>`
+                                            ? `<img src="${escapeAttr(m.thumbnail)}" alt="${escapeAttr(m.name)}" loading="lazy" decoding="async" />`
+                                            : `<div class="lab-mini-icon-box" aria-hidden="true">
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                                                  <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                                                  <polyline points="2 17 12 22 22 17"/>
+                                                  <polyline points="2 12 12 17 22 12"/>
+                                                </svg>
+                                              </div>`
                                         }
                                       </div>
                                       <div class="lab-manage-model-info">
@@ -379,16 +401,88 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
   }
 
   /**
-   * Inject srcdoc into live preview iframes (for models without a custom thumbnail image)
+   * High-performance Lazy + Staggered Queue loader for live HTML/WebGL previews:
+   * - Only loads cards near the viewport (IntersectionObserver)
+   * - Runs at most 2 previews concurrently so opening many 3D models never freezes the browser
+   * - Uses /model/<id>?preview=1 which renders a crisp initial frame and automatically freezes
+   *   WebGL requestAnimationFrame/intervals so GPU/CPU drops to 0% while scrolling!
    */
   function populateLivePreviewIframes() {
-    const byId = new Map(state.models.map((m) => [m.id, m]));
-    rootEl.querySelectorAll('iframe[data-live-preview-id]').forEach((iframe) => {
-      const m = byId.get(iframe.dataset.livePreviewId);
-      if (m && m.html) {
-        iframe.srcdoc = m.html;
+    if (previewObserver) {
+      previewObserver.disconnect();
+      previewObserver = null;
+    }
+    const mySession = ++previewSessionId;
+    const iframes = Array.from(rootEl.querySelectorAll('iframe[data-live-preview-id]'));
+    if (iframes.length === 0) return;
+
+    const MAX_CONCURRENT = 2;
+    const queue = [];
+    let activeCount = 0;
+
+    function pumpQueue() {
+      if (mySession !== previewSessionId) return;
+      while (activeCount < MAX_CONCURRENT && queue.length > 0) {
+        const iframe = queue.shift();
+        if (!iframe || !document.body.contains(iframe) || iframe.dataset.previewLoaded === '1') {
+          continue;
+        }
+        iframe.dataset.previewLoaded = '1';
+        activeCount++;
+
+        let settled = false;
+        const finishSlot = () => {
+          if (settled) return;
+          settled = true;
+          activeCount = Math.max(0, activeCount - 1);
+          if (mySession === previewSessionId && document.body.contains(iframe)) {
+            iframe.classList.add('is-ready');
+            iframe.closest('.model-thumb-frame')?.querySelector('.model-thumb-skeleton')?.classList.add('hidden');
+          }
+          pumpQueue();
+        };
+
+        iframe.addEventListener(
+          'load',
+          () => {
+            // Brief settle pause so WebGL paints its initial frame before starting next slot
+            setTimeout(finishSlot, 280);
+          },
+          { once: true }
+        );
+        // Safety timeout so a slow CDN inside one model never blocks the rest of the queue
+        setTimeout(finishSlot, 2400);
+
+        const id = iframe.dataset.livePreviewId;
+        iframe.src = `/model/${encodeURIComponent(id)}?preview=1&r=${state.renderRev}`;
       }
-    });
+    }
+
+    function enqueue(iframe) {
+      if (iframe.dataset.previewQueued === '1' || iframe.dataset.previewLoaded === '1') return;
+      iframe.dataset.previewQueued = '1';
+      queue.push(iframe);
+      pumpQueue();
+    }
+
+    if (typeof window.IntersectionObserver === 'function') {
+      previewObserver = new IntersectionObserver(
+        (entries) => {
+          if (mySession !== previewSessionId) return;
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              const iframe = entry.target;
+              previewObserver?.unobserve(iframe);
+              enqueue(iframe);
+            }
+          }
+        },
+        { rootMargin: '180px 0px' }
+      );
+      iframes.forEach((iframe) => previewObserver.observe(iframe));
+    } else {
+      iframes.forEach(enqueue);
+    }
   }
 
   // =========================================================
@@ -398,7 +492,7 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     const initGrade = existing?.grade || grade;
     const initLessonId = existing?.lessonId || lessonId;
     const initChapterId = existing?.chapterId || chapterId;
-    let selectedHtmlText = existing?.html || '';
+    let selectedHtmlText = '';
     let selectedFileName = existing?.fileName || '';
     let selectedThumbnail = existing?.thumbnail || '';
 
@@ -612,7 +706,17 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
   // =========================================================
   // DIRECT IN-WEB HTML CODE EDITOR MODAL (LIVE SPLIT PREVIEW)
   // =========================================================
-  function openHtmlCodeEditorModal(model) {
+  async function openHtmlCodeEditorModal(modelSummary) {
+    let model = modelSummary;
+    if (!model.html) {
+      try {
+        const res = await api.getModel(modelSummary.id);
+        if (res?.model) model = res.model;
+      } catch (err) {
+        showToast(err.message || 'Không thể tải mã nguồn HTML của mô hình.', 'error');
+        return;
+      }
+    }
     const initialHtml = model.html || '';
 
     openModal({

@@ -310,23 +310,55 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 return
 
         # Full-viewport standalone HTML model page (opened in separate tab!)
+        # When ?preview=1 is passed (for showcase preview cards), inject a lightweight
+        # "render-once & freeze" script so WebGL/Three.js scenes paint a crisp frame
+        # and then pause rAF/intervals to keep GPU/CPU at 0% while scrolling.
         if path.startswith("/model/"):
             model_id = path.split("/model/", 1)[1].strip("/")
+            qs = parse_qs(parsed.query)
+            is_preview = qs.get("preview", ["0"])[0] == "1"
             with LOCK:
                 model = STORE.get_model_by_id(model_id)
             if not model:
                 self.send_error(404, "Không tìm thấy mô hình tương tác.")
                 return
             html_str = model.get("html") or ""
+            inject_parts = []
             # Synchronize brand favicon into standalone 3D model tabs if not already defined
             if 'rel="icon"' not in html_str.lower() and "rel='icon'" not in html_str.lower():
-                fav_tag = '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />'
+                inject_parts.append('<link rel="icon" type="image/svg+xml" href="/favicon.svg" />')
+            if is_preview:
+                inject_parts.append(
+                    "<script>(function(){"
+                    "var oGC=HTMLCanvasElement.prototype.getContext;"
+                    "HTMLCanvasElement.prototype.getContext=function(t,a){"
+                    "if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){"
+                    "a=Object.assign({},a||{},{preserveDrawingBuffer:true,powerPreference:'low-power'});"
+                    "}return oGC.call(this,t,a);};"
+                    "var oRAF=window.requestAnimationFrame.bind(window);"
+                    "var oSI=window.setInterval.bind(window);"
+                    "var loadedAt=0,frames=0,frozen=false,timers=[];"
+                    "function freezeNow(){if(frozen)return;frozen=true;"
+                    "timers.forEach(function(id){clearInterval(id);});timers=[];"
+                    "var s=document.createElement('style');"
+                    "s.textContent='*,*::before,*::after{animation-play-state:paused!important;transition:none!important;}';"
+                    "(document.head||document.documentElement).appendChild(s);}"
+                    "window.addEventListener('load',function(){loadedAt=Date.now();setTimeout(freezeNow,2600);},{once:true});"
+                    "window.requestAnimationFrame=function(cb){"
+                    "if(frozen)return 0;"
+                    "if(loadedAt>0){frames++;if(frames>=28&&(Date.now()-loadedAt)>=450){freezeNow();return 0;}}"
+                    "return oRAF(cb);};"
+                    "window.setInterval=function(fn,ms){if(frozen)return 0;var id=oSI(fn,ms);timers.push(id);return id;};"
+                    "})();</script>"
+                )
+            if inject_parts:
+                inject_block = "".join(inject_parts)
                 if "<head>" in html_str:
-                    html_str = html_str.replace("<head>", f"<head>{fav_tag}", 1)
+                    html_str = html_str.replace("<head>", f"<head>{inject_block}", 1)
                 elif "<HEAD>" in html_str:
-                    html_str = html_str.replace("<HEAD>", f"<HEAD>{fav_tag}", 1)
+                    html_str = html_str.replace("<HEAD>", f"<HEAD>{inject_block}", 1)
                 else:
-                    html_str = fav_tag + html_str
+                    html_str = inject_block + html_str
             html_bytes = html_str.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -411,10 +443,23 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 return self.send_json(200, {"user": public_user(user)})
 
             if path == "/api/models":
+                qs = parse_qs(parsed.query)
+                summary_only = qs.get("summary", ["0"])[0] == "1"
                 all_models = STORE.list_models()
                 if not user or user.get("role") != "admin":
                     all_models = [m for m in all_models if m.get("visible", True)]
+                if summary_only:
+                    all_models = [{k: v for k, v in m.items() if k != "html"} for m in all_models]
                 return self.send_json(200, {"models": all_models})
+
+            if path.startswith("/api/models/"):
+                model_id = path.split("/api/models/", 1)[1].strip("/")
+                model = STORE.get_model_by_id(model_id)
+                if not model:
+                    return self.send_json(404, {"error": "Không tìm thấy mô hình."})
+                if (not user or user.get("role") != "admin") and not model.get("visible", True):
+                    return self.send_json(404, {"error": "Không tìm thấy mô hình."})
+                return self.send_json(200, {"model": model})
 
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
