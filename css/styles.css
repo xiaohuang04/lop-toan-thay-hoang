@@ -3094,12 +3094,14 @@ body.test-lock-active .exam-sidebar {
   background: #0f172a;
 }
 
-.feed-video-frame iframe {
+.feed-video-frame iframe,
+.feed-video-frame video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   border: none;
+  background: #000;
 }
 
 .feed-video-caption {
@@ -3109,6 +3111,94 @@ body.test-lock-active .exam-sidebar {
   font-size: 0.84rem;
   font-weight: 700;
   border-top: 1px solid var(--border);
+}
+
+.feed-video-caption-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feed-audio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feed-audio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+
+.feed-audio-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-badge-vid {
+  background: #fce7f3;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+}
+
+.file-badge-aud {
+  background: #ccfbf1;
+  color: #0f766e;
+  border: 1px solid #99f6e4;
+}
+
+.composer-upload-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--primary-border);
+  background: var(--primary-soft);
+  color: var(--primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.composer-upload-zone:hover,
+.composer-upload-zone.drag-over {
+  background: #dbeafe;
+  border-color: var(--primary);
+}
+
+.composer-upload-zone.is-uploading {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.composer-upload-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.composer-upload-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.composer-att-title-inp {
+  font-weight: 700;
+}
+
+.input-control:disabled {
+  background: #f1f5f9;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  border-color: var(--border);
 }
 
 /* Zone B: Adaptive Photo Gallery */

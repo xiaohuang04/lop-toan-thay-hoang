@@ -1,5 +1,5 @@
-import { api } from './api.js?v=20261122e';
-import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122e';
+import { api } from './api.js?v=20261122f';
+import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122f';
 
 /**
  * Extract 11-char YouTube video ID from any URL or full <iframe> embed code.
@@ -36,23 +36,33 @@ function formatFileSize(bytes) {
 
 function getFileTypeMeta(fileName = '', mimeType = '') {
   const ext = (fileName.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf' || mimeType === 'application/pdf') {
+  const mime = String(mimeType || '').toLowerCase();
+  if (ext === 'pdf' || mime === 'application/pdf') {
     return { kind: 'pdf', label: 'PDF', cls: 'file-badge-pdf' };
   }
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext) || mimeType.startsWith('image/')) {
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(ext) || mime.startsWith('image/')) {
     return { kind: 'image', label: 'IMG', cls: 'file-badge-img' };
   }
-  if (['doc', 'docx'].includes(ext)) {
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'].includes(ext) || mime.startsWith('video/')) {
+    return { kind: 'video', label: 'VIDEO', cls: 'file-badge-vid' };
+  }
+  if (['mp3', 'wav', 'm4a', 'ogg', 'aac', 'flac'].includes(ext) || mime.startsWith('audio/')) {
+    return { kind: 'audio', label: 'AUDIO', cls: 'file-badge-aud' };
+  }
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) {
     return { kind: 'doc', label: 'WORD', cls: 'file-badge-doc' };
   }
-  if (['ppt', 'pptx'].includes(ext)) {
+  if (['ppt', 'pptx', 'odp'].includes(ext)) {
     return { kind: 'doc', label: 'PPT', cls: 'file-badge-ppt' };
   }
-  if (['xls', 'xlsx', 'csv'].includes(ext)) {
+  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) {
     return { kind: 'doc', label: 'EXCEL', cls: 'file-badge-xls' };
   }
-  if (['html', 'htm'].includes(ext)) {
-    return { kind: 'doc', label: 'HTML', cls: 'file-badge-html' };
+  if (['zip', 'rar', '7z'].includes(ext)) {
+    return { kind: 'doc', label: ext.toUpperCase(), cls: 'file-badge-other' };
+  }
+  if (['html', 'htm', 'txt'].includes(ext)) {
+    return { kind: 'doc', label: ext.toUpperCase().slice(0, 4), cls: 'file-badge-html' };
   }
   return { kind: 'doc', label: ext ? ext.toUpperCase().slice(0, 4) : 'FILE', cls: 'file-badge-other' };
 }
@@ -97,13 +107,22 @@ function extractDomain(url) {
 export function renderFeedPostCard(post, { isAdmin = false } = {}) {
   const atts = Array.isArray(post.attachments) ? post.attachments : [];
 
-  const videos = atts.filter((a) => a.type === 'youtube' && a.videoId);
+  const ytVideos = atts.filter((a) => a.type === 'youtube' && a.videoId);
+  const uploadedVideos = atts.filter(
+    (a) => a.type === 'file' && getFileTypeMeta(a.fileName, a.mimeType).kind === 'video'
+  );
+  const allVideoCount = ytVideos.length + uploadedVideos.length;
   const images = atts.filter(
     (a) => a.type === 'image' || (a.type === 'file' && getFileTypeMeta(a.fileName, a.mimeType).kind === 'image')
   );
-  const docs = atts.filter(
-    (a) => a.type === 'file' && getFileTypeMeta(a.fileName, a.mimeType).kind !== 'image'
+  const audios = atts.filter(
+    (a) => a.type === 'file' && getFileTypeMeta(a.fileName, a.mimeType).kind === 'audio'
   );
+  const docs = atts.filter((a) => {
+    if (a.type !== 'file') return false;
+    const k = getFileTypeMeta(a.fileName, a.mimeType).kind;
+    return k !== 'image' && k !== 'video' && k !== 'audio';
+  });
   const links = atts.filter((a) => a.type === 'link' && a.url);
 
   const targetBadge = post.targetAll
@@ -144,12 +163,12 @@ export function renderFeedPostCard(post, { isAdmin = false } = {}) {
       ${post.title ? `<h3 class="feed-post-title">${escapeHtml(post.title)}</h3>` : ''}
       ${post.content ? `<div class="feed-post-body">${formatPostBody(post.content)}</div>` : ''}
 
-      <!-- ZONE A: Embedded YouTube Videos -->
+      <!-- ZONE A: Videos (YouTube Embeds + Uploaded Video Files) -->
       ${
-        videos.length > 0
+        allVideoCount > 0
           ? `
-            <div class="feed-media-zone feed-video-grid ${videos.length === 1 ? 'is-single' : 'is-multi'}">
-              ${videos
+            <div class="feed-media-zone feed-video-grid ${allVideoCount === 1 ? 'is-single' : 'is-multi'}">
+              ${ytVideos
                 .map(
                   (v) => `
                 <div class="feed-video-card">
@@ -164,6 +183,21 @@ export function renderFeedPostCard(post, { isAdmin = false } = {}) {
                     ></iframe>
                   </div>
                   ${v.title ? `<div class="feed-video-caption">${escapeHtml(v.title)}</div>` : ''}
+                </div>
+              `
+                )
+                .join('')}
+              ${uploadedVideos
+                .map(
+                  (v) => `
+                <div class="feed-video-card">
+                  <div class="feed-video-frame">
+                    <video controls playsinline preload="metadata" src="${escapeAttr(v.url)}"></video>
+                  </div>
+                  <div class="feed-video-caption feed-video-caption-row">
+                    <span>${escapeHtml(v.title || v.fileName || 'Video đính kèm')}</span>
+                    <a class="btn btn-secondary btn-sm" href="${escapeAttr(v.url)}?download=1" download="${escapeAttr(v.fileName || 'video.mp4')}">Tải về</a>
+                  </div>
                 </div>
               `
                 )
@@ -187,6 +221,35 @@ export function renderFeedPostCard(post, { isAdmin = false } = {}) {
               `
                 )
                 .join('')}
+            </div>
+          `
+          : ''
+      }
+
+      <!-- ZONE B2: Audio Files -->
+      ${
+        audios.length > 0
+          ? `
+            <div class="feed-media-zone">
+              <div class="feed-audio-list">
+                ${audios
+                  .map(
+                    (au) => `
+                  <div class="feed-audio-card">
+                    <div class="feed-audio-head">
+                      <span class="file-type-badge file-badge-aud">AUDIO</span>
+                      <div class="feed-doc-info">
+                        <div class="feed-doc-name">${escapeHtml(au.title || au.fileName || 'Tệp âm thanh')}</div>
+                        ${au.size ? `<div class="feed-doc-meta">${formatFileSize(au.size)}</div>` : ''}
+                      </div>
+                      <a class="btn btn-secondary btn-sm" href="${escapeAttr(au.url)}?download=1" download="${escapeAttr(au.fileName || 'audio')}">Tải về</a>
+                    </div>
+                    <audio controls preload="metadata" src="${escapeAttr(au.url)}" style="width:100%; height:36px;"></audio>
+                  </div>
+                `
+                  )
+                  .join('')}
+              </div>
             </div>
           `
           : ''
@@ -382,9 +445,16 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         return `
           <div class="composer-att-item">
             ${badge}
-            <div style="flex:1; min-width:0;">
-              <div style="font-weight:700; font-size:0.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(label)}</div>
-              ${sub ? `<div style="font-size:0.74rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(sub)}</div>` : ''}
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:3px;">
+              <input
+                type="text"
+                class="input-control input-compact composer-att-title-inp"
+                data-att-title-idx="${idx}"
+                value="${escapeAttr(att.title || '')}"
+                placeholder="${escapeAttr(label)}"
+                title="Đặt tên hiển thị cho mục đính kèm"
+              />
+              ${sub ? `<div style="font-size:0.73rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-left:2px;">${escapeHtml(sub)}</div>` : ''}
             </div>
             <button type="button" class="btn btn-ghost btn-sm" data-rm-att="${idx}" title="Gỡ bỏ">✕</button>
           </div>
@@ -410,28 +480,40 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
       <!-- Attachment Tools -->
       <div class="composer-tools-box">
         <div class="composer-tools-head">
-          <strong>Đính kèm video, tài liệu PDF / ảnh / liên kết</strong>
-          <span style="font-size:0.76rem; color:var(--text-muted);">Hệ thống tự sắp xếp hiển thị gọn đẹp theo từng loại</span>
+          <strong>Đính kèm tệp, video YouTube hoặc đường link</strong>
+          <span style="font-size:0.76rem; color:var(--text-muted);">Tự động sắp xếp hiển thị gọn đẹp theo từng loại</span>
+        </div>
+
+        <!-- Drag & Drop / Multi-File Upload Zone (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) -->
+        <input
+          type="file"
+          id="inpPostFiles"
+          multiple
+          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.rtf,.odt,.ods,.odp,.html,.htm,.zip,.rar,.7z"
+          hidden
+        />
+        <div class="composer-upload-zone" id="btnPickPostFiles" role="button" tabindex="0">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div>
+            <div class="composer-upload-title" id="uploadZoneTitle">Tải tệp từ máy tính (kéo thả hoặc bấm chọn nhiều tệp)</div>
+            <div class="composer-upload-sub">Ảnh, Video (MP4/WebM/MOV), Âm thanh (MP3), PDF, Word, PowerPoint, Excel, ZIP... (tối đa 20 MB/tệp)</div>
+          </div>
         </div>
 
         <!-- Add YouTube -->
-        <div class="composer-add-row">
+        <div class="composer-add-row" style="margin-top:10px;">
           <input id="inpYtUrl" class="input-control input-compact" placeholder="Dán link YouTube hoặc mã nhúng <iframe>..." style="flex:1.4;" />
           <input id="inpYtTitle" class="input-control input-compact" placeholder="Tên video (tùy chọn)" style="flex:1;" />
           <button type="button" class="btn btn-secondary btn-sm" id="btnAddYt">+ Video YouTube</button>
         </div>
 
-        <!-- Add File (PDF, Image, Word...) -->
-        <div class="composer-add-row" style="margin-top:8px;">
-          <input type="file" id="inpPostFiles" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.html,.zip" hidden />
-          <button type="button" class="btn btn-secondary btn-sm" id="btnPickPostFiles" style="flex:1;">
-            + Tải lên PDF Handout / Ảnh / Word / Tài liệu (chọn nhiều tệp)
-          </button>
-        </div>
-
         <!-- Add External Link -->
         <div class="composer-add-row" style="margin-top:8px;">
-          <input id="inpLinkUrl" class="input-control input-compact" placeholder="Dán đường link (https://...)" style="flex:1.4;" />
+          <input id="inpLinkUrl" class="input-control input-compact" placeholder="Dán đường link web (https://...)" style="flex:1.4;" />
           <input id="inpLinkTitle" class="input-control input-compact" placeholder="Tên hiển thị (tùy chọn)" style="flex:1;" />
           <button type="button" class="btn btn-secondary btn-sm" id="btnAddLink">+ Đường link</button>
         </div>
@@ -477,6 +559,12 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
 
       function syncAttDom() {
         attListEl.innerHTML = renderAttachmentsList();
+        attListEl.querySelectorAll('[data-att-title-idx]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const i = Number(inp.dataset.attTitleIdx);
+            if (attachments[i]) attachments[i].title = inp.value;
+          });
+        });
         attListEl.querySelectorAll('[data-rm-att]').forEach((btn) => {
           btn.addEventListener('click', () => {
             attachments.splice(Number(btn.dataset.rmAtt), 1);
@@ -522,21 +610,30 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         syncAttDom();
       });
 
-      // Upload Files (PDF / Images / Word...)
+      // Upload Files (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) with drag & drop
       const fileInp = m.querySelector('#inpPostFiles');
-      const pickBtn = m.querySelector('#btnPickPostFiles');
-      pickBtn.addEventListener('click', () => fileInp.click());
-      fileInp.addEventListener('change', async () => {
-        const files = Array.from(fileInp.files || []);
-        fileInp.value = '';
+      const pickZone = m.querySelector('#btnPickPostFiles');
+      const uploadTitleEl = m.querySelector('#uploadZoneTitle');
+      const MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+      async function handleUploadFiles(fileList) {
+        const files = Array.from(fileList || []);
         if (!files.length) return;
         uploadingCount += files.length;
-        pickBtn.disabled = true;
-        pickBtn.textContent = `Đang tải lên ${uploadingCount} tệp...`;
+        pickZone.classList.add('is-uploading');
+        uploadTitleEl.textContent = `Đang tải lên ${uploadingCount} tệp...`;
         saveBtn.disabled = true;
 
         for (const f of files) {
           try {
+            if (f.size > MAX_FILE_BYTES) {
+              const isVid = getFileTypeMeta(f.name, f.type).kind === 'video';
+              throw new Error(
+                isVid
+                  ? `Tệp vượt quá 20 MB (${formatFileSize(f.size)}). Với video dung lượng lớn, thầy nên up lên YouTube (Không công khai) rồi dán link để không tốn bộ nhớ Supabase.`
+                  : `Tệp vượt quá giới hạn 20 MB (${formatFileSize(f.size)}).`
+              );
+            }
             const b64 = await fileToBase64(f);
             const res = await api.uploadFile({
               fileName: f.name,
@@ -558,11 +655,41 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
             showToast(`Lỗi tải tệp ${f.name}: ${err.message}`, 'error');
           } finally {
             uploadingCount = Math.max(0, uploadingCount - 1);
+            if (uploadingCount > 0) {
+              uploadTitleEl.textContent = `Đang tải lên ${uploadingCount} tệp...`;
+            }
           }
         }
-        pickBtn.disabled = false;
-        pickBtn.textContent = '+ Tải lên PDF Handout / Ảnh / Word / Tài liệu (chọn nhiều tệp)';
+        pickZone.classList.remove('is-uploading');
+        uploadTitleEl.textContent = 'Tải tệp từ máy tính (kéo thả hoặc bấm chọn nhiều tệp)';
         saveBtn.disabled = false;
+      }
+
+      pickZone.addEventListener('click', () => {
+        if (!pickZone.classList.contains('is-uploading')) fileInp.click();
+      });
+      pickZone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (!pickZone.classList.contains('is-uploading')) fileInp.click();
+        }
+      });
+      pickZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        pickZone.classList.add('drag-over');
+      });
+      pickZone.addEventListener('dragleave', () => pickZone.classList.remove('drag-over'));
+      pickZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        pickZone.classList.remove('drag-over');
+        if (e.dataTransfer?.files?.length) {
+          handleUploadFiles(e.dataTransfer.files);
+        }
+      });
+      fileInp.addEventListener('change', async () => {
+        const files = fileInp.files;
+        fileInp.value = '';
+        await handleUploadFiles(files);
       });
 
       // Target class toggle
@@ -575,6 +702,27 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
 
       m.querySelector('#mCancelPost').addEventListener('click', closeModal);
       saveBtn.addEventListener('click', async () => {
+        // Auto-commit any pending YouTube or Link typed in input boxes if teacher forgot to click '+'
+        const pendingYt = m.querySelector('#inpYtUrl').value.trim();
+        if (pendingYt) {
+          const vid = extractYouTubeId(pendingYt);
+          if (vid) {
+            attachments.push({ type: 'youtube', videoId: vid, title: m.querySelector('#inpYtTitle').value.trim() });
+            m.querySelector('#inpYtUrl').value = '';
+            m.querySelector('#inpYtTitle').value = '';
+          }
+        }
+        let pendingLk = m.querySelector('#inpLinkUrl').value.trim();
+        if (pendingLk) {
+          if (!/^https?:\/\//i.test(pendingLk)) pendingLk = 'https://' + pendingLk;
+          const ytId = extractYouTubeId(pendingLk);
+          const lkTitle = m.querySelector('#inpLinkTitle').value.trim();
+          if (ytId) attachments.push({ type: 'youtube', videoId: ytId, title: lkTitle });
+          else attachments.push({ type: 'link', url: pendingLk, title: lkTitle });
+          m.querySelector('#inpLinkUrl').value = '';
+          m.querySelector('#inpLinkTitle').value = '';
+        }
+
         const targetAll = targetAllChk.checked;
         const targetClasses = Array.from(m.querySelectorAll('.post-cls-chk:checked')).map((c) => c.value);
         if (!targetAll && targetClasses.length === 0) {

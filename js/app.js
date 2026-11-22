@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261122e';
-import { createExamRunner } from './exam-runner.js?v=20261122e';
-import { createTeacherController } from './teacher-ui.js?v=20261122e';
-import { createStudentController } from './student-ui.js?v=20261122e';
-import { createHtmlLabController } from './html-lab.js?v=20261122e';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122e';
+import { api, setToken } from './api.js?v=20261122f';
+import { createExamRunner } from './exam-runner.js?v=20261122f';
+import { createTeacherController } from './teacher-ui.js?v=20261122f';
+import { createStudentController } from './student-ui.js?v=20261122f';
+import { createHtmlLabController } from './html-lab.js?v=20261122f';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122f';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -321,9 +321,17 @@ async function openStorageManagerModal() {
                         ? 'file-badge-html'
                         : ext === 'PDF'
                           ? 'file-badge-pdf'
-                          : ['PNG', 'JPG', 'JPEG', 'WEBP', 'GIF'].includes(ext)
-                            ? 'file-badge-img'
-                            : 'file-badge-doc';
+                          : ['MP4', 'WEBM', 'MOV', 'M4V', 'MKV', 'AVI'].includes(ext)
+                            ? 'file-badge-vid'
+                            : ['MP3', 'WAV', 'M4A', 'OGG', 'AAC'].includes(ext)
+                              ? 'file-badge-aud'
+                              : ['PNG', 'JPG', 'JPEG', 'WEBP', 'GIF', 'SVG', 'BMP'].includes(ext)
+                                ? 'file-badge-img'
+                                : ['PPT', 'PPTX'].includes(ext)
+                                  ? 'file-badge-ppt'
+                                  : ['XLS', 'XLSX', 'CSV'].includes(ext)
+                                    ? 'file-badge-xls'
+                                    : 'file-badge-doc';
                       const subInfo = isModel
                         ? `Mô hình Toán ${escapeHtml(it.grade || '12')} • ${it.visible ? 'Đang hiện' : 'Đang ẩn'}`
                         : it.isOrphan
@@ -433,7 +441,7 @@ menuItemProfile?.addEventListener('click', () => {
           </div>
           <div class="form-group">
             <label>${isStudent ? 'Số báo danh / Mã HS' : 'Mã giáo viên'}</label>
-            <input id="gProfCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="${isStudent ? 'VD: 250101' : 'VD: GV001'}" />
+            <input id="gProfCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="${isStudent ? 'Chưa có' : 'VD: GV001'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
           </div>
         </div>
         <div class="form-row-2">
@@ -443,7 +451,7 @@ menuItemProfile?.addEventListener('click', () => {
           </div>
           <div class="form-group">
             <label>${isStudent ? 'Lớp' : 'Tổ chuyên môn / Đơn vị'}</label>
-            <input id="gProfClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="${isStudent ? 'VD: 12A1' : 'VD: Tổ Toán'}" />
+            <input id="gProfClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="${isStudent ? 'Chưa xếp lớp' : 'VD: Tổ Toán'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
           </div>
         </div>
         <div class="form-row-2">
@@ -482,14 +490,17 @@ menuItemProfile?.addEventListener('click', () => {
           return;
         }
         try {
-          const res = await api.updateProfile({
+          const payload = {
             fullName,
-            className: m.querySelector('#gProfClass').value.trim(),
-            studentCode: m.querySelector('#gProfCode').value.trim(),
             dob: dobIso,
             phone: m.querySelector('#gProfPhone').value.trim(),
             email: m.querySelector('#gProfEmail').value.trim(),
-          });
+          };
+          if (!isStudent) {
+            payload.className = m.querySelector('#gProfClass').value.trim();
+            payload.studentCode = m.querySelector('#gProfCode').value.trim();
+          }
+          const res = await api.updateProfile(payload);
           currentUser = res.user;
           updateUserHeader();
           closeModal();

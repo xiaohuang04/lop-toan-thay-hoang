@@ -313,7 +313,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             self.wfile.write(html_bytes)
             return
 
-        # Classroom uploaded files (PDF handout inline viewer / image / download)
+        # Classroom uploaded files (PDF handout inline viewer / image / video with Range support / download)
         if path.startswith("/file/"):
             file_id = path.split("/file/", 1)[1].strip("/")
             qs = parse_qs(parsed.query)
@@ -326,9 +326,40 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             fname = meta.get("fileName", "document")
             mime = meta.get("mimeType", "application/octet-stream")
             disp = "attachment" if force_dl else "inline"
+            total_len = len(raw_bytes)
+            range_hdr = self.headers.get("Range", "").strip()
+
+            if not force_dl and range_hdr.startswith("bytes=") and total_len > 0:
+                try:
+                    spec = range_hdr[6:].split(",", 1)[0].strip()
+                    start_s, end_s = spec.split("-", 1)
+                    if start_s == "":
+                        suffix = int(end_s)
+                        start = max(0, total_len - suffix)
+                        end = total_len - 1
+                    else:
+                        start = int(start_s)
+                        end = int(end_s) if end_s else total_len - 1
+                    end = min(end, total_len - 1)
+                    if 0 <= start <= end:
+                        chunk = raw_bytes[start : end + 1]
+                        self.send_response(206)
+                        self.send_header("Content-Type", mime)
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{total_len}")
+                        self.send_header("Content-Length", str(len(chunk)))
+                        self.send_header("Content-Disposition", f"{disp}; filename*=UTF-8''{quote(fname)}")
+                        self.send_header("Cache-Control", "public, max-age=3600")
+                        self.end_headers()
+                        self.wfile.write(chunk)
+                        return
+                except Exception:
+                    pass
+
             self.send_response(200)
             self.send_header("Content-Type", mime)
-            self.send_header("Content-Length", str(len(raw_bytes)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(total_len))
             self.send_header("Content-Disposition", f"{disp}; filename*=UTF-8''{quote(fname)}")
             self.send_header("Cache-Control", "public, max-age=3600")
             self.end_headers()
@@ -607,7 +638,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "passwordHash": hash_password(password),
                     "role": "student",
                     "fullName": full_name,
-                    "className": str(body.get("className", "12A1")).strip(),
+                    "className": str(body.get("className", "")).strip(),
                     "studentCode": str(body.get("studentCode", "")).strip(),
                     "email": str(body.get("email", "")).strip(),
                     "phone": str(body.get("phone", "")).strip(),
@@ -780,8 +811,10 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 if not full_name:
                     return self.send_json(400, {"error": "Họ và tên không được để trống."})
                 user["fullName"] = full_name
-                user["className"] = str(body.get("className", user.get("className", ""))).strip()
-                user["studentCode"] = str(body.get("studentCode", user.get("studentCode", ""))).strip()
+                # Students are NOT permitted to change their className or studentCode
+                if user.get("role") == "admin":
+                    user["className"] = str(body.get("className", user.get("className", ""))).strip()
+                    user["studentCode"] = str(body.get("studentCode", user.get("studentCode", ""))).strip()
                 user["email"] = str(body.get("email", user.get("email", ""))).strip()
                 user["phone"] = str(body.get("phone", user.get("phone", ""))).strip()
                 user["dob"] = str(body.get("dob", user.get("dob", ""))).strip()

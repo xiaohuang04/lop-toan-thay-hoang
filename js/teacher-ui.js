@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261122e';
+import { api } from './api.js?v=20261122f';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
   renderPdfBase64AllPagesToPngs,
-} from './pdf-reader.js?v=20261122e';
+} from './pdf-reader.js?v=20261122f';
 import {
   escapeHtml,
   escapeAttr,
@@ -16,12 +16,12 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js?v=20261122e';
+} from './exam-engine.js?v=20261122f';
 import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
-} from './classroom-feed.js?v=20261122e';
+} from './classroom-feed.js?v=20261122f';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -1176,27 +1176,27 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <div class="form-row-2">
           <div class="form-group">
             <label>Tên đăng nhập *</label>
-            <input id="stuUsername" class="input-control" placeholder="VD: hs04" value="${escapeAttr(existing?.username || '')}" ${existing ? 'disabled' : ''} />
+            <input id="stuUsername" class="input-control" autocomplete="off" placeholder="Nhập tên đăng nhập" value="${escapeAttr(existing?.username || '')}" ${existing ? 'disabled' : ''} />
           </div>
           <div class="form-group">
             <label>${existing ? 'Đặt lại mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu khởi tạo *'}</label>
-            <input id="stuPassword" class="input-control" type="text" placeholder="${existing ? 'Không đổi' : 'VD: 123456'}" value="${existing ? '' : '123456'}" />
+            <input id="stuPassword" class="input-control" type="text" autocomplete="off" placeholder="${existing ? 'Không đổi' : 'Nhập mật khẩu (tối thiểu 4 ký tự)'}" value="" />
           </div>
         </div>
         <div class="form-row-2">
           <div class="form-group">
             <label>Họ và tên *</label>
-            <input id="stuFullName" class="input-control" placeholder="VD: Phạm Hoàng Nam" value="${escapeAttr(existing?.fullName || '')}" />
+            <input id="stuFullName" class="input-control" placeholder="Nhập họ và tên" value="${escapeAttr(existing?.fullName || '')}" />
           </div>
           <div class="form-group">
             <label>Lớp</label>
-            <input id="stuClass" class="input-control" placeholder="VD: 12A1" value="${escapeAttr(existing?.className || '12A1')}" />
+            <input id="stuClass" class="input-control" placeholder="Nhập lớp (tùy chọn)" value="${escapeAttr(existing?.className || '')}" />
           </div>
         </div>
         <div class="form-row-2">
           <div class="form-group">
             <label>Số báo danh / Mã HS</label>
-            <input id="stuCode" class="input-control" placeholder="VD: 250104" value="${escapeAttr(existing?.studentCode || '')}" />
+            <input id="stuCode" class="input-control" placeholder="Nhập mã HS (tùy chọn)" value="${escapeAttr(existing?.studentCode || '')}" />
           </div>
           <div class="form-group">
             <label>Ngày sinh (dd/mm/yyyy)</label>
@@ -1206,11 +1206,11 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <div class="form-row-2">
           <div class="form-group" style="margin-bottom:0;">
             <label>Email</label>
-            <input id="stuEmail" type="email" class="input-control" placeholder="hocsinh@school.vn" value="${escapeAttr(existing?.email || '')}" />
+            <input id="stuEmail" type="email" class="input-control" placeholder="Nhập email (tùy chọn)" value="${escapeAttr(existing?.email || '')}" />
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label>Số điện thoại</label>
-            <input id="stuPhone" class="input-control" placeholder="09xxxxxxxx" value="${escapeAttr(existing?.phone || '')}" />
+            <input id="stuPhone" class="input-control" placeholder="Nhập số điện thoại (tùy chọn)" value="${escapeAttr(existing?.phone || '')}" />
           </div>
         </div>
       `,
