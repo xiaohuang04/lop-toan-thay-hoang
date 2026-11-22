@@ -2247,3 +2247,105 @@ button, input, select, textarea {
   border-radius: 8px;
   margin: 4px 0;
 }
+
+
+/* =========================================================
+   LOCKED STUDENT TAB & ASSIGNMENT TYPE / DD/MM/YYYY INPUTS
+   ========================================================= */
+.main-tab.is-locked {
+  opacity: 0.52;
+  cursor: not-allowed;
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
+}
+
+.tab-lock-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  color: var(--text-muted);
+}
+
+.asg-type-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.asg-type-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--surface-subtle);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.asg-type-opt input {
+  margin-top: 3px;
+  accent-color: var(--primary);
+}
+
+.asg-type-opt strong {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.asg-type-opt small {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.asg-type-opt.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.vn-datetime-pair {
+  display: grid;
+  grid-template-columns: 1fr 94px;
+  gap: 8px;
+}
+
+.vn-time-input {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.asg-options-box {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.asg-opt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.asg-duration-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+  .asg-type-switch {
+    grid-template-columns: 1fr;
+  }
+}

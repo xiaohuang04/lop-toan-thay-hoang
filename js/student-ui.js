@@ -5,6 +5,8 @@ import {
   formatScoreVN,
   formatTime,
   formatDateTimeVN,
+  formatDateOnlyVN,
+  parseVnDateOnlyToIso,
   getDeadlineStatus,
 } from './exam-engine.js';
 
@@ -38,12 +40,13 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     state.inRunner = false;
     const { user, assignments, submissions } = state.data;
     if (!user) return;
-    setHeaderStatus(`Học sinh: ${user.fullName}`);
+    setHeaderStatus('');
 
     const completedAsgIds = new Set(submissions.map((s) => s.assignmentId));
-    const pendingCount = assignments.filter(
-      (a) => !completedAsgIds.has(a.id) && !getDeadlineStatus(a.dueAt).expired
-    ).length;
+    const pendingCount = assignments.filter((a) => {
+      const dl = getDeadlineStatus(a.dueAt, a.openAt);
+      return !completedAsgIds.has(a.id) && !dl.expired;
+    }).length;
     const avgScore =
       submissions.length > 0
         ? submissions.reduce((acc, s) => acc + (Number(s.result?.totalScore) || 0), 0) / submissions.length
@@ -104,17 +107,32 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         ${assignments
           .map((asg) => {
             const ex = asg.exam;
-            const dl = getDeadlineStatus(asg.dueAt);
+            const asgType = asg.assignmentType === 'test' ? 'test' : 'homework';
+            const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
+            const notOpen = Boolean(asg.isNotOpen || dl.notOpen);
             const expired = Boolean(asg.isExpired || dl.expired);
             const latestSub = asg.mySubmissions?.[0] || null;
             const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
-            const canStart = !expired && (!latestSub || asg.allowRetake);
+            const canStart = !notOpen && !expired && !latestSub;
+            const durationMins = asg.durationMinutes || ex.durationMinutes || 45;
+            const statusBadgeCls = expired
+              ? 'badge-danger'
+              : notOpen
+                ? 'badge-neutral'
+                : dl.urgent
+                  ? 'badge-warning'
+                  : 'badge-p1';
 
             return `
               <article class="exam-card" style="cursor:default;">
                 <div class="exam-card-top">
                   <div>
-                    <h3 class="exam-card-title">${escapeHtml(asg.title)}</h3>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                      <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+                        ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
+                      </span>
+                      <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
+                    </div>
                     <p class="exam-card-desc">
                       ${escapeHtml(asg.note || ex.description || 'Đề thi trực tuyến chuẩn cấu trúc Bộ GD&ĐT 2025.')}
                     </p>
@@ -125,7 +143,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                         ? `<span class="badge badge-success">Đã nộp • ${formatScoreVN(latestSub.result?.totalScore ?? 0)}/${formatScoreVN(latestSub.result?.maxScore ?? 10)}đ</span>`
                         : ''
                     }
-                    <span class="badge ${expired ? 'badge-danger' : dl.urgent ? 'badge-warning' : 'badge-p1'}">
+                    <span class="badge ${statusBadgeCls}">
                       ${escapeHtml(dl.label)}
                     </span>
                   </div>
@@ -135,15 +153,17 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                   <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
                   <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
                   <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
-                  <span class="badge badge-neutral">${escapeHtml(ex.subject)} • ${totalQ} câu • ${ex.durationMinutes} phút</span>
+                  <span class="badge badge-neutral">
+                    ${escapeHtml(ex.subject)} • ${totalQ} câu • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
+                  </span>
                 </div>
 
                 <div class="exam-card-footer">
-                  <div class="exam-meta-inline">
-                    <span><strong>Hạn nộp:</strong> ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>
-                    <span>• ${asg.allowRetake ? 'Cho phép làm lại' : 'Chỉ làm 1 lần'}</span>
+                  <div class="exam-meta-inline" style="flex-wrap:wrap;">
+                    ${asg.openAt ? `<span><strong>Mở đề:</strong> ${escapeHtml(formatDateTimeVN(asg.openAt))}</span>` : ''}
+                    <span><strong>${asgType === 'test' ? 'Đóng đề / Hạn nộp:' : 'Hạn nộp:'}</strong> ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>
                   </div>
-                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                     ${
                       latestSub
                         ? `<button class="btn btn-secondary btn-sm" data-review-sub="${latestSub.id}">Xem lại bài &amp; Lời giải</button>`
@@ -151,12 +171,12 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                     }
                     ${
                       canStart
-                        ? `<button class="btn btn-primary btn-sm" data-take-asg="${asg.id}">
-                            ${latestSub ? 'Làm lại bài →' : 'Bắt đầu làm bài →'}
-                          </button>`
-                        : expired
-                          ? `<span class="badge badge-danger">Đã khóa (Quá hạn)</span>`
-                          : `<span class="badge badge-neutral">Đã hết lượt làm</span>`
+                        ? `<button class="btn btn-primary btn-sm" data-take-asg="${asg.id}">Bắt đầu làm bài →</button>`
+                        : notOpen
+                          ? `<span class="badge badge-neutral">Chưa đến giờ mở đề</span>`
+                          : latestSub
+                            ? `<span class="badge badge-success">Đã hoàn thành</span>`
+                            : `<span class="badge badge-danger">Đã khóa (Quá hạn)</span>`
                     }
                   </div>
                 </div>
@@ -244,8 +264,8 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
             </div>
             <div class="form-row-2">
               <div class="form-group">
-                <label>Ngày sinh</label>
-                <input id="profDob" type="date" class="input-control" value="${escapeAttr(u.dob || '')}" />
+                <label>Ngày sinh (dd/mm/yyyy)</label>
+                <input id="profDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(u.dob || ''))}" />
               </div>
               <div class="form-group">
                 <label>Số điện thoại</label>
@@ -300,12 +320,19 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
 
     rootEl.querySelector('#formStudentProfile')?.addEventListener('submit', async (e) => {
       e.preventDefault();
+      let dobIso = '';
+      try {
+        dobIso = parseVnDateOnlyToIso(rootEl.querySelector('#profDob').value, 'Ngày sinh');
+      } catch (err) {
+        showToast(err.message, 'error');
+        return;
+      }
       try {
         const res = await api.updateProfile({
           fullName: rootEl.querySelector('#profFullName').value.trim(),
           className: rootEl.querySelector('#profClass').value.trim(),
           studentCode: rootEl.querySelector('#profCode').value.trim(),
-          dob: rootEl.querySelector('#profDob').value,
+          dob: dobIso,
           phone: rootEl.querySelector('#profPhone').value.trim(),
           email: rootEl.querySelector('#profEmail').value.trim(),
         });
@@ -340,8 +367,17 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
   function startAssignment(asgId) {
     const asg = state.data.assignments.find((a) => a.id === asgId);
     if (!asg || !asg.exam) return;
-    if (getDeadlineStatus(asg.dueAt).expired) {
-      showToast('Bài tập này đã hết hạn nộp.', 'error');
+    const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
+    if (dl.notOpen) {
+      showToast(`Chưa đến thời gian mở đề (${formatDateTimeVN(asg.openAt)}).`, 'error');
+      return;
+    }
+    if (dl.expired) {
+      showToast('Bài này đã hết hạn nộp.', 'error');
+      return;
+    }
+    if (asg.mySubmissions?.length > 0) {
+      showToast('Bạn đã hoàn thành bài này rồi (không cho phép làm lại).', 'error');
       return;
     }
 
@@ -355,12 +391,14 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       isPreview: false,
       shuffle: Boolean(asg.shuffle),
       timedMode: Boolean(asg.timedMode),
-      onSubmitPersist: async ({ answers, result, elapsedSeconds }) => {
+      durationMinutes: asg.durationMinutes || asg.exam.durationMinutes || 45,
+      onSubmitPersist: async ({ answers, result, elapsedSeconds, examSnapshot }) => {
         await api.submitExam({
           assignmentId: asg.id,
           answers,
           result,
           elapsedSeconds,
+          examSnapshot,
         });
       },
       onExit: async () => {
@@ -373,13 +411,12 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
   function openSubmissionReview(subId) {
     const sub = state.data.submissions.find((s) => s.id === subId);
     if (!sub) return;
-    const exam = state.data.examsById?.[sub.examId];
+    const exam = sub.examSnapshot || state.data.examsById?.[sub.examId];
     if (!exam) {
       showToast('Không tìm thấy dữ liệu đề thi gốc.', 'error');
       return;
     }
     const asg = state.data.assignments.find((a) => a.id === sub.assignmentId);
-    const canRetry = asg && asg.allowRetake && !getDeadlineStatus(asg.dueAt).expired;
 
     state.inRunner = true;
     examRunner.openReview({
@@ -390,7 +427,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       studentClass: sub.studentClass,
       elapsedSeconds: sub.elapsedSeconds,
       assignment: { title: sub.assignmentTitle, dueAt: asg?.dueAt },
-      onRetry: canRetry ? () => startAssignment(asg.id) : null,
+      onRetry: null,
       onExit: async () => {
         state.inRunner = false;
         await refresh();

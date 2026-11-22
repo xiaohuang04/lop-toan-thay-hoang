@@ -35,27 +35,130 @@ export function formatDateTimeVN(isoOrLocal) {
   const d = new Date(isoOrLocal);
   if (Number.isNaN(d.getTime())) return String(isoOrLocal);
   const pad = (v) => String(v).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())} • ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function getDeadlineStatus(dueAt) {
-  if (!dueAt) return { expired: false, urgent: false, label: 'Không giới hạn hạn nộp' };
+export function formatDateOnlyVN(isoOrStr) {
+  if (!isoOrStr) return '';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(isoOrStr.trim())) return isoOrStr.trim();
+  const m = String(isoOrStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(isoOrStr);
+  if (Number.isNaN(d.getTime())) return String(isoOrStr);
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+export function splitIsoToVnDateTime(isoStr) {
+  if (!isoStr) return { date: '', time: '' };
+  const m = String(isoStr).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (m) {
+    return { date: `${m[3]}/${m[2]}/${m[1]}`, time: `${m[4]}:${m[5]}` };
+  }
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return { date: '', time: '' };
+  const pad = (v) => String(v).padStart(2, '0');
+  return {
+    date: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
+/**
+ * Parse Vietnamese dd/mm/yyyy + HH:mm into local ISO YYYY-MM-DDTHH:MM
+ * Returns '' if both empty, or throws Error if invalid format/date.
+ */
+export function parseVnDateTimeToIso(dateStr, timeStr = '23:59', fieldLabel = 'Thời gian') {
+  const ds = String(dateStr || '').trim();
+  const ts = String(timeStr || '').trim() || '00:00';
+  if (!ds) return '';
+
+  const dm = ds.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!dm) {
+    throw new Error(`${fieldLabel}: Vui lòng nhập ngày đúng định dạng dd/mm/yyyy (VD: 25/11/2026).`);
+  }
+  const day = Number(dm[1]);
+  const month = Number(dm[2]);
+  const year = Number(dm[3]);
+
+  const tm = ts.match(/^(\d{1,2}):(\d{2})$/);
+  if (!tm) {
+    throw new Error(`${fieldLabel}: Vui lòng nhập giờ đúng định dạng HH:mm (VD: 23:59).`);
+  }
+  const hour = Number(tm[1]);
+  const minute = Number(tm[2]);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error(`${fieldLabel}: Ngày hoặc giờ không hợp lệ.`);
+  }
+  const check = new Date(year, month - 1, day, hour, minute);
+  if (check.getFullYear() !== year || check.getMonth() !== month - 1 || check.getDate() !== day) {
+    throw new Error(`${fieldLabel}: Ngày ${ds} không tồn tại trong lịch.`);
+  }
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
+}
+
+export function parseVnDateOnlyToIso(dateStr, fieldLabel = 'Ngày sinh') {
+  const ds = String(dateStr || '').trim();
+  if (!ds) return '';
+  const dm = ds.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!dm) {
+    throw new Error(`${fieldLabel}: Vui lòng nhập đúng định dạng dd/mm/yyyy (VD: 14/05/2008).`);
+  }
+  const day = Number(dm[1]);
+  const month = Number(dm[2]);
+  const year = Number(dm[3]);
+  const check = new Date(year, month - 1, day);
+  if (check.getFullYear() !== year || check.getMonth() !== month - 1 || check.getDate() !== day) {
+    throw new Error(`${fieldLabel}: Ngày ${ds} không hợp lệ.`);
+  }
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+export function getDeadlineStatus(dueAt, openAt = '') {
+  const now = Date.now();
+
+  if (openAt) {
+    const openDate = new Date(openAt);
+    if (!Number.isNaN(openDate.getTime()) && now < openDate.getTime()) {
+      const diffMin = Math.ceil((openDate.getTime() - now) / 60000);
+      const diffHours = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHours / 24);
+      let label = `Mở sau ${Math.max(1, diffMin)} phút`;
+      if (diffDays >= 1) label = `Mở sau ${diffDays} ngày ${diffHours % 24} giờ`;
+      else if (diffHours >= 1) label = `Mở sau ${diffHours} giờ ${diffMin % 60} phút`;
+      return { notOpen: true, expired: false, urgent: false, label };
+    }
+  }
+
+  if (!dueAt) return { notOpen: false, expired: false, urgent: false, label: 'Đang mở' };
   const due = new Date(dueAt);
-  if (Number.isNaN(due.getTime())) return { expired: false, urgent: false, label: String(dueAt) };
-  const diffMs = due.getTime() - Date.now();
+  if (Number.isNaN(due.getTime())) return { notOpen: false, expired: false, urgent: false, label: String(dueAt) };
+  const diffMs = due.getTime() - now;
   if (diffMs <= 0) {
-    return { expired: true, urgent: false, label: 'Đã quá hạn nộp' };
+    return { notOpen: false, expired: true, urgent: false, label: 'Đã quá hạn nộp' };
   }
   const diffMin = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMin / 60);
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays >= 1) {
-    return { expired: false, urgent: diffDays <= 1, label: `Còn ${diffDays} ngày ${diffHours % 24} giờ` };
+    return { notOpen: false, expired: false, urgent: diffDays <= 1, label: `Còn ${diffDays} ngày ${diffHours % 24} giờ` };
   }
   if (diffHours >= 1) {
-    return { expired: false, urgent: true, label: `Còn ${diffHours} giờ ${diffMin % 60} phút` };
+    return { notOpen: false, expired: false, urgent: true, label: `Còn ${diffHours} giờ ${diffMin % 60} phút` };
   }
-  return { expired: false, urgent: true, label: `Còn ${Math.max(1, diffMin)} phút` };
+  return { notOpen: false, expired: false, urgent: true, label: `Còn ${Math.max(1, diffMin)} phút` };
+}
+
+export function defaultVnDateTime(daysFromNow = 5, timeStr = '23:59') {
+  const d = new Date(Date.now() + daysFromNow * 86400000);
+  const pad = (v) => String(v).padStart(2, '0');
+  return {
+    date: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`,
+    time: timeStr,
+  };
 }
 
 export function defaultDueAtInput(daysFromNow = 7) {

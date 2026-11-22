@@ -134,28 +134,35 @@ def build_seed_db() -> dict:
         assignments.append({
             "id": "asg-demo-01",
             "examId": seed_exams[0]["id"],
+            "assignmentType": "homework",
             "title": "Bài tập tuần — Đề thi thử THPT 2025 (Đề số 01)",
             "note": "Hoàn thành đầy đủ 3 phần trước hạn nộp. Được phép xem lời giải chi tiết ngay sau khi nộp bài.",
+            "openAt": "",
             "dueAt": due_7d,
             "studentIds": ["u-hs01", "u-hs02", "u-hs03"],
             "assignAll": True,
             "shuffle": False,
-            "timedMode": True,
-            "allowRetake": True,
+            "timedMode": False,
+            "durationMinutes": seed_exams[0].get("durationMinutes", 90),
+            "allowRetake": False,
             "createdAt": now_iso(),
         })
     if len(seed_exams) >= 2:
+        open_now = datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
         assignments.append({
             "id": "asg-demo-02",
             "examId": seed_exams[1]["id"],
+            "assignmentType": "test",
             "title": "Kiểm tra nhanh 15 phút — Làm quen dạng đề 2025",
-            "note": "Đề ngắn 6 câu gồm cả 3 dạng câu hỏi để kiểm tra kiến thức cơ bản.",
+            "note": "Bài kiểm tra tính giờ 15 phút gồm cả 3 dạng câu hỏi chuẩn BGD 2025.",
+            "openAt": open_now,
             "dueAt": due_2d,
             "studentIds": ["u-hs01", "u-hs02"],
             "assignAll": False,
             "shuffle": True,
             "timedMode": True,
-            "allowRetake": True,
+            "durationMinutes": 15,
+            "allowRetake": False,
             "createdAt": now_iso(),
         })
 
@@ -199,10 +206,20 @@ def is_past_due(due_at_str: str | None) -> bool:
     if not due_at_str:
         return False
     try:
-        # Format: YYYY-MM-DDTHH:MM (local time)
         due_dt = datetime.fromisoformat(due_at_str)
         now = datetime.now(due_dt.tzinfo) if due_dt.tzinfo else datetime.now()
         return now > due_dt
+    except Exception:
+        return False
+
+
+def is_before_open(open_at_str: str | None) -> bool:
+    if not open_at_str:
+        return False
+    try:
+        open_dt = datetime.fromisoformat(open_at_str)
+        now = datetime.now(open_dt.tzinfo) if open_dt.tzinfo else datetime.now()
+        return now < open_dt
     except Exception:
         return False
 
@@ -326,6 +343,10 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     asg_subs = sorted(subs_by_asg.get(asg["id"], []), key=lambda x: x["submittedAt"], reverse=True)
                     assigned_list.append({
                         **asg,
+                        "assignmentType": asg.get("assignmentType", "homework"),
+                        "openAt": asg.get("openAt", ""),
+                        "allowRetake": False,
+                        "isNotOpen": is_before_open(asg.get("openAt")),
                         "isExpired": is_past_due(asg.get("dueAt")),
                         "exam": exam,
                         "mySubmissions": asg_subs,
@@ -400,11 +421,13 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     is_mine = asg.get("assignAll") or (user["id"] in asg.get("studentIds", []))
                     if not is_mine:
                         return self.send_json(403, {"error": "Bạn không có trong danh sách được giao bài tập này."})
+                    if is_before_open(asg.get("openAt")):
+                        return self.send_json(400, {"error": "Chưa đến thời gian mở đề."})
                     if is_past_due(asg.get("dueAt")):
                         return self.send_json(400, {"error": "Bài tập đã quá hạn nộp."})
                     existing = [s for s in db["submissions"] if s["assignmentId"] == asg_id and s["studentId"] == user["id"]]
-                    if existing and not asg.get("allowRetake", True):
-                        return self.send_json(400, {"error": "Bài tập này chỉ cho phép làm 1 lần và bạn đã nộp bài."})
+                    if existing and not asg.get("allowRetake", False):
+                        return self.send_json(400, {"error": "Bạn đã nộp bài này rồi (không cho phép làm lại)."})
 
                 sub = {
                     "id": gen_id("sub"),
@@ -418,6 +441,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "studentCode": user.get("studentCode", ""),
                     "answers": body.get("answers", {"part1": {}, "part2": {}, "part3": {}}),
                     "result": body.get("result", {}),
+                    "examSnapshot": body.get("examSnapshot"),
                     "elapsedSeconds": int(body.get("elapsedSeconds", 0)),
                     "submittedAt": now_iso(),
                 }
@@ -526,25 +550,42 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 student_ids = list(body.get("studentIds", []))
                 if not assign_all and len(student_ids) == 0:
                     return self.send_json(400, {"error": "Vui lòng chọn ít nhất 1 học sinh hoặc chọn 'Giao tất cả học sinh'."})
+
+                asg_type = "test" if str(body.get("assignmentType", "homework")) == "test" else "homework"
+                open_at = str(body.get("openAt", "")).strip()
                 due_at = str(body.get("dueAt", "")).strip()
+                if asg_type == "test" and not open_at:
+                    return self.send_json(400, {"error": "Bài kiểm tra bắt buộc phải có thời gian mở đề."})
                 if not due_at:
-                    return self.send_json(400, {"error": "Vui lòng thiết lập hạn nộp bài tập."})
+                    return self.send_json(400, {"error": "Vui lòng thiết lập thời gian nộp bài."})
+                if open_at and due_at:
+                    try:
+                        if datetime.fromisoformat(due_at) <= datetime.fromisoformat(open_at):
+                            return self.send_json(400, {"error": "Thời gian nộp bài phải sau thời gian mở đề."})
+                    except Exception:
+                        pass
+
+                timed_mode = True if asg_type == "test" else bool(body.get("timedMode", False))
+                dur_mins = max(1, int(body.get("durationMinutes") or exam.get("durationMinutes") or 45))
 
                 asg = {
                     "id": gen_id("asg"),
                     "examId": exam_id,
+                    "assignmentType": asg_type,
                     "title": str(body.get("title", "")).strip() or exam["title"],
                     "note": str(body.get("note", "")).strip(),
+                    "openAt": open_at,
                     "dueAt": due_at,
                     "assignAll": assign_all,
                     "studentIds": student_ids,
                     "shuffle": bool(body.get("shuffle", False)),
-                    "timedMode": bool(body.get("timedMode", True)),
-                    "allowRetake": bool(body.get("allowRetake", True)),
+                    "timedMode": timed_mode,
+                    "durationMinutes": dur_mins if timed_mode else None,
+                    "allowRetake": False,
                     "createdAt": now_iso(),
                 }
                 db["assignments"].insert(0, asg)
-                save_db(db)
+                save_db(db, keys=["assignments"])
                 return self.send_json(201, {"assignment": asg})
 
             # Upload HTML Model (Admin)
@@ -660,15 +701,34 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 asg = next((a for a in db["assignments"] if a["id"] == asg_id), None)
                 if not asg:
                     return self.send_json(404, {"error": "Không tìm thấy đợt giao bài."})
+                asg_type = "test" if str(body.get("assignmentType", asg.get("assignmentType", "homework"))) == "test" else "homework"
+                open_at = str(body.get("openAt", asg.get("openAt", ""))).strip()
+                due_at = str(body.get("dueAt", asg["dueAt"])).strip()
+                if asg_type == "test" and not open_at:
+                    return self.send_json(400, {"error": "Bài kiểm tra bắt buộc phải có thời gian mở đề."})
+                if not due_at:
+                    return self.send_json(400, {"error": "Vui lòng thiết lập thời gian nộp bài."})
+                if open_at and due_at:
+                    try:
+                        if datetime.fromisoformat(due_at) <= datetime.fromisoformat(open_at):
+                            return self.send_json(400, {"error": "Thời gian nộp bài phải sau thời gian mở đề."})
+                    except Exception:
+                        pass
+                timed_mode = True if asg_type == "test" else bool(body.get("timedMode", asg.get("timedMode", False)))
+                dur_mins = max(1, int(body.get("durationMinutes") or asg.get("durationMinutes") or 45))
+
+                asg["assignmentType"] = asg_type
                 asg["title"] = str(body.get("title", asg["title"])).strip() or asg["title"]
                 asg["note"] = str(body.get("note", asg.get("note", ""))).strip()
-                asg["dueAt"] = str(body.get("dueAt", asg["dueAt"])).strip()
+                asg["openAt"] = open_at
+                asg["dueAt"] = due_at
                 asg["assignAll"] = bool(body.get("assignAll", asg.get("assignAll", False)))
                 asg["studentIds"] = list(body.get("studentIds", asg.get("studentIds", [])))
                 asg["shuffle"] = bool(body.get("shuffle", asg.get("shuffle", False)))
-                asg["timedMode"] = bool(body.get("timedMode", asg.get("timedMode", True)))
-                asg["allowRetake"] = bool(body.get("allowRetake", asg.get("allowRetake", True)))
-                save_db(db)
+                asg["timedMode"] = timed_mode
+                asg["durationMinutes"] = dur_mins if timed_mode else None
+                asg["allowRetake"] = False
+                save_db(db, keys=["assignments"])
                 return self.send_json(200, {"assignment": asg})
 
             return self.send_json(404, {"error": "API không tồn tại."})

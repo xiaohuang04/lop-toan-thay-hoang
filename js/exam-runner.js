@@ -71,6 +71,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     isPreview = false,
     shuffle = false,
     timedMode = true,
+    durationMinutes = null,
     onSubmitPersist = null,
     onExit = null,
   }) {
@@ -89,12 +90,13 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     state.result = null;
     state.showSolutions = true;
     state.elapsedSeconds = 0;
-    state.secondsLeft = (state.exam.durationMinutes || 45) * 60;
+    const mins = Number(durationMinutes) || Number(assignment?.durationMinutes) || Number(state.exam.durationMinutes) || 45;
+    state.secondsLeft = mins * 60;
     state.onSubmitPersist = onSubmitPersist;
     state.onExit = onExit;
     state.onRetry = null;
 
-    setHeaderStatus(isPreview ? `Xem trước đề: ${state.exam.code}` : `Đang làm bài: ${state.exam.code}`);
+    setHeaderStatus('');
 
     timerId = setInterval(() => {
       state.elapsedSeconds++;
@@ -140,7 +142,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     state.onExit = onExit;
     state.onRetry = onRetry;
 
-    setHeaderStatus(`Kết quả: ${formatScoreVN(state.result.totalScore)}/${formatScoreVN(state.result.maxScore)}đ`);
+    setHeaderStatus('');
     render(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -767,6 +769,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           answers: state.answers,
           result: res,
           elapsedSeconds: state.elapsedSeconds,
+          examSnapshot: state.shuffle ? state.exam : null,
         });
       } catch (err) {
         showToast(err.message || 'Không thể lưu bài nộp lên máy chủ.', 'error');
@@ -776,7 +779,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     state.result = res;
     state.mode = 'review';
     state.filter = 'all';
-    setHeaderStatus(`Kết quả: ${formatScoreVN(res.totalScore)}/${formatScoreVN(res.maxScore)}đ`);
+    setHeaderStatus('');
     showToast(`Đã nộp bài! Điểm số: ${formatScoreVN(res.totalScore)} / ${formatScoreVN(res.maxScore)}`, 'success');
     render(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });

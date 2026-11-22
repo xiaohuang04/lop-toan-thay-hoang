@@ -7,8 +7,12 @@ import {
   formatScoreVN,
   formatTime,
   formatDateTimeVN,
+  formatDateOnlyVN,
+  splitIsoToVnDateTime,
+  parseVnDateTimeToIso,
+  parseVnDateOnlyToIso,
   getDeadlineStatus,
-  defaultDueAtInput,
+  defaultVnDateTime,
   parseImportedExams,
 } from './exam-engine.js';
 
@@ -647,34 +651,48 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             : assignments
                 .map((asg) => {
                   const exam = examsById.get(asg.examId);
-                  const dl = getDeadlineStatus(asg.dueAt);
+                  const asgType = asg.assignmentType === 'test' ? 'test' : 'homework';
+                  const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
                   const targetStudents = asg.assignAll
                     ? students
                     : students.filter((s) => (asg.studentIds || []).includes(s.id));
                   const submittedStudentIds = new Set(
                     submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId)
                   );
+                  const statusBadgeCls = dl.expired
+                    ? 'badge-danger'
+                    : dl.notOpen
+                      ? 'badge-neutral'
+                      : dl.urgent
+                        ? 'badge-warning'
+                        : 'badge-success';
                   return `
                     <article class="exam-card" style="cursor:default;">
                       <div class="exam-card-top">
                         <div>
-                          <h3 class="exam-card-title">${escapeHtml(asg.title)}</h3>
+                          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                            <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+                              ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
+                            </span>
+                            <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
+                          </div>
                           <p class="exam-card-desc">
                             Đề thi gốc: <strong>${escapeHtml(exam?.title || 'Đề đã xóa')}</strong>
                             ${asg.note ? ` • ${escapeHtml(asg.note)}` : ''}
                           </p>
                         </div>
-                        <span class="badge ${dl.expired ? 'badge-danger' : dl.urgent ? 'badge-warning' : 'badge-success'}">
+                        <span class="badge ${statusBadgeCls}">
                           ${escapeHtml(dl.label)}
                         </span>
                       </div>
 
                       <div class="exam-card-badges">
+                        ${asg.openAt ? `<span class="badge badge-neutral">Mở đề: ${escapeHtml(formatDateTimeVN(asg.openAt))}</span>` : ''}
                         <span class="badge badge-p1">Hạn nộp: ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>
                         <span class="badge badge-p2">Đã nộp: ${submittedStudentIds.size} / ${targetStudents.length} HS</span>
-                        <span class="badge badge-neutral">${asg.assignAll ? 'Giao tất cả học sinh' : `Chọn riêng ${targetStudents.length} HS`}</span>
-                        <span class="badge badge-neutral">${asg.allowRetake ? 'Cho phép làm lại' : 'Chỉ làm 1 lần'}</span>
-                        ${asg.shuffle ? `<span class="badge badge-p3">Trộn đề</span>` : ''}
+                        <span class="badge badge-neutral">${asg.timedMode ? `Tính giờ: ${asg.durationMinutes || exam?.durationMinutes || 45} phút` : 'Không giới hạn giờ'}</span>
+                        <span class="badge badge-neutral">${asg.assignAll ? 'Giao tất cả HS' : `Chọn riêng ${targetStudents.length} HS`}</span>
+                        ${asg.shuffle ? `<span class="badge badge-p3">Trộn câu nội bộ</span>` : ''}
                       </div>
 
                       <div class="exam-card-footer">
@@ -710,44 +728,111 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     const classes = [...new Set(students.map((s) => s.className).filter(Boolean))];
     const selExamId = existing?.examId || preselectExamId || exams[0].id;
     const selExam = exams.find((e) => e.id === selExamId) || exams[0];
+    const initType = existing?.assignmentType === 'test' ? 'test' : 'homework';
+    const initTimed = initType === 'test' ? true : Boolean(existing?.timedMode);
+    const initDuration = existing?.durationMinutes || selExam.durationMinutes || 45;
     const assignAll = existing ? Boolean(existing.assignAll) : false;
     const chosenIds = new Set(existing ? existing.studentIds || [] : students.map((s) => s.id));
 
+    const openParts = existing?.openAt
+      ? splitIsoToVnDateTime(existing.openAt)
+      : defaultVnDateTime(0, '08:00');
+    const dueParts = existing?.dueAt
+      ? splitIsoToVnDateTime(existing.dueAt)
+      : defaultVnDateTime(5, '23:59');
+
     openModal({
-      title: existing ? 'Chỉnh sửa đợt giao bài & hạn nộp' : 'Giao bài tập mới cho học sinh',
+      title: existing ? 'Chỉnh sửa đợt giao bài' : 'Giao bài tập / bài kiểm tra cho học sinh',
+      wide: true,
       bodyHtml: `
         <div class="form-group">
-          <label>Chọn đề thi *</label>
-          <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
-            ${exams
-              .map(
-                (e) =>
-                  `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
-              )
-              .join('')}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>Tiêu đề bài tập được giao</label>
-          <input id="asgTitle" class="input-control" value="${escapeAttr(existing?.title || selExam.title)}" />
+          <label>Loại hình giao bài *</label>
+          <div class="asg-type-switch" id="asgTypeSwitch">
+            <label class="asg-type-opt ${initType === 'homework' ? 'active' : ''}">
+              <input type="radio" name="asgType" value="homework" ${initType === 'homework' ? 'checked' : ''} />
+              <div>
+                <strong>Bài tập</strong>
+                <small>Tùy chọn tính giờ, linh hoạt thời gian làm bài trước hạn nộp</small>
+              </div>
+            </label>
+            <label class="asg-type-opt ${initType === 'test' ? 'active' : ''}">
+              <input type="radio" name="asgType" value="test" ${initType === 'test' ? 'checked' : ''} />
+              <div>
+                <strong>Bài kiểm tra</strong>
+                <small>Mặc định có thời gian làm bài, quy định rõ giờ mở đề &amp; giờ nộp bài</small>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div class="form-row-2">
           <div class="form-group">
-            <label>Hạn nộp bài tập *</label>
-            <input id="asgDueAt" type="datetime-local" class="input-control" value="${escapeAttr(existing?.dueAt || defaultDueAtInput(5))}" />
+            <label>Chọn đề thi *</label>
+            <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
+              ${exams
+                .map(
+                  (e) =>
+                    `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
+                )
+                .join('')}
+            </select>
           </div>
           <div class="form-group">
-            <label>Ghi chú cho học sinh</label>
-            <input id="asgNote" class="input-control" placeholder="VD: Làm nghiêm túc trước 22h..." value="${escapeAttr(existing?.note || '')}" />
+            <label>Tiêu đề hiển thị cho HS</label>
+            <input id="asgTitle" class="input-control" value="${escapeAttr(existing?.title || selExam.title)}" />
           </div>
         </div>
 
-        <div class="form-row-3" style="margin-bottom:14px;">
-          <label class="checkbox-pill"><input type="checkbox" id="asgTimed" ${existing ? (existing.timedMode ? 'checked' : '') : 'checked'} /> Tính giờ đếm ngược</label>
-          <label class="checkbox-pill"><input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} /> Trộn câu &amp; đáp án</label>
-          <label class="checkbox-pill"><input type="checkbox" id="asgRetake" ${existing ? (existing.allowRetake ? 'checked' : '') : 'checked'} /> Cho phép làm lại</label>
+        <div class="form-row-2">
+          <div class="form-group" id="openAtGroup">
+            <label id="openAtLabel">
+              ${initType === 'test' ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn — để trống mở ngay)'}
+            </label>
+            <div class="vn-datetime-pair">
+              <input id="asgOpenDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.date : '')}" />
+              <input id="asgOpenTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.time : '08:00')}" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label id="dueAtLabel">
+              ${initType === 'test' ? 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *' : 'Hạn nộp bài tập (dd/mm/yyyy) *'}
+            </label>
+            <div class="vn-datetime-pair">
+              <input id="asgDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(dueParts.date)}" />
+              <input id="asgDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(dueParts.time)}" />
+            </div>
+          </div>
+        </div>
+
+        <div class="asg-options-box">
+          <div class="asg-opt-row">
+            <label class="checkbox-pill" style="margin:0;">
+              <input type="checkbox" id="asgTimed" ${initTimed ? 'checked' : ''} ${initType === 'test' ? 'disabled' : ''} />
+              <span>Tính thời gian làm bài</span>
+            </label>
+            <div id="asgDurationWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
+              <span>Làm trong</span>
+              <input id="asgDurationMinutes" type="number" min="1" max="300" class="input-control input-compact" style="width:82px; text-align:center;" value="${initDuration}" />
+              <span>phút</span>
+            </div>
+          </div>
+
+          <div class="asg-opt-row" style="margin-top:10px;">
+            <label class="checkbox-pill" style="margin:0;">
+              <input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} />
+              <span>Trộn câu hỏi (nội bộ từng dạng thức; Phần II chỉ trộn câu, không trộn ý a, b, c, d)</span>
+            </label>
+          </div>
+
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">
+            • Mặc định mỗi học sinh chỉ được làm và nộp <strong>1 lần duy nhất</strong> (không cho phép làm lại).
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Ghi chú / Dặn dò cho học sinh</label>
+          <input id="asgNote" class="input-control" placeholder="VD: Làm nghiêm túc, nộp đúng giờ..." value="${escapeAttr(existing?.note || '')}" />
         </div>
 
         <div style="border-top:1px solid var(--border); padding-top:12px;">
@@ -797,10 +882,53 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
         const examSel = modalEl.querySelector('#asgExamId');
         const titleInp = modalEl.querySelector('#asgTitle');
+        const durInp = modalEl.querySelector('#asgDurationMinutes');
+        const timedChk = modalEl.querySelector('#asgTimed');
+        const durWrap = modalEl.querySelector('#asgDurationWrap');
+        const openDateInp = modalEl.querySelector('#asgOpenDate');
+        const openTimeInp = modalEl.querySelector('#asgOpenTime');
+        const openLabel = modalEl.querySelector('#openAtLabel');
+        const dueLabel = modalEl.querySelector('#dueAtLabel');
+
+        function syncTypeUi(type) {
+          modalEl.querySelectorAll('.asg-type-opt').forEach((lbl) => {
+            const rad = lbl.querySelector('input[type="radio"]');
+            lbl.classList.toggle('active', rad.value === type);
+          });
+          if (type === 'test') {
+            timedChk.checked = true;
+            timedChk.disabled = true;
+            durWrap.classList.remove('hidden');
+            openLabel.textContent = 'Thời gian mở đề (dd/mm/yyyy) *';
+            dueLabel.textContent = 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *';
+            if (!openDateInp.value.trim()) {
+              const defOpen = defaultVnDateTime(0, '08:00');
+              openDateInp.value = defOpen.date;
+              openTimeInp.value = defOpen.time;
+            }
+          } else {
+            timedChk.disabled = false;
+            durWrap.classList.toggle('hidden', !timedChk.checked);
+            openLabel.textContent = 'Thời gian mở đề (tùy chọn — để trống mở ngay)';
+            dueLabel.textContent = 'Hạn nộp bài tập (dd/mm/yyyy) *';
+          }
+        }
+
+        modalEl.querySelectorAll('input[name="asgType"]').forEach((rad) => {
+          rad.addEventListener('change', () => syncTypeUi(rad.value));
+        });
+
+        timedChk.addEventListener('change', () => {
+          durWrap.classList.toggle('hidden', !timedChk.checked);
+        });
+
         if (!existing) {
           examSel.addEventListener('change', () => {
             const ex = exams.find((e) => e.id === examSel.value);
-            if (ex) titleInp.value = ex.title;
+            if (ex) {
+              titleInp.value = ex.title;
+              durInp.value = ex.durationMinutes || 45;
+            }
           });
         }
 
@@ -824,24 +952,61 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         });
 
         modalEl.querySelector('#modalSaveAsg').addEventListener('click', async () => {
+          const asgType = modalEl.querySelector('input[name="asgType"]:checked')?.value || 'homework';
+          let openAtIso = '';
+          let dueAtIso = '';
+          try {
+            const openDateVal = openDateInp.value.trim();
+            if (asgType === 'test' && !openDateVal) {
+              throw new Error('Bài kiểm tra bắt buộc phải nhập Thời gian mở đề (dd/mm/yyyy).');
+            }
+            if (openDateVal) {
+              openAtIso = parseVnDateTimeToIso(openDateVal, openTimeInp.value.trim() || '00:00', 'Thời gian mở đề');
+            }
+            const dueDateVal = modalEl.querySelector('#asgDueDate').value.trim();
+            if (!dueDateVal) {
+              throw new Error('Vui lòng nhập ngày nộp bài theo định dạng dd/mm/yyyy.');
+            }
+            dueAtIso = parseVnDateTimeToIso(
+              dueDateVal,
+              modalEl.querySelector('#asgDueTime').value.trim() || '23:59',
+              asgType === 'test' ? 'Thời gian nộp bài' : 'Hạn nộp bài tập'
+            );
+            if (openAtIso && new Date(dueAtIso) <= new Date(openAtIso)) {
+              throw new Error('Thời gian nộp bài phải sau thời gian mở đề.');
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+            return;
+          }
+
+          const timedMode = asgType === 'test' ? true : timedChk.checked;
+          const durationMinutes = Math.max(1, Number(durInp.value) || 45);
+
           const payload = {
             examId: examSel.value,
+            assignmentType: asgType,
             title: titleInp.value.trim(),
-            dueAt: modalEl.querySelector('#asgDueAt').value,
+            openAt: openAtIso,
+            dueAt: dueAtIso,
             note: modalEl.querySelector('#asgNote').value.trim(),
-            timedMode: modalEl.querySelector('#asgTimed').checked,
+            timedMode,
+            durationMinutes: timedMode ? durationMinutes : null,
             shuffle: modalEl.querySelector('#asgShuffle').checked,
-            allowRetake: modalEl.querySelector('#asgRetake').checked,
+            allowRetake: false,
             assignAll: allChk.checked,
             studentIds: Array.from(modalEl.querySelectorAll('.asg-stu-chk:checked')).map((c) => c.value),
           };
           try {
             if (existing) {
               await api.updateAssignment(existing.id, payload);
-              showToast('Đã cập nhật đợt giao bài tập!', 'success');
+              showToast('Đã cập nhật đợt giao bài!', 'success');
             } else {
               await api.createAssignment(payload);
-              showToast('Đã giao bài tập cho học sinh thành công!', 'success');
+              showToast(
+                asgType === 'test' ? 'Đã giao bài kiểm tra cho học sinh!' : 'Đã giao bài tập cho học sinh!',
+                'success'
+              );
             }
             closeModal();
             state.subTab = 'assignments';
@@ -945,8 +1110,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             <input id="stuCode" class="input-control" placeholder="VD: 250104" value="${escapeAttr(existing?.studentCode || '')}" />
           </div>
           <div class="form-group">
-            <label>Ngày sinh</label>
-            <input id="stuDob" type="date" class="input-control" value="${escapeAttr(existing?.dob || '')}" />
+            <label>Ngày sinh (dd/mm/yyyy)</label>
+            <input id="stuDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(existing?.dob || ''))}" />
           </div>
         </div>
         <div class="form-row-2">
@@ -967,12 +1132,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       onMount: (modalEl) => {
         modalEl.querySelector('#modalCancelStu').addEventListener('click', closeModal);
         modalEl.querySelector('#modalSaveStu').addEventListener('click', async () => {
+          let dobIso = '';
+          try {
+            dobIso = parseVnDateOnlyToIso(modalEl.querySelector('#stuDob').value, 'Ngày sinh');
+          } catch (err) {
+            showToast(err.message, 'error');
+            return;
+          }
           const payload = {
             username: modalEl.querySelector('#stuUsername').value.trim(),
             fullName: modalEl.querySelector('#stuFullName').value.trim(),
             className: modalEl.querySelector('#stuClass').value.trim(),
             studentCode: modalEl.querySelector('#stuCode').value.trim(),
-            dob: modalEl.querySelector('#stuDob').value,
+            dob: dobIso,
             email: modalEl.querySelector('#stuEmail').value.trim(),
             phone: modalEl.querySelector('#stuPhone').value.trim(),
           };
@@ -1234,7 +1406,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         }
         state.inRunner = true;
         examRunner.openReview({
-          exam,
+          exam: sub.examSnapshot || exam,
           answers: sub.answers,
           result: sub.result,
           studentName: sub.studentName,

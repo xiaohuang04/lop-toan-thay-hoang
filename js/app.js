@@ -126,12 +126,35 @@ const labCtrl = createHtmlLabController({
 
 // 2-Tab Navigation
 const tabButtons = document.querySelectorAll('.main-tab');
+const tabBtnLab = document.getElementById('tabBtnLab');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
 };
 
+function updateLabTabLock() {
+  if (!tabBtnLab) return;
+  const isStudent = currentUser?.role === 'student';
+  tabBtnLab.classList.toggle('is-locked', isStudent);
+  tabBtnLab.title = isStudent ? 'Tính năng này hiện đang tạm khóa cho Học sinh' : 'Mô hình tương tác HTML';
+  let lockSpan = tabBtnLab.querySelector('.tab-lock-icon');
+  if (isStudent) {
+    if (!lockSpan) {
+      lockSpan = document.createElement('span');
+      lockSpan.className = 'tab-lock-icon';
+      lockSpan.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      tabBtnLab.appendChild(lockSpan);
+    }
+  } else if (lockSpan) {
+    lockSpan.remove();
+  }
+}
+
 function switchTab(tabName) {
+  if (tabName === 'lab' && currentUser?.role === 'student') {
+    showToast('Chức năng Mô hình tương tác hiện đang tạm khóa cho Học sinh.');
+    return;
+  }
   tabButtons.forEach((btn) => {
     const active = btn.dataset.tab === tabName;
     btn.classList.toggle('active', active);
@@ -141,11 +164,9 @@ function switchTab(tabName) {
     panel.classList.toggle('active', key === tabName);
   });
 
+  setHeaderStatus('');
   if (tabName === 'lab') {
-    setHeaderStatus(currentUser?.role === 'admin' ? '' : `Học sinh: ${currentUser?.fullName || ''}`);
     labCtrl.init();
-  } else if (currentUser) {
-    setHeaderStatus(currentUser.role === 'admin' ? '' : `Học sinh: ${currentUser.fullName}`);
   }
 }
 
@@ -179,6 +200,8 @@ function showAuthScreen() {
 async function enterApp(user) {
   currentUser = user;
   updateUserHeader();
+  updateLabTabLock();
+  setHeaderStatus('');
   authScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
   switchTab('exam');
@@ -206,15 +229,6 @@ loginForm.addEventListener('submit', async (e) => {
     loginError.textContent = err.message || 'Đăng nhập thất bại.';
     loginError.classList.remove('hidden');
   }
-});
-
-// Quick demo login buttons
-document.querySelectorAll('.demo-account-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    loginUsername.value = btn.dataset.demoUser;
-    loginPassword.value = btn.dataset.demoPass;
-    loginForm.requestSubmit();
-  });
 });
 
 // Logout
