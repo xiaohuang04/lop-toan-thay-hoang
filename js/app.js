@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261122h';
-import { createExamRunner } from './exam-runner.js?v=20261122h';
-import { createTeacherController } from './teacher-ui.js?v=20261122h';
-import { createStudentController } from './student-ui.js?v=20261122h';
-import { createHtmlLabController } from './html-lab.js?v=20261122h';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122h';
+import { api, setToken } from './api.js?v=20261122i';
+import { createExamRunner } from './exam-runner.js?v=20261122i';
+import { createTeacherController } from './teacher-ui.js?v=20261122i';
+import { createStudentController } from './student-ui.js?v=20261122i';
+import { createHtmlLabController } from './html-lab.js?v=20261122i';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122i';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -49,12 +49,13 @@ function showToast(message, type = 'info') {
 
 let modalDismissible = true;
 
-function openModal({ title, bodyHtml, footerHtml = '', wide = false, dismissible = true, onMount }) {
+function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false, dismissible = true, onMount }) {
   modalDismissible = dismissible;
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
   modalFooter.innerHTML = footerHtml;
-  modalCard.classList.toggle('modal-wide', Boolean(wide));
+  modalCard.classList.toggle('modal-wide', Boolean(wide) && !xl);
+  modalCard.classList.toggle('modal-xl', Boolean(xl));
   modalCloseBtn.classList.toggle('hidden', !dismissible);
   modalBackdrop.classList.remove('hidden');
   if (typeof onMount === 'function') onMount(modalCard);
@@ -62,6 +63,7 @@ function openModal({ title, bodyHtml, footerHtml = '', wide = false, dismissible
 
 function closeModal() {
   modalDismissible = true;
+  modalCard.classList.remove('modal-wide', 'modal-xl');
   modalCloseBtn.classList.remove('hidden');
   modalBackdrop.classList.add('hidden');
 }
@@ -69,9 +71,7 @@ function closeModal() {
 modalCloseBtn.addEventListener('click', () => {
   if (modalDismissible) closeModal();
 });
-modalBackdrop.addEventListener('click', (e) => {
-  if (e.target === modalBackdrop && modalDismissible) closeModal();
-});
+// Backdrop click intentionally disabled: modals only close via explicit buttons (✕ / Hủy / Đóng) or Escape key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !modalBackdrop.classList.contains('hidden') && modalDismissible) {
     closeModal();

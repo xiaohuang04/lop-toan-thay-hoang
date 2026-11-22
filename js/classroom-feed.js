@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261122h';
-import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122h';
-import { loadPdfJs } from './pdf-reader.js?v=20261122h';
+import { api } from './api.js?v=20261122i';
+import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261122i';
+import { loadPdfJs } from './pdf-reader.js?v=20261122i';
 
 /**
  * Extract 11-char YouTube video ID from any URL or full <iframe> embed code.

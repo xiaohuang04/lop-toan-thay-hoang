@@ -296,6 +296,19 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # Serve synchronized brand favicon for both /favicon.ico and /favicon.svg
+        if path == "/favicon.ico":
+            fav_path = BASE_DIR / "favicon.svg"
+            if fav_path.exists():
+                raw = fav_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/svg+xml")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+
         # Full-viewport standalone HTML model page (opened in separate tab!)
         if path.startswith("/model/"):
             model_id = path.split("/model/", 1)[1].strip("/")
@@ -304,7 +317,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             if not model:
                 self.send_error(404, "Không tìm thấy mô hình tương tác.")
                 return
-            html_bytes = (model.get("html") or "").encode("utf-8")
+            html_str = model.get("html") or ""
+            # Synchronize brand favicon into standalone 3D model tabs if not already defined
+            if 'rel="icon"' not in html_str.lower() and "rel='icon'" not in html_str.lower():
+                fav_tag = '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />'
+                if "<head>" in html_str:
+                    html_str = html_str.replace("<head>", f"<head>{fav_tag}", 1)
+                elif "<HEAD>" in html_str:
+                    html_str = html_str.replace("<HEAD>", f"<HEAD>{fav_tag}", 1)
+                else:
+                    html_str = fav_tag + html_str
+            html_bytes = html_str.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html_bytes)))

@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261122h';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122h';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122h';
+import { api } from './api.js?v=20261122i';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122i';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122i';
 
 /**
  * Resize an uploaded preview image to a crisp lightweight JPEG data URL (max 680px wide)
@@ -355,6 +355,7 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
                                         <a class="btn btn-secondary btn-sm" href="/model/${encodeURIComponent(m.id)}" target="_blank" rel="noopener noreferrer">
                                           Mở ↗
                                         </a>
+                                        <button type="button" class="btn btn-secondary btn-sm" data-edit-code="${m.id}">Sửa mã HTML</button>
                                         <button type="button" class="btn btn-secondary btn-sm" data-edit-model="${m.id}">Sửa</button>
                                         <button type="button" class="btn btn-danger-outline btn-sm" data-del-model="${m.id}">Xóa</button>
                                       </div>
@@ -609,6 +610,157 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
   }
 
   // =========================================================
+  // DIRECT IN-WEB HTML CODE EDITOR MODAL (LIVE SPLIT PREVIEW)
+  // =========================================================
+  function openHtmlCodeEditorModal(model) {
+    const initialHtml = model.html || '';
+
+    openModal({
+      title: `Chỉnh sửa mã HTML — ${model.name}`,
+      xl: true,
+      bodyHtml: `
+        <div class="html-editor-toolbar">
+          <div class="html-editor-meta">
+            <span class="badge badge-p1">${escapeHtml(model.fileName || 'model.html')}</span>
+            <span id="htmlCodeStats" style="font-size:0.78rem; color:var(--text-muted);"></span>
+          </div>
+          <div class="html-editor-tools">
+            <input id="htmlCodeFind" type="search" class="input-control input-compact" placeholder="Tìm trong mã..." style="width:180px;" />
+            <button type="button" class="btn btn-secondary btn-sm" id="btnHtmlFindNext">Tìm tiếp</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnHtmlRunPreview">Chạy xem trước</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnHtmlDownload">Tải file .html</button>
+          </div>
+        </div>
+        <div class="html-editor-split">
+          <div class="html-editor-pane">
+            <div class="html-pane-label">Mã nguồn HTML / CSS / JavaScript</div>
+            <textarea id="htmlCodeArea" class="html-code-textarea" spellcheck="false"></textarea>
+          </div>
+          <div class="html-editor-pane">
+            <div class="html-pane-label">Xem trước trực tiếp</div>
+            <div class="html-preview-box">
+              <iframe id="htmlLivePreviewFrame" class="html-live-iframe" title="Xem trước mô hình HTML"></iframe>
+            </div>
+          </div>
+        </div>
+      `,
+      footerHtml: `
+        <button class="btn btn-secondary" id="mCancelHtmlCode">Hủy</button>
+        <button class="btn btn-primary" id="mSaveHtmlCode">Lưu mã HTML</button>
+      `,
+      onMount: (m) => {
+        const codeEl = m.querySelector('#htmlCodeArea');
+        const statsEl = m.querySelector('#htmlCodeStats');
+        const frameEl = m.querySelector('#htmlLivePreviewFrame');
+        const findInp = m.querySelector('#htmlCodeFind');
+        const saveBtn = m.querySelector('#mSaveHtmlCode');
+
+        codeEl.value = initialHtml;
+        frameEl.srcdoc = initialHtml;
+
+        function updateStats() {
+          const val = codeEl.value;
+          const lines = val ? val.split('\n').length : 0;
+          const kb = (new Blob([val]).size / 1024).toFixed(1).replace('.', ',');
+          statsEl.textContent = `${lines} dòng • ${kb} KB`;
+        }
+        updateStats();
+
+        function runPreview() {
+          frameEl.srcdoc = codeEl.value;
+        }
+
+        // Tab key inserts 2 spaces instead of leaving editor; Ctrl+Enter refreshes preview
+        codeEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = codeEl.selectionStart;
+            const end = codeEl.selectionEnd;
+            codeEl.value = codeEl.value.slice(0, start) + '  ' + codeEl.value.slice(end);
+            codeEl.selectionStart = codeEl.selectionEnd = start + 2;
+            updateStats();
+          } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runPreview();
+            showToast('Đã cập nhật khung xem trước.', 'info');
+          }
+        });
+
+        codeEl.addEventListener('input', updateStats);
+
+        // Quick search inside textarea
+        let lastFindPos = 0;
+        const doFindNext = () => {
+          const q = findInp.value;
+          if (!q) return;
+          const hay = codeEl.value.toLowerCase();
+          const needle = q.toLowerCase();
+          let idx = hay.indexOf(needle, lastFindPos);
+          if (idx === -1 && lastFindPos > 0) {
+            idx = hay.indexOf(needle, 0);
+          }
+          if (idx === -1) {
+            showToast(`Không tìm thấy "${q}".`, 'error');
+            return;
+          }
+          codeEl.focus();
+          codeEl.setSelectionRange(idx, idx + q.length);
+          lastFindPos = idx + q.length;
+        };
+        m.querySelector('#btnHtmlFindNext')?.addEventListener('click', doFindNext);
+        findInp?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doFindNext();
+          }
+        });
+        findInp?.addEventListener('input', () => {
+          lastFindPos = 0;
+        });
+
+        m.querySelector('#btnHtmlRunPreview')?.addEventListener('click', () => {
+          runPreview();
+          showToast('Đã cập nhật khung xem trước!', 'info');
+        });
+
+        m.querySelector('#btnHtmlDownload')?.addEventListener('click', () => {
+          const blob = new Blob([codeEl.value], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = model.fileName || 'model.html';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+
+        m.querySelector('#mCancelHtmlCode').addEventListener('click', closeModal);
+        saveBtn.addEventListener('click', async () => {
+          const newHtml = codeEl.value;
+          if (!newHtml.trim()) {
+            showToast('Mã HTML không được để trống.', 'error');
+            return;
+          }
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Đang lưu...';
+          try {
+            await api.updateModel(model.id, {
+              html: newHtml,
+              fileName: model.fileName || 'model.html',
+            });
+            showToast(`Đã lưu mã HTML cho "${model.name}"!`, 'success');
+            closeModal();
+            await refresh(false);
+          } catch (err) {
+            showToast(err.message, 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Lưu mã HTML';
+          }
+        });
+      },
+    });
+  }
+
+  // =========================================================
   // EVENTS
   // =========================================================
   function bindEvents(inManage) {
@@ -718,6 +870,13 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
           chk.checked = !nextVis;
           showToast(err.message, 'error');
         }
+      });
+    });
+
+    rootEl.querySelectorAll('[data-edit-code]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const m = state.models.find((x) => x.id === btn.dataset.editCode);
+        if (m) openHtmlCodeEditorModal(m);
       });
     });
 

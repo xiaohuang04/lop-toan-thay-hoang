@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261122h';
+import { api } from './api.js?v=20261122i';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
   renderPdfBase64AllPagesToPngs,
-} from './pdf-reader.js?v=20261122h';
+} from './pdf-reader.js?v=20261122i';
 import {
   escapeHtml,
   escapeAttr,
@@ -16,12 +16,12 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js?v=20261122h';
+} from './exam-engine.js?v=20261122i';
 import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
-} from './classroom-feed.js?v=20261122h';
+} from './classroom-feed.js?v=20261122i';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
