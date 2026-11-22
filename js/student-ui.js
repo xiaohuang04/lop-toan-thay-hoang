@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261122k';
+import { api } from './api.js?v=20261122l';
 import {
   escapeHtml,
   escapeAttr,
@@ -6,8 +6,8 @@ import {
   formatTime,
   formatDateTimeVN,
   getDeadlineStatus,
-} from './exam-engine.js?v=20261122k';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261122k';
+} from './exam-engine.js?v=20261122l';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261122l';
 
 export function createStudentController({ rootEl, examRunner, uiHelpers, onUserUpdated }) {
   const { showToast, setHeaderStatus, renderMath } = uiHelpers;

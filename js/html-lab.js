@@ -1,12 +1,206 @@
-import { api } from './api.js?v=20261122k';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122k';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122k';
+import { api } from './api.js?v=20261122l';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122l';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122l';
+
+const HTML2CANVAS_PRO_URL = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
+const HTML2CANVAS_FALLBACK_URL = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+let h2cPromise = null;
+
+function loadHtml2Canvas() {
+  if (typeof window.html2canvas === 'function') return Promise.resolve(window.html2canvas);
+  if (!h2cPromise) {
+    const loadScript = (src) =>
+      new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => (typeof window.html2canvas === 'function' ? resolve(window.html2canvas) : reject(new Error('html2canvas unavailable')));
+        s.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(s);
+      });
+    h2cPromise = loadScript(HTML2CANVAS_PRO_URL).catch(() => loadScript(HTML2CANVAS_FALLBACK_URL));
+  }
+  return h2cPromise;
+}
+
+function encodeCrispThumbnail(sourceCanvas, targetW = 720, targetH = 450) {
+  const out = document.createElement('canvas');
+  out.width = targetW;
+  out.height = targetH;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  // Cover-fit sourceCanvas into 16:10 target frame cleanly
+  const srcRatio = sourceCanvas.width / Math.max(1, sourceCanvas.height);
+  const dstRatio = targetW / targetH;
+  let sx = 0, sy = 0, sw = sourceCanvas.width, sh = sourceCanvas.height;
+  if (srcRatio > dstRatio) {
+    sw = Math.round(sourceCanvas.height * dstRatio);
+    sx = Math.round((sourceCanvas.width - sw) / 2);
+  } else if (srcRatio < dstRatio) {
+    sh = Math.round(sourceCanvas.width / dstRatio);
+    sy = 0;
+  }
+  ctx.drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, targetW, targetH);
+
+  // Prefer WebP (30-45% smaller than JPEG at identical sharpness); fallback to JPEG
+  const webp = out.toDataURL('image/webp', 0.82);
+  if (webp.startsWith('data:image/webp')) return webp;
+  return out.toDataURL('image/jpeg', 0.82);
+}
+
+function canvasHasVisualContent(canvas) {
+  try {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    if (!w || !h) return false;
+    const sample = ctx.getImageData(0, 0, Math.min(w, 64), Math.min(h, 64)).data;
+    let firstR = sample[0], firstG = sample[1], firstB = sample[2];
+    for (let i = 4; i < sample.length; i += 16) {
+      if (Math.abs(sample[i] - firstR) > 6 || Math.abs(sample[i + 1] - firstG) > 6 || Math.abs(sample[i + 2] - firstB) > 6) {
+        return true;
+      }
+    }
+    // Also check center strip
+    const mid = ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), Math.min(w >> 1, 80), Math.min(h >> 1, 80)).data;
+    for (let i = 0; i < mid.length; i += 16) {
+      if (Math.abs(mid[i] - firstR) > 6 || Math.abs(mid[i + 1] - firstG) > 6 || Math.abs(mid[i + 2] - firstB) > 6) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 /**
- * Resize an uploaded preview image to a crisp lightweight JPEG data URL (max 680px wide)
+ * Automatically render a model at full desktop widescreen (1280x800) in an offscreen
+ * same-origin iframe (with WebGL preserveDrawingBuffer), capture the full scene + UI,
+ * and downscale to a crisp lightweight 720x450 WebP/JPEG (~25-45 KB).
+ */
+async function captureModelThumbnail(modelId, { width = 720, height = 450 } = {}) {
+  const h2c = await loadHtml2Canvas();
+  const CAP_W = 1280;
+  const CAP_H = 800;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = `position:fixed;left:-12000px;top:0;width:${CAP_W}px;height:${CAP_H}px;border:none;opacity:0.01;pointer-events:none;z-index:-1;background:#ffffff;`;
+  document.body.appendChild(iframe);
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(), 6500);
+      iframe.addEventListener(
+        'load',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true }
+      );
+      iframe.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('Không thể tải mô hình để chụp ảnh.'));
+        },
+        { once: true }
+      );
+      iframe.src = `/model/${encodeURIComponent(modelId)}?capture=1&r=${Date.now()}`;
+    });
+
+    const doc = iframe.contentDocument;
+    const win = iframe.contentWindow;
+    if (!doc || !doc.body) {
+      throw new Error('Không thể truy cập nội dung mô hình để chụp.');
+    }
+
+    // Wait for fonts + ~30 animation frames (~900ms) so Three.js WebGL scene finishes painting
+    if (doc.fonts?.ready) {
+      await Promise.race([doc.fonts.ready, new Promise((r) => setTimeout(r, 800))]);
+    }
+    await new Promise((resolve) => {
+      let ticks = 0;
+      const start = Date.now();
+      const step = () => {
+        ticks++;
+        if ((ticks >= 24 && Date.now() - start >= 650) || Date.now() - start >= 1800) {
+          resolve();
+          return;
+        }
+        (win?.requestAnimationFrame || window.requestAnimationFrame)(step);
+      };
+      (win?.requestAnimationFrame || window.requestAnimationFrame)(step);
+    });
+
+    let capturedCanvas = null;
+    try {
+      capturedCanvas = await h2c(doc.documentElement, {
+        width: CAP_W,
+        height: CAP_H,
+        windowWidth: CAP_W,
+        windowHeight: CAP_H,
+        x: 0,
+        y: 0,
+        scale: 1,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+    } catch {
+      capturedCanvas = null;
+    }
+
+    // Fallback: composite inner <canvas> elements directly if html2canvas fails on cross-origin assets
+    if (!capturedCanvas || !canvasHasVisualContent(capturedCanvas)) {
+      const innerCanvases = Array.from(doc.querySelectorAll('canvas'));
+      if (innerCanvases.length > 0) {
+        const fb = document.createElement('canvas');
+        fb.width = CAP_W;
+        fb.height = CAP_H;
+        const fctx = fb.getContext('2d');
+        fctx.fillStyle = getComputedStyle(doc.body).backgroundColor || '#ffffff';
+        fctx.fillRect(0, 0, CAP_W, CAP_H);
+        for (const c of innerCanvases) {
+          const r = c.getBoundingClientRect();
+          if (r.width > 10 && r.height > 10) {
+            try {
+              fctx.drawImage(c, r.left, r.top, r.width, r.height);
+            } catch {
+              // ignore tainted canvas
+            }
+          }
+        }
+        capturedCanvas = fb;
+      }
+    }
+
+    if (!capturedCanvas) {
+      throw new Error('Không thể dựng ảnh chụp xem trước từ mô hình này.');
+    }
+
+    return encodeCrispThumbnail(capturedCanvas, width, height);
+  } finally {
+    // Release WebGL context & DOM cleanly
+    try {
+      iframe.src = 'about:blank';
+    } catch {
+      // ignore
+    }
+    iframe.remove();
+  }
+}
+
+/**
+ * Resize an uploaded preview image to a crisp lightweight WebP/JPEG data URL (720px wide)
  * so it loads instantaneously and stays compact in Supabase/local storage.
  */
-function compressImageToDataUrl(file, maxWidth = 680) {
+function compressImageToDataUrl(file, maxWidth = 720) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -21,8 +215,11 @@ function compressImageToDataUrl(file, maxWidth = 680) {
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, w, h);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
+        const webp = canvas.toDataURL('image/webp', 0.82);
+        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.82));
       };
       img.onerror = () => reject(new Error('Không thể đọc file ảnh xem trước.'));
       img.src = String(reader.result || '');
@@ -92,6 +289,7 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     const admin = isAdmin();
     if (!admin) state.mode = 'showcase';
     const inManage = admin && state.mode === 'manage';
+    const missingThumbs = admin ? state.models.filter((m) => !m.thumbnail) : [];
 
     rootEl.innerHTML = `
       <div class="lab-shell">
@@ -117,11 +315,22 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
                   <input
                     id="labSearchInput"
                     class="input-control input-compact"
-                    style="width:230px;"
+                    style="width:210px;"
                     type="text"
                     placeholder="Tìm tên chương, bài học..."
                     value="${escapeAttr(state.search)}"
                   />
+                  ${
+                    state.models.length > 0
+                      ? `<button class="btn btn-secondary btn-sm" id="btnBatchCaptureThumbs" title="Tự động chụp ảnh xem trước 720×450 WebP siêu nhẹ cho mô hình">
+                          ${
+                            missingThumbs.length > 0
+                              ? `Chụp ảnh tự động (${missingThumbs.length})`
+                              : `Chụp lại ảnh xem trước`
+                          }
+                        </button>`
+                      : ''
+                  }
                   <button class="btn btn-secondary btn-sm" id="btnSwitchShowcase">
                     ← Xem thư viện
                   </button>
@@ -140,6 +349,22 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
           </div>
         </div>
 
+        ${
+          !inManage && admin && missingThumbs.length > 0
+            ? `
+              <div class="lab-autocap-banner">
+                <div class="lab-autocap-text">
+                  <strong>Có ${missingThumbs.length} mô hình chưa có ảnh xem trước tĩnh.</strong>
+                  <span>Chụp tự động (720×450 WebP ~30 KB/ảnh) và lưu lên Supabase để trang mở tức thì &amp; cuộn siêu mượt.</span>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btnAutoCaptureMissing">
+                  Tự động chụp &amp; lưu ngay
+                </button>
+              </div>
+            `
+            : ''
+        }
+
         <div id="labBody">
           ${inManage ? renderManageView() : renderShowcaseView()}
         </div>
@@ -148,6 +373,88 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
 
     bindEvents(inManage);
     populateLivePreviewIframes();
+  }
+
+  // =========================================================
+  // BATCH AUTO-CAPTURE THUMBNAILS (720x450 WEBP -> SUPABASE)
+  // =========================================================
+  async function runBatchAutoCapture(targetModels) {
+    if (!targetModels || targetModels.length === 0) {
+      showToast('Tất cả mô hình đều đã có ảnh xem trước.', 'info');
+      return;
+    }
+
+    let aborted = false;
+    let successCount = 0;
+    let totalBytes = 0;
+
+    openModal({
+      title: 'Tự động chụp ảnh xem trước (720×450 WebP)',
+      dismissible: false,
+      bodyHtml: `
+        <div class="autocap-progress-box">
+          <div class="autocap-status-row">
+            <strong id="acStatusTitle">Đang chuẩn bị...</strong>
+            <span id="acStatusCount" class="badge badge-p1">0 / ${targetModels.length}</span>
+          </div>
+          <div class="storage-bar-track" style="margin:10px 0 14px;">
+            <div class="storage-bar-fill is-ok" id="acProgressBar" style="width:2%;"></div>
+          </div>
+          <div class="autocap-preview-stage" id="acPreviewStage">
+            <span style="color:var(--text-muted); font-size:0.84rem;">Đang dựng mô hình ở độ phân giải chuẩn 1280×800 rồi nén thành ảnh 720×450...</span>
+          </div>
+          <div id="acLastMeta" style="margin-top:8px; font-size:0.78rem; color:var(--text-muted); text-align:center;"></div>
+        </div>
+      `,
+      footerHtml: `<button type="button" class="btn btn-secondary" id="btnAbortCapture">Dừng lại</button>`,
+      onMount: async (m) => {
+        const titleEl = m.querySelector('#acStatusTitle');
+        const countEl = m.querySelector('#acStatusCount');
+        const barEl = m.querySelector('#acProgressBar');
+        const stageEl = m.querySelector('#acPreviewStage');
+        const metaEl = m.querySelector('#acLastMeta');
+        const abortBtn = m.querySelector('#btnAbortCapture');
+
+        abortBtn.addEventListener('click', () => {
+          aborted = true;
+          abortBtn.disabled = true;
+          abortBtn.textContent = 'Đang dừng...';
+        });
+
+        for (let i = 0; i < targetModels.length; i++) {
+          if (aborted) break;
+          const mdl = targetModels[i];
+          titleEl.textContent = `Đang chụp: ${mdl.name}`;
+          countEl.textContent = `${i + 1} / ${targetModels.length}`;
+          barEl.style.width = `${Math.max(4, Math.round((i / targetModels.length) * 100))}%`;
+
+          try {
+            const dataUrl = await captureModelThumbnail(mdl.id, { width: 720, height: 450 });
+            const kb = Math.round((dataUrl.length * 0.75) / 1024);
+            totalBytes += dataUrl.length * 0.75;
+            stageEl.innerHTML = `<img src="${escapeAttr(dataUrl)}" alt="${escapeAttr(mdl.name)}" />`;
+            metaEl.textContent = `Đã lưu ảnh 720×450 (~${kb} KB) cho "${mdl.name}"`;
+            await api.updateModel(mdl.id, { thumbnail: dataUrl });
+            successCount++;
+          } catch (err) {
+            metaEl.textContent = `Bỏ qua "${mdl.name}": ${err.message}`;
+          }
+          barEl.style.width = `${Math.round(((i + 1) / targetModels.length) * 100)}%`;
+        }
+
+        closeModal();
+        if (successCount > 0) {
+          const avgKb = Math.round(totalBytes / successCount / 1024);
+          showToast(
+            `Đã chụp & lưu ảnh xem trước cho ${successCount}/${targetModels.length} mô hình (~${avgKb} KB/ảnh)!`,
+            'success'
+          );
+        } else if (!aborted) {
+          showToast('Không chụp được ảnh nào. Thầy thử lại sau nhé.', 'error');
+        }
+        await refresh(false);
+      },
+    });
   }
 
   // =========================================================
@@ -564,11 +871,18 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
                 }
               </div>
             </div>
-            ${
-              selectedThumbnail
-                ? `<button type="button" class="btn btn-ghost btn-sm" id="btnClearThumb" style="margin-top:4px;">Bỏ ảnh đại diện (dùng xem trước tự động)</button>`
-                : ''
-            }
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+              ${
+                existing
+                  ? `<button type="button" class="btn btn-secondary btn-sm" id="btnAutoCapSingle">Tự chụp ảnh từ HTML</button>`
+                  : ''
+              }
+              ${
+                selectedThumbnail
+                  ? `<button type="button" class="btn btn-ghost btn-sm" id="btnClearThumb">Xóa ảnh đại diện</button>`
+                  : ''
+              }
+            </div>
           </div>
         </div>
 
@@ -654,13 +968,32 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
           thumbInp.value = '';
         });
 
+        m.querySelector('#btnAutoCapSingle')?.addEventListener('click', async (e) => {
+          if (!existing) return;
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          btn.textContent = 'Đang chụp...';
+          try {
+            selectedThumbnail = await captureModelThumbnail(existing.id, { width: 720, height: 450 });
+            thumbWrap.innerHTML = `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`;
+            const kb = Math.round((selectedThumbnail.length * 0.75) / 1024);
+            showToast(`Đã chụp ảnh 720×450 (~${kb} KB)! Nhấn "Lưu thay đổi" để lưu.`, 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'Tự chụp ảnh từ HTML';
+          }
+        });
+
         m.querySelector('#btnClearThumb')?.addEventListener('click', () => {
           selectedThumbnail = '';
           thumbWrap.innerHTML = `<div class="dropzone-title" style="font-size:0.84rem;">Nhấn chọn ảnh .png / .jpg (tùy chọn)</div>`;
         });
 
         m.querySelector('#mCancelMdl').addEventListener('click', closeModal);
-        m.querySelector('#mSaveMdl').addEventListener('click', async () => {
+        const saveMdlBtn = m.querySelector('#mSaveMdl');
+        saveMdlBtn.addEventListener('click', async () => {
           const name = nameInp.value.trim();
           if (!name) {
             showToast('Vui lòng nhập tên hiển thị của mô hình.', 'error');
@@ -684,19 +1017,34 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
             payload.html = selectedHtmlText;
             payload.fileName = selectedFileName || 'model.html';
           }
+          saveMdlBtn.disabled = true;
+          saveMdlBtn.textContent = 'Đang lưu...';
           try {
+            let savedId = existing?.id || '';
+            const shouldAutoCap = !selectedThumbnail && (!existing || Boolean(selectedHtmlText.trim()));
             if (existing) {
               await api.updateModel(existing.id, payload);
-              showToast('Đã cập nhật mô hình thành công!', 'success');
             } else {
-              await api.uploadModel(payload);
-              showToast(`Đã tải lên mô hình "${name}"!`, 'success');
+              const res = await api.uploadModel(payload);
+              savedId = res?.model?.id || '';
             }
+            if (shouldAutoCap && savedId) {
+              saveMdlBtn.textContent = 'Đang tự chụp ảnh xem trước...';
+              try {
+                const autoThumb = await captureModelThumbnail(savedId, { width: 720, height: 450 });
+                await api.updateModel(savedId, { thumbnail: autoThumb });
+              } catch {
+                // fallback silently to live preview if capture fails
+              }
+            }
+            showToast(existing ? 'Đã cập nhật mô hình thành công!' : `Đã tải lên & tạo ảnh xem trước cho "${name}"!`, 'success');
             closeModal();
             state.grade = payload.grade;
             await refresh(false);
           } catch (err) {
             showToast(err.message, 'error');
+            saveMdlBtn.disabled = false;
+            saveMdlBtn.textContent = existing ? 'Lưu thay đổi' : 'Tải lên mô hình';
           }
         });
       },
@@ -851,7 +1199,14 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
               html: newHtml,
               fileName: model.fileName || 'model.html',
             });
-            showToast(`Đã lưu mã HTML cho "${model.name}"!`, 'success');
+            saveBtn.textContent = 'Đang cập nhật ảnh xem trước...';
+            try {
+              const autoThumb = await captureModelThumbnail(model.id, { width: 720, height: 450 });
+              await api.updateModel(model.id, { thumbnail: autoThumb });
+            } catch {
+              // keep existing thumbnail if capture fails
+            }
+            showToast(`Đã lưu mã HTML & cập nhật ảnh xem trước cho "${model.name}"!`, 'success');
             closeModal();
             await refresh(false);
           } catch (err) {
@@ -883,6 +1238,16 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     rootEl.querySelector('#btnSwitchShowcase')?.addEventListener('click', () => {
       state.mode = 'showcase';
       render();
+    });
+
+    rootEl.querySelector('#btnAutoCaptureMissing')?.addEventListener('click', () => {
+      const missing = state.models.filter((m) => !m.thumbnail);
+      runBatchAutoCapture(missing);
+    });
+
+    rootEl.querySelector('#btnBatchCaptureThumbs')?.addEventListener('click', () => {
+      const missing = state.models.filter((m) => !m.thumbnail);
+      runBatchAutoCapture(missing.length > 0 ? missing : [...state.models]);
     });
 
     if (!inManage) return;
@@ -931,13 +1296,13 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
         if (files.length === 0) return;
         const lessonId = row.dataset.dropLesson;
         const chapterId = row.dataset.dropChapter;
-        let uploaded = 0;
+        const createdModels = [];
         for (const f of files) {
           const html = await f.text();
           const tm = html.match(/<title[^>]*>([^<]+)<\/title>/i);
           const name = tm ? tm[1].trim() : f.name.replace(/\.html?$/i, '');
           try {
-            await api.uploadModel({
+            const res = await api.uploadModel({
               name,
               fileName: f.name,
               grade: state.grade,
@@ -947,14 +1312,14 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
               thumbnail: '',
               html,
             });
-            uploaded++;
+            if (res?.model) createdModels.push(res.model);
           } catch (err) {
             showToast(err.message, 'error');
           }
         }
-        if (uploaded > 0) {
-          showToast(`Đã tải lên ${uploaded} mô hình vào bài học!`, 'success');
+        if (createdModels.length > 0) {
           await refresh(false);
+          await runBatchAutoCapture(createdModels);
         }
       });
     });

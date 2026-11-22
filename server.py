@@ -317,6 +317,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             model_id = path.split("/model/", 1)[1].strip("/")
             qs = parse_qs(parsed.query)
             is_preview = qs.get("preview", ["0"])[0] == "1"
+            is_capture = qs.get("capture", ["0"])[0] == "1"
             with LOCK:
                 model = STORE.get_model_by_id(model_id)
             if not model:
@@ -327,7 +328,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             # Synchronize brand favicon into standalone 3D model tabs if not already defined
             if 'rel="icon"' not in html_str.lower() and "rel='icon'" not in html_str.lower():
                 inject_parts.append('<link rel="icon" type="image/svg+xml" href="/favicon.svg" />')
-            if is_preview:
+            if is_capture:
+                inject_parts.append(
+                    "<script>(function(){"
+                    "var oGC=HTMLCanvasElement.prototype.getContext;"
+                    "HTMLCanvasElement.prototype.getContext=function(t,a){"
+                    "if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){"
+                    "a=Object.assign({},a||{},{preserveDrawingBuffer:true,antialias:true});"
+                    "}return oGC.call(this,t,a);};"
+                    "})();</script>"
+                )
+            elif is_preview:
                 inject_parts.append(
                     "<script>(function(){"
                     "var oGC=HTMLCanvasElement.prototype.getContext;"
