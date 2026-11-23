@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261123h';
+import { api } from './api.js?v=20261123i';
 import {
   escapeHtml,
   escapeAttr,
   parseVnDateOnlyToIso,
-} from './exam-engine.js?v=20261123h';
+} from './exam-engine.js?v=20261123i';
 
 const DAY_LABELS = {
   1: 'Thứ 2',
@@ -575,6 +575,8 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     data: null,
     subTab: 'log', // 'log' | 'actual' | 'equipment' | 'tkb' | 'plan'
     selectedWeekIdx: 0,
+    weekPillsScrollLeft: null,
+    centerActiveWeekOnce: true,
     actualScope: 'grade:10',
     selectedActualKey: '',
     equipMonthFilter: 'all',
@@ -585,6 +587,21 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     tkbBrushClassId: '',
     activeTkbId: '',
   };
+
+  function findCurrentWeekIndex(sem) {
+    if (!sem) return 0;
+    const startMonday = snapToMonday(sem.startDate || '2026-09-07');
+    const totalWeeks = Math.max(1, Math.min(30, Number(sem.totalWeeks) || 18));
+    const todayIso = toIsoDateLocal(new Date());
+    for (let w = 0; w < totalWeeks; w++) {
+      const wStart = toIsoDateLocal(addDays(startMonday, w * 7));
+      const wEnd = toIsoDateLocal(addDays(startMonday, w * 7 + 6));
+      if (todayIso >= wStart && todayIso <= wEnd) return w;
+    }
+    const lastEnd = toIsoDateLocal(addDays(startMonday, (totalWeeks - 1) * 7 + 6));
+    if (todayIso > lastEnd) return totalWeeks - 1;
+    return 0;
+  }
 
   function getActiveSemester() {
     if (!state.data?.semesters?.length) return null;
@@ -611,8 +628,12 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       const res = await api.getTeachingLog();
       state.data = res.teachingLog;
       const sem = getActiveSemester();
-      if (sem && !state.tkbBrushClassId && sem.classes?.length) {
-        state.tkbBrushClassId = sem.classes[0].id;
+      if (sem) {
+        if (!state.tkbBrushClassId && sem.classes?.length) {
+          state.tkbBrushClassId = sem.classes[0].id;
+        }
+        state.selectedWeekIdx = findCurrentWeekIndex(sem);
+        state.centerActiveWeekOnce = true;
       }
       render();
     } catch (err) {
@@ -624,6 +645,11 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     if (!state.data) return;
     const sem = getActiveSemester();
     if (!sem) return;
+
+    const prevPills = rootEl.querySelector('.tl-week-pills');
+    if (prevPills) {
+      state.weekPillsScrollLeft = prevPills.scrollLeft;
+    }
 
     const schedule = generateSemesterSchedule(sem, state.data.curriculumPlans || {});
     const monthlyEquip = generateMonthlyEquipment(schedule);
@@ -720,15 +746,17 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     const classes = sem.classes || [];
     const visibleDays = week.visibleDays;
     const sessionLabel = SESSION_LABELS[schedule.session] || 'Sáng';
+    const todayIso = toIsoDateLocal(new Date());
 
     const rowsHtml = [];
     for (let period = 1; period <= 5; period++) {
       const tds = visibleDays.map((day) => {
         const entry = day.slots[period];
+        const todayCls = day.iso === todayIso ? ' is-today-col' : '';
 
         if (entry && entry.type === 'midterm') {
           return `
-            <td class="tl-cell is-midterm-cell">
+            <td class="tl-cell is-midterm-cell${todayCls}">
               <div class="tl-slot-card is-midterm is-clickable" role="button" tabindex="0" data-slot-iso="${escapeAttr(day.iso)}" data-slot-period="${period}">
                 <div class="tl-slot-head">
                   <span class="badge badge-p2">KT GK • Khối ${escapeHtml(entry.grade)}</span>
@@ -746,7 +774,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         if (day.isHoliday) {
           if (period === 1) {
             return `
-              <td class="tl-cell is-holiday-cell" rowspan="5">
+              <td class="tl-cell is-holiday-cell${todayCls}" rowspan="5">
                 <div class="tl-holiday-banner">
                   <span class="badge badge-warning">NGHỈ LỄ</span>
                   <div class="tl-holiday-note">${escapeHtml(day.holidayNote || 'Nghỉ lễ')}</div>
@@ -760,7 +788,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         if (entry) {
           const col = getClassColor(entry.classId, classes);
           return `
-            <td class="tl-cell">
+            <td class="tl-cell${todayCls}">
               <div class="tl-slot-card is-clickable ${entry.isSpecialTopic ? 'is-special-card' : ''}" role="button" tabindex="0" data-slot-iso="${escapeAttr(day.iso)}" data-slot-period="${period}" style="background:${col.bg}; border-color:${col.border};">
                 <div class="tl-slot-head">
                   <span class="tl-class-tag" style="color:${col.text};">${escapeHtml(entry.className)}</span>
@@ -774,7 +802,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
           `;
         }
 
-        return `<td class="tl-cell is-empty"></td>`;
+        return `<td class="tl-cell is-empty${todayCls}"></td>`;
       });
 
       rowsHtml.push(`
@@ -793,18 +821,21 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       <div class="tl-week-bar">
         <div class="tl-week-pills">
           ${schedule.weeks
-            .map(
-              (w, idx) => `
+            .map((w, idx) => {
+              const monIso = w.days?.[0]?.iso || '';
+              const sunIso = monIso ? toIsoDateLocal(addDays(parseIsoDateLocal(monIso), 6)) : '';
+              const isCurWeek = Boolean(monIso && todayIso >= monIso && todayIso <= sunIso);
+              return `
             <button
               type="button"
-              class="tl-week-btn ${idx === state.selectedWeekIdx ? 'active' : ''}"
+              class="tl-week-btn ${idx === state.selectedWeekIdx ? 'active' : ''} ${isCurWeek ? 'is-current-week' : ''}"
               data-pick-week="${idx}"
             >
               <strong>Tuần ${w.weekNumber}</strong>
               <span>${w.startShortVN} – ${w.endShortVN}</span>
             </button>
-          `
-            )
+          `;
+            })
             .join('')}
         </div>
         <div class="tl-week-actions">
@@ -857,11 +888,15 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
               <tr>
                 <th class="tl-period-col">Buổi ${sessionLabel}</th>
                 ${visibleDays
-                  .map(
-                    (d) => `
-                  <th class="tl-day-head ${d.isHoliday ? 'is-holiday' : ''} ${d.dayOfWeek === 6 ? 'is-saturday' : ''}">
+                  .map((d) => {
+                    const isToday = d.iso === todayIso;
+                    return `
+                  <th class="tl-day-head ${d.isHoliday ? 'is-holiday' : ''} ${d.dayOfWeek === 6 ? 'is-saturday' : ''} ${isToday ? 'is-today' : ''}">
                     <div class="tl-day-title-row">
-                      <strong>${DAY_LABELS[d.dayOfWeek]}</strong>
+                      <span style="display:inline-flex; align-items:center; gap:6px;">
+                        <strong>${DAY_LABELS[d.dayOfWeek]}</strong>
+                        ${isToday ? `<span class="tl-today-badge">Hôm nay</span>` : ''}
+                      </span>
                       <span class="tl-day-date" style="margin-top:0;">${d.dateVN}</span>
                     </div>
                     ${
@@ -870,8 +905,8 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
                         : ''
                     }
                   </th>
-                `
-                  )
+                `;
+                  })
                   .join('')}
               </tr>
             </thead>
@@ -1857,7 +1892,10 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
           });
           // Jump to the week containing that Saturday so user sees Thứ 7 appear immediately!
           const targetWeekIdx = schedule.weeks.findIndex((w) => w.days.some((d) => d.iso === date));
-          if (targetWeekIdx >= 0) state.selectedWeekIdx = targetWeekIdx;
+          if (targetWeekIdx >= 0) {
+            state.selectedWeekIdx = targetWeekIdx;
+            state.centerActiveWeekOnce = true;
+          }
           closeModal();
           await persist(`Đã xếp KT giữa kì ${term === 2 ? 'II' : 'I'} Khối ${grade} vào Thứ 7 (${formatDateVNAdmin(date)})!`);
         });
@@ -2236,9 +2274,11 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
   function bindEvents(sem, schedule, monthlyEquip) {
     rootEl.querySelector('#selSemester')?.addEventListener('change', async (e) => {
       state.data.activeSemesterId = e.target.value;
-      state.selectedWeekIdx = 0;
-      state.activeTkbId = '';
       const nextSem = getActiveSemester();
+      state.selectedWeekIdx = findCurrentWeekIndex(nextSem);
+      state.centerActiveWeekOnce = true;
+      state.weekPillsScrollLeft = null;
+      state.activeTkbId = '';
       state.tkbBrushClassId = nextSem?.classes?.[0]?.id || '';
       await persist();
     });
@@ -2254,7 +2294,9 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         onConfirm: async () => {
           state.data.semesters = state.data.semesters.filter((s) => s.id !== sem.id);
           state.data.activeSemesterId = state.data.semesters[0].id;
-          state.selectedWeekIdx = 0;
+          state.selectedWeekIdx = findCurrentWeekIndex(state.data.semesters[0]);
+          state.centerActiveWeekOnce = true;
+          state.weekPillsScrollLeft = null;
           state.activeTkbId = '';
           await persist('Đã xóa học kì.');
         },
@@ -2277,13 +2319,44 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     });
 
     // === SUB-TAB 1: SỔ BÁO GIẢNG ===
-    const activeWeekBtn = rootEl.querySelector('.tl-week-btn.active');
-    if (activeWeekBtn && typeof activeWeekBtn.scrollIntoView === 'function') {
-      activeWeekBtn.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    const pillsEl = rootEl.querySelector('.tl-week-pills');
+    const activeWeekBtn = pillsEl?.querySelector('.tl-week-btn.active');
+    if (pillsEl) {
+      if (state.centerActiveWeekOnce && activeWeekBtn) {
+        pillsEl.scrollLeft = Math.max(
+          0,
+          activeWeekBtn.offsetLeft - (pillsEl.clientWidth - activeWeekBtn.offsetWidth) / 2
+        );
+        state.weekPillsScrollLeft = pillsEl.scrollLeft;
+        state.centerActiveWeekOnce = false;
+      } else if (state.weekPillsScrollLeft !== null) {
+        pillsEl.scrollLeft = state.weekPillsScrollLeft;
+        if (activeWeekBtn) {
+          const btnLeft = activeWeekBtn.offsetLeft;
+          const btnRight = btnLeft + activeWeekBtn.offsetWidth;
+          const viewLeft = pillsEl.scrollLeft;
+          const viewRight = viewLeft + pillsEl.clientWidth;
+          if (btnLeft < viewLeft) {
+            pillsEl.scrollLeft = Math.max(0, btnLeft - 12);
+          } else if (btnRight > viewRight) {
+            pillsEl.scrollLeft = btnRight - pillsEl.clientWidth + 12;
+          }
+          state.weekPillsScrollLeft = pillsEl.scrollLeft;
+        }
+      }
+      pillsEl.addEventListener(
+        'scroll',
+        () => {
+          state.weekPillsScrollLeft = pillsEl.scrollLeft;
+        },
+        { passive: true }
+      );
     }
 
     rootEl.querySelectorAll('[data-pick-week]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        const curPills = rootEl.querySelector('.tl-week-pills');
+        if (curPills) state.weekPillsScrollLeft = curPills.scrollLeft;
         state.selectedWeekIdx = Number(btn.dataset.pickWeek) || 0;
         render();
       });

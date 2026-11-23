@@ -3,7 +3,7 @@ import { createExamRunner } from './exam-runner.js?v=20261123d';
 import { createTeacherController } from './teacher-ui.js?v=20261123d';
 import { createStudentController } from './student-ui.js?v=20261123d';
 import { createHtmlLabController } from './html-lab.js?v=20261123d';
-import { createTeachingLogController } from './teaching-log.js?v=20261123h';
+import { createTeachingLogController } from './teaching-log.js?v=20261123i';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');

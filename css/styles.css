@@ -4767,6 +4767,15 @@ iframe {
   color: #fff;
 }
 
+.tl-week-btn.is-current-week:not(.active) {
+  border-color: var(--primary-border);
+  background: #f0f6ff;
+}
+
+.tl-week-btn.is-current-week:not(.active) strong {
+  color: var(--primary);
+}
+
 .tl-week-actions {
   display: flex;
   gap: 8px;
@@ -4862,6 +4871,37 @@ iframe {
 
 .tl-day-head.is-holiday {
   background: #fffbeb;
+}
+
+.tl-day-head.is-today {
+  background: #e0edff;
+  box-shadow: inset 0 3px 0 var(--primary);
+}
+
+.tl-day-head.is-today .tl-day-title-row strong,
+.tl-day-head.is-today .tl-day-date {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.tl-today-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.tl-cell.is-today-col {
+  background: #f2f7ff !important;
+}
+
+.tl-cell.is-today-col.is-empty {
+  background: #f2f7ff !important;
 }
 
 .tl-day-title-row {
