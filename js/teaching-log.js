@@ -198,17 +198,29 @@ export function generateSemesterSchedule(semester, curriculumPlans) {
   const saturdayMidterms = Array.isArray(semester.saturdayMidterms) ? semester.saturdayMidterms : [];
 
   const tkbRanges = ensureTimetables(semester);
-  // Pre-index each TKB version's slots and per-class weekly slot counts
+  // Pre-index each TKB version's slots and mark each class's LAST weekly slot as Chuyên đề (when >= 4 periods/week)
   const indexedTkbs = tkbRanges.map((tr) => {
     const slotMap = new Map();
-    const classWeeklyCount = new Map();
+    const classSlotsByCid = new Map();
     for (const slot of tr.slots || []) {
       if (!classById.has(slot.classId)) continue;
       if (slot.session && slot.session !== semSession) continue;
-      const key = `${slot.dayOfWeek}|${slot.period}`;
+      const dow = Number(slot.dayOfWeek);
+      const period = Number(slot.period);
+      const key = `${dow}|${period}`;
       if (!slotMap.has(key)) {
-        slotMap.set(key, { classId: slot.classId });
-        classWeeklyCount.set(slot.classId, (classWeeklyCount.get(slot.classId) || 0) + 1);
+        const cfg = { classId: slot.classId, dayOfWeek: dow, period, isSpecialSlot: false };
+        slotMap.set(key, cfg);
+        if (!classSlotsByCid.has(slot.classId)) classSlotsByCid.set(slot.classId, []);
+        classSlotsByCid.get(slot.classId).push(cfg);
+      }
+    }
+    const classWeeklyCount = new Map();
+    for (const [cid, list] of classSlotsByCid.entries()) {
+      classWeeklyCount.set(cid, list.length);
+      if (list.length >= 4) {
+        list.sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.period - b.period);
+        list[list.length - 1].isSpecialSlot = true;
       }
     }
     return { ...tr, slotMap, classWeeklyCount };
@@ -330,7 +342,6 @@ export function generateSemesterSchedule(semester, curriculumPlans) {
 
   const regCursors = new Map(classes.map((c) => [c.id, 0]));
   const spCursors = new Map(classes.map((c) => [c.id, 0]));
-  const classSlotCounts = new Map(classes.map((c) => [c.id, 0]));
   const flatEntries = [];
 
   for (const day of allDays) {
@@ -389,10 +400,9 @@ export function generateSemesterSchedule(semester, curriculumPlans) {
       const regIdx = regCursors.get(cls.id) || 0;
       const spIdx = spCursors.get(cls.id) || 0;
       const weeklySlots = activeTkb.classWeeklyCount.get(cls.id) || 0;
-      const cycle = classSlotCounts.get(cls.id) || 0;
 
-      // Classes with >= 4 periods/week automatically schedule 3 regular + 1 Chuyên đề per 4-period cycle
-      const wantsSpecial = weeklySlots >= 4 && cycle % 4 === 3;
+      // Default rule: the LAST slot of the week in TKB is always Chuyên đề (CĐ), even if an earlier day is a holiday
+      const wantsSpecial = Boolean(slotCfg.isSpecialSlot);
       let pickSpecial = false;
       if (wantsSpecial && spIdx < spPlan.length) {
         pickSpecial = true;
@@ -401,8 +411,6 @@ export function generateSemesterSchedule(semester, curriculumPlans) {
       } else if (regIdx >= regPlan.length) {
         continue;
       }
-
-      classSlotCounts.set(cls.id, cycle + 1);
 
       if (pickSpecial) {
         const lesson = spPlan[spIdx];
