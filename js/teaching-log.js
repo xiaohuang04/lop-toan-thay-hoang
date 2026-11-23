@@ -759,8 +759,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
   // =========================================================
   // SUB-TAB 1: SỔ BÁO GIẢNG (1 BUỔI DUY NHẤT, ẨN T7 MẶC ĐỊNH)
   // =========================================================
-  function renderLogView(sem, schedule) {
-    const week = schedule.weeks[state.selectedWeekIdx] || schedule.weeks[0];
+  function renderLogWeekGridHtml(sem, schedule, week) {
     if (!week) {
       return `<div class="card panel-card" style="text-align:center; padding:36px;">Chưa có dữ liệu tuần học.</div>`;
     }
@@ -835,6 +834,52 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       `);
     }
 
+    return `
+      <div class="card tl-grid-card">
+        <div class="tl-grid-scroll">
+          <table class="tl-table" id="tlWeekTable">
+            <thead>
+              <tr>
+                <th class="tl-period-col">Buổi ${sessionLabel}</th>
+                ${visibleDays
+                  .map((d) => {
+                    const isToday = d.iso === todayIso;
+                    return `
+                  <th class="tl-day-head ${d.isHoliday ? 'is-holiday' : ''} ${d.dayOfWeek === 6 ? 'is-saturday' : ''} ${isToday ? 'is-today' : ''}">
+                    <div class="tl-day-title-row">
+                      <span style="display:inline-flex; align-items:center; gap:6px;">
+                        <strong>${DAY_LABELS[d.dayOfWeek]}</strong>
+                        ${isToday ? `<span class="tl-today-badge">Hôm nay</span>` : ''}
+                      </span>
+                      <span class="tl-day-date" style="margin-top:0;">${d.dateVN}</span>
+                    </div>
+                    ${
+                      d.swapInfo
+                        ? `<div class="tl-swap-pill">⇄ Đổi với ${d.swapInfo.otherShortDateVN} (${DAY_LABELS[d.effectiveDow]})</div>`
+                        : ''
+                    }
+                  </th>
+                `;
+                  })
+                  .join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml.join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderLogView(sem, schedule) {
+    const week = schedule.weeks[state.selectedWeekIdx] || schedule.weeks[0];
+    if (!week) {
+      return `<div class="card panel-card" style="text-align:center; padding:36px;">Chưa có dữ liệu tuần học.</div>`;
+    }
+
+    const todayIso = toIsoDateLocal(new Date());
     const swapsList = sem.swaps || [];
     const holidaysList = sem.holidays || [];
 
@@ -929,41 +974,9 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
           : ''
       }
 
-      <!-- Main Weekly Grid (Single Session, Mon-Fri by default, Sat shown only when needed) -->
-      <div class="card tl-grid-card">
-        <div class="tl-grid-scroll">
-          <table class="tl-table" id="tlWeekTable">
-            <thead>
-              <tr>
-                <th class="tl-period-col">Buổi ${sessionLabel}</th>
-                ${visibleDays
-                  .map((d) => {
-                    const isToday = d.iso === todayIso;
-                    return `
-                  <th class="tl-day-head ${d.isHoliday ? 'is-holiday' : ''} ${d.dayOfWeek === 6 ? 'is-saturday' : ''} ${isToday ? 'is-today' : ''}">
-                    <div class="tl-day-title-row">
-                      <span style="display:inline-flex; align-items:center; gap:6px;">
-                        <strong>${DAY_LABELS[d.dayOfWeek]}</strong>
-                        ${isToday ? `<span class="tl-today-badge">Hôm nay</span>` : ''}
-                      </span>
-                      <span class="tl-day-date" style="margin-top:0;">${d.dateVN}</span>
-                    </div>
-                    ${
-                      d.swapInfo
-                        ? `<div class="tl-swap-pill">⇄ Đổi với ${d.swapInfo.otherShortDateVN} (${DAY_LABELS[d.effectiveDow]})</div>`
-                        : ''
-                    }
-                  </th>
-                `;
-                  })
-                  .join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml.join('')}
-            </tbody>
-          </table>
-        </div>
+      <!-- Main Weekly Grid Host (swapped in-place on week change for zero jitter!) -->
+      <div id="tlWeekGridHost">
+        ${renderLogWeekGridHtml(sem, schedule, week)}
       </div>
     `;
   }
@@ -2392,18 +2405,6 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         state.centerActiveWeekOnce = false;
       } else if (state.weekPillsScrollLeft !== null) {
         pillsEl.scrollLeft = state.weekPillsScrollLeft;
-        if (activeWeekBtn) {
-          const btnLeft = activeWeekBtn.offsetLeft;
-          const btnRight = btnLeft + activeWeekBtn.offsetWidth;
-          const viewLeft = pillsEl.scrollLeft;
-          const viewRight = viewLeft + pillsEl.clientWidth;
-          if (btnLeft < viewLeft) {
-            pillsEl.scrollLeft = Math.max(0, btnLeft - 12);
-          } else if (btnRight > viewRight) {
-            pillsEl.scrollLeft = btnRight - pillsEl.clientWidth + 12;
-          }
-          state.weekPillsScrollLeft = pillsEl.scrollLeft;
-        }
       }
       pillsEl.addEventListener(
         'scroll',
@@ -2414,58 +2415,102 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       );
     }
 
-    // On mobile, scroll today's column into view right next to the sticky Tiết column
-    const weekGridScroll = rootEl.querySelector('#tlWeekTable')?.closest('.tl-grid-scroll');
-    const todayTh = weekGridScroll?.querySelector('th.tl-day-head.is-today');
-    if (weekGridScroll && todayTh && window.innerWidth <= 768) {
-      const stickyW = weekGridScroll.querySelector('th.tl-period-col')?.offsetWidth || 58;
-      weekGridScroll.scrollLeft = Math.max(0, todayTh.offsetLeft - stickyW);
+    function bindLogGridEvents(hostEl) {
+      if (!hostEl) return;
+      // On mobile, scroll today's column into view right next to the sticky Tiết column
+      const weekGridScroll = hostEl.querySelector('#tlWeekTable')?.closest('.tl-grid-scroll');
+      const todayTh = weekGridScroll?.querySelector('th.tl-day-head.is-today');
+      if (weekGridScroll && todayTh && window.innerWidth <= 768) {
+        const stickyW = weekGridScroll.querySelector('th.tl-period-col')?.offsetWidth || 58;
+        weekGridScroll.scrollLeft = Math.max(0, todayTh.offsetLeft - stickyW);
+      }
+
+      hostEl.querySelectorAll('.tl-slot-card[data-slot-iso]').forEach((card) => {
+        const openDetails = (e) => {
+          if (e.target.closest('[data-del-sat-mt]')) return;
+          const iso = card.dataset.slotIso;
+          const period = Number(card.dataset.slotPeriod);
+          const dayObj = schedule.allDays.find((d) => d.iso === iso);
+          const entry = dayObj?.slots?.[period];
+          if (entry) openSlotDetailModal(entry);
+        };
+        card.addEventListener('click', openDetails);
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openDetails(e);
+          }
+        });
+      });
+
+      hostEl.querySelectorAll('[data-del-sat-mt]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.delSatMt;
+          sem.saturdayMidterms = (sem.saturdayMidterms || []).filter((x) => x.id !== id);
+          await persist('Đã xóa lịch kiểm tra giữa kì.');
+        });
+      });
+    }
+
+    const gridHost = rootEl.querySelector('#tlWeekGridHost');
+    bindLogGridEvents(gridHost);
+
+    // Swap ONLY the weekly table in-place — NEVER rebuild .tl-week-pills (eliminates all jitter/flicker!)
+    function selectWeekInPlace(nextIdx, { ensureVisible = false } = {}) {
+      const clamped = Math.max(0, Math.min(schedule.weeks.length - 1, Number(nextIdx) || 0));
+      if (clamped === state.selectedWeekIdx) return;
+      state.selectedWeekIdx = clamped;
+
+      // Update desktop week pills active class in-place
+      let newActiveBtn = null;
+      rootEl.querySelectorAll('[data-pick-week]').forEach((b) => {
+        const isAct = Number(b.dataset.pickWeek) === clamped;
+        b.classList.toggle('active', isAct);
+        if (isAct) newActiveBtn = b;
+      });
+
+      // Only gently nudge horizontal scroll if the clicked pill is partially clipped at an edge
+      if (ensureVisible && pillsEl && newActiveBtn) {
+        const pRect = pillsEl.getBoundingClientRect();
+        const bRect = newActiveBtn.getBoundingClientRect();
+        if (bRect.left < pRect.left) {
+          pillsEl.scrollBy({ left: bRect.left - pRect.left - 10, behavior: 'smooth' });
+        } else if (bRect.right > pRect.right) {
+          pillsEl.scrollBy({ left: bRect.right - pRect.right + 10, behavior: 'smooth' });
+        }
+      }
+
+      // Sync mobile week dropdown & prev/next buttons in-place
+      const mobSel = rootEl.querySelector('#selMobileWeek');
+      if (mobSel) mobSel.value = String(clamped);
+      const btnPrev = rootEl.querySelector('#btnPrevWeekMobile');
+      const btnNext = rootEl.querySelector('#btnNextWeekMobile');
+      if (btnPrev) btnPrev.disabled = clamped <= 0;
+      if (btnNext) btnNext.disabled = clamped >= schedule.weeks.length - 1;
+
+      // Replace ONLY the table content inside #tlWeekGridHost
+      if (gridHost) {
+        gridHost.innerHTML = renderLogWeekGridHtml(sem, schedule, schedule.weeks[clamped]);
+        bindLogGridEvents(gridHost);
+      }
     }
 
     rootEl.querySelector('#selMobileWeek')?.addEventListener('change', (e) => {
-      state.selectedWeekIdx = Number(e.target.value) || 0;
-      state.centerActiveWeekOnce = true;
-      render();
+      selectWeekInPlace(Number(e.target.value) || 0, { ensureVisible: true });
     });
     rootEl.querySelector('#btnPrevWeekMobile')?.addEventListener('click', () => {
-      if (state.selectedWeekIdx > 0) {
-        state.selectedWeekIdx -= 1;
-        state.centerActiveWeekOnce = true;
-        render();
-      }
+      if (state.selectedWeekIdx > 0) selectWeekInPlace(state.selectedWeekIdx - 1, { ensureVisible: true });
     });
     rootEl.querySelector('#btnNextWeekMobile')?.addEventListener('click', () => {
       if (state.selectedWeekIdx < schedule.weeks.length - 1) {
-        state.selectedWeekIdx += 1;
-        state.centerActiveWeekOnce = true;
-        render();
+        selectWeekInPlace(state.selectedWeekIdx + 1, { ensureVisible: true });
       }
     });
 
     rootEl.querySelectorAll('[data-pick-week]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const curPills = rootEl.querySelector('.tl-week-pills');
-        if (curPills) state.weekPillsScrollLeft = curPills.scrollLeft;
-        state.selectedWeekIdx = Number(btn.dataset.pickWeek) || 0;
-        render();
-      });
-    });
-
-    rootEl.querySelectorAll('.tl-slot-card[data-slot-iso]').forEach((card) => {
-      const openDetails = (e) => {
-        if (e.target.closest('[data-del-sat-mt]')) return;
-        const iso = card.dataset.slotIso;
-        const period = Number(card.dataset.slotPeriod);
-        const dayObj = schedule.allDays.find((d) => d.iso === iso);
-        const entry = dayObj?.slots?.[period];
-        if (entry) openSlotDetailModal(entry);
-      };
-      card.addEventListener('click', openDetails);
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          openDetails(e);
-        }
+        selectWeekInPlace(Number(btn.dataset.pickWeek) || 0, { ensureVisible: true });
       });
     });
 
@@ -2484,15 +2529,6 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         const idx = Number(btn.dataset.delHolidayIdx);
         sem.holidays.splice(idx, 1);
         await persist('Đã xóa đợt nghỉ lễ.');
-      });
-    });
-
-    rootEl.querySelectorAll('[data-del-sat-mt]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.delSatMt;
-        sem.saturdayMidterms = (sem.saturdayMidterms || []).filter((x) => x.id !== id);
-        await persist('Đã xóa lịch kiểm tra giữa kì.');
       });
     });
 

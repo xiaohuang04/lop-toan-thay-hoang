@@ -4825,6 +4825,7 @@ iframe {
 }
 
 .tl-week-pills {
+  position: relative;
   display: flex;
   flex-wrap: nowrap;
   flex: 1;
