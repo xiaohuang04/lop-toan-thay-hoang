@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261123i';
+import { api } from './api.js?v=20261123j';
 import {
   escapeHtml,
   escapeAttr,
   parseVnDateOnlyToIso,
-} from './exam-engine.js?v=20261123i';
+} from './exam-engine.js?v=20261123j';
 
 const DAY_LABELS = {
   1: 'Thứ 2',
@@ -819,6 +819,33 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     return `
       <!-- Week Selector & 3 Tool Buttons: Nghỉ lễ | Hoán đổi | Kiểm tra giữa kì -->
       <div class="tl-week-bar">
+        <div class="tl-mobile-week-picker">
+          <button
+            type="button"
+            class="tl-week-nav-btn"
+            id="btnPrevWeekMobile"
+            ${state.selectedWeekIdx <= 0 ? 'disabled' : ''}
+            aria-label="Tuần trước"
+          >‹</button>
+          <select id="selMobileWeek" class="input-control input-compact tl-mobile-week-select" aria-label="Chọn tuần">
+            ${schedule.weeks
+              .map((w, idx) => {
+                const monIso = w.days?.[0]?.iso || '';
+                const sunIso = monIso ? toIsoDateLocal(addDays(parseIsoDateLocal(monIso), 6)) : '';
+                const isCurWeek = Boolean(monIso && todayIso >= monIso && todayIso <= sunIso);
+                return `<option value="${idx}" ${idx === state.selectedWeekIdx ? 'selected' : ''}>Tuần ${w.weekNumber} (${w.startShortVN} – ${w.endShortVN})${isCurWeek ? ' • Hiện tại' : ''}</option>`;
+              })
+              .join('')}
+          </select>
+          <button
+            type="button"
+            class="tl-week-nav-btn"
+            id="btnNextWeekMobile"
+            ${state.selectedWeekIdx >= schedule.weeks.length - 1 ? 'disabled' : ''}
+            aria-label="Tuần sau"
+          >›</button>
+        </div>
+
         <div class="tl-week-pills">
           ${schedule.weeks
             .map((w, idx) => {
@@ -1272,12 +1299,12 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
                           (r) => `
                         <tr>
                           <td class="tl-equip-time-col"><strong>${r.colTimeHtml}</strong></td>
-                          <td>
+                          <td class="tl-equip-lesson-col">
                             ${escapeHtml(r.displayLesson)}
                             ${r.isMidterm ? `<span class="badge badge-p2" style="margin-left:6px;">KT GK</span>` : ''}
                           </td>
-                          <td>${escapeHtml(r.equipment)}</td>
-                          <td><span class="badge badge-p1">${escapeHtml(r.className)}</span></td>
+                          <td class="tl-equip-name-col">${escapeHtml(r.equipment)}</td>
+                          <td class="tl-equip-class-col"><span class="badge badge-p1">${escapeHtml(r.className)}</span></td>
                         </tr>
                       `
                         )
@@ -1532,8 +1559,8 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         </button>
       </div>
 
-      <div class="card" style="overflow-x:auto;">
-        <table class="data-table">
+      <div class="card tl-plan-card" style="overflow-x:auto;">
+        <table class="data-table tl-plan-table ${isSpecial ? 'is-special-plan' : ''}">
           <thead>
             <tr>
               <th style="width:100px;">${isSpecial ? 'Tiết CĐ' : 'Tiết PPCT'}</th>
@@ -1550,13 +1577,13 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
                     .map(
                       (item) => `
                   <tr>
-                    <td><span class="badge ${isSpecial ? 'badge-p3' : 'badge-p1'}">${isSpecial ? `CĐ${escapeHtml(item.ppct)}` : `Tiết ${escapeHtml(item.ppct)}`}</span></td>
-                    <td>
+                    <td class="tl-plan-col-ppct"><span class="badge ${isSpecial ? 'badge-p3' : 'badge-p1'}">${isSpecial ? `CĐ${escapeHtml(item.ppct)}` : `Tiết ${escapeHtml(item.ppct)}`}</span></td>
+                    <td class="tl-plan-col-name">
                       <div class="tl-plan-title">${escapeHtml(item.lessonName)}</div>
                       ${item.note ? `<div class="tl-plan-note">${escapeHtml(item.note)}</div>` : ''}
                     </td>
-                    ${!isSpecial ? `<td style="font-size:0.84rem; color:var(--text-secondary);">${escapeHtml(item.equipment || '—')}</td>` : ''}
-                    <td style="text-align:right; white-space:nowrap;">
+                    ${!isSpecial ? `<td class="tl-plan-col-equip ${item.equipment ? '' : 'is-empty-equip'}" style="font-size:0.84rem; color:var(--text-secondary);">${escapeHtml(item.equipment || '—')}</td>` : ''}
+                    <td class="tl-plan-col-act" style="text-align:right; white-space:nowrap;">
                       <button type="button" class="btn btn-secondary btn-sm" data-edit-plan="${item.ppct}">Sửa</button>
                       <button type="button" class="btn btn-danger-outline btn-sm" data-del-plan="${item.ppct}">Xóa</button>
                     </td>
@@ -2318,6 +2345,18 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       });
     });
 
+    // Keep active sub-tab visible in mobile horizontal swipe strip
+    const activeSubTabBtn = rootEl.querySelector('.subtab-btn.active');
+    if (activeSubTabBtn && window.innerWidth <= 768) {
+      const subBar = activeSubTabBtn.closest('.subtab-bar');
+      if (subBar) {
+        subBar.scrollLeft = Math.max(
+          0,
+          activeSubTabBtn.offsetLeft - (subBar.clientWidth - activeSubTabBtn.offsetWidth) / 2
+        );
+      }
+    }
+
     // === SUB-TAB 1: SỔ BÁO GIẢNG ===
     const pillsEl = rootEl.querySelector('.tl-week-pills');
     const activeWeekBtn = pillsEl?.querySelector('.tl-week-btn.active');
@@ -2352,6 +2391,34 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         { passive: true }
       );
     }
+
+    // On mobile, scroll today's column into view right next to the sticky Tiết column
+    const weekGridScroll = rootEl.querySelector('#tlWeekTable')?.closest('.tl-grid-scroll');
+    const todayTh = weekGridScroll?.querySelector('th.tl-day-head.is-today');
+    if (weekGridScroll && todayTh && window.innerWidth <= 768) {
+      const stickyW = weekGridScroll.querySelector('th.tl-period-col')?.offsetWidth || 58;
+      weekGridScroll.scrollLeft = Math.max(0, todayTh.offsetLeft - stickyW);
+    }
+
+    rootEl.querySelector('#selMobileWeek')?.addEventListener('change', (e) => {
+      state.selectedWeekIdx = Number(e.target.value) || 0;
+      state.centerActiveWeekOnce = true;
+      render();
+    });
+    rootEl.querySelector('#btnPrevWeekMobile')?.addEventListener('click', () => {
+      if (state.selectedWeekIdx > 0) {
+        state.selectedWeekIdx -= 1;
+        state.centerActiveWeekOnce = true;
+        render();
+      }
+    });
+    rootEl.querySelector('#btnNextWeekMobile')?.addEventListener('click', () => {
+      if (state.selectedWeekIdx < schedule.weeks.length - 1) {
+        state.selectedWeekIdx += 1;
+        state.centerActiveWeekOnce = true;
+        render();
+      }
+    });
 
     rootEl.querySelectorAll('[data-pick-week]').forEach((btn) => {
       btn.addEventListener('click', () => {

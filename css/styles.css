@@ -4224,7 +4224,8 @@ iframe {
 
   .header-inner {
     flex-wrap: wrap;
-    padding: 10px 14px;
+    padding: 10px 12px;
+    padding-top: max(10px, env(safe-area-inset-top));
     row-gap: 8px;
     column-gap: 10px;
   }
@@ -4269,29 +4270,54 @@ iframe {
 
   .main-tabs {
     order: 3;
+    display: flex;
     width: 100%;
-    padding: 4px;
+    max-width: 100%;
+    padding: 3px;
     border-radius: 12px;
-    gap: 4px;
+    gap: 3px;
+    overflow: hidden;
   }
 
   .main-tab {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     justify-content: center;
-    padding: 8px 10px;
-    font-size: 0.84rem;
-    gap: 6px;
+    padding: 8px 6px;
+    font-size: 0.78rem;
+    gap: 4px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 9px;
   }
 
   .main-tab svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
   }
 
   .app-main {
-    padding: 14px 12px 44px;
+    padding: 14px 12px max(48px, calc(24px + env(safe-area-inset-bottom)));
+  }
+}
+
+@media (max-width: 480px) {
+  .header-inner {
+    padding: 9px 10px;
+    padding-top: max(9px, env(safe-area-inset-top));
+  }
+
+  .main-tab {
+    padding: 8px 4px;
+    font-size: 0.75rem;
+    gap: 3px;
+  }
+
+  .main-tab svg {
+    width: 13px;
+    height: 13px;
   }
 }
 
@@ -4825,6 +4851,49 @@ iframe {
   opacity: 1;
 }
 
+.tl-mobile-week-picker {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.tl-week-nav-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.tl-week-nav-btn:hover:not(:disabled) {
+  border-color: var(--primary-border);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.tl-week-nav-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.tl-mobile-week-select {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  height: 40px;
+}
+
 .tl-grid-card {
   overflow: hidden;
   border-radius: 16px;
@@ -4837,19 +4906,34 @@ iframe {
 
 .tl-table {
   width: 100%;
-  min-width: 980px;
-  border-collapse: collapse;
+  min-width: 1020px;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
 }
 
 .tl-table th,
 .tl-table td {
-  border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   vertical-align: top;
+}
+
+.tl-table th:last-child,
+.tl-table td:last-child {
+  border-right: none;
+}
+
+.tl-table tbody tr:last-child th,
+.tl-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .tl-period-col {
   width: 74px;
+  position: sticky;
+  left: 0;
+  z-index: 4;
   text-align: center !important;
   vertical-align: middle !important;
   font-size: 0.78rem;
@@ -4857,6 +4941,11 @@ iframe {
   color: var(--text-muted);
   background: var(--surface-subtle);
   padding: 8px 6px;
+  box-shadow: 2px 0 6px -2px rgba(15, 23, 42, 0.09);
+}
+
+.tl-table thead th.tl-period-col {
+  z-index: 6;
 }
 
 .tl-day-head {
@@ -4887,13 +4976,15 @@ iframe {
 .tl-today-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 999px;
   background: var(--primary);
   color: #fff;
   font-size: 0.66rem;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tl-cell.is-today-col {
@@ -4909,11 +5000,14 @@ iframe {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  flex-wrap: nowrap;
 }
 
 .tl-day-title-row strong {
   font-size: 0.9rem;
   color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tl-day-date {
@@ -4921,6 +5015,8 @@ iframe {
   color: var(--text-muted);
   font-family: var(--font-mono);
   margin-top: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tl-holiday-toggle {
@@ -5615,8 +5711,436 @@ iframe {
 }
 
 @media (max-width: 980px) {
-  .tl-sem-config-grid {
+  .tl-sem-config-grid,
+  .tl-sem-config-grid.is-7cols {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* =========================================================
+   IPHONE 17 PRO MAX (440x956 SAFARI) & MOBILE TEACHING LOG
+   ========================================================= */
+@media (max-width: 768px) {
+  body {
+    overflow-x: clip;
+  }
+
+  /* Semester topbar compact on phone */
+  .tl-topbar {
+    padding: 12px 13px;
+    gap: 10px;
+    border-radius: 14px;
+    margin-bottom: 12px;
+  }
+
+  .tl-topbar-left {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tl-topbar-left > div {
+    width: 100%;
+  }
+
+  #selSemester {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .tl-topbar-stats {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .tl-stat-pill {
+    font-size: 0.75rem;
+    padding: 5px 9px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Sổ báo giảng mobile week dropdown + 3 buttons */
+  .tl-week-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .tl-week-pills {
+    display: none;
+  }
+
+  .tl-mobile-week-picker {
+    display: flex;
+  }
+
+  .tl-week-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 6px;
+  }
+
+  .tl-week-actions .btn {
+    justify-content: center;
+    padding: 8px 10px;
+    min-height: 38px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .tl-active-mods {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .tl-active-mods .badge {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.35;
+    font-size: 0.75rem;
+  }
+
+  /* Frozen Tiết column + comfortable ~2-day swipe view on 440px iPhone */
+  .tl-table {
+    min-width: 1060px;
+  }
+
+  .tl-period-col {
+    width: 58px;
+    font-size: 0.73rem;
+    padding: 6px 4px;
+  }
+
+  .tl-day-head {
+    padding: 9px 10px 7px;
+  }
+
+  .tl-day-title-row {
+    gap: 5px;
+  }
+
+  .tl-day-title-row strong {
+    font-size: 0.84rem;
+  }
+
+  .tl-today-badge {
+    font-size: 0.63rem;
+    padding: 1px 6px;
+  }
+
+  .tl-day-date {
+    font-size: 0.72rem;
+  }
+
+  .tl-cell {
+    height: 72px;
+    padding: 5px;
+  }
+
+  .tl-slot-card {
+    padding: 6px 7px;
+    border-radius: 9px;
+  }
+
+  .tl-slot-title {
+    font-size: 0.78rem;
+  }
+
+  /* Sub-tab Thực tế: sticky Tuần + Tiết columns & always-visible touch tools */
+  .tl-actual-table {
+    min-width: 590px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .tl-actual-table th,
+  .tl-actual-table td {
+    border: none;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px;
+    font-size: 0.82rem;
+  }
+
+  .tl-actual-table th:first-child,
+  .tl-act-week-col {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    width: 58px !important;
+    min-width: 58px;
+    max-width: 58px;
+    background: var(--surface-subtle) !important;
+    padding: 6px 4px !important;
+  }
+
+  .tl-actual-table th:nth-child(2),
+  .tl-act-tiet-col {
+    position: sticky;
+    left: 58px;
+    z-index: 3;
+    width: 48px !important;
+    min-width: 48px;
+    max-width: 48px;
+    background: var(--surface);
+    padding: 6px 4px !important;
+    box-shadow: 2px 0 6px -2px rgba(15, 23, 42, 0.09);
+  }
+
+  .tl-actual-table thead th:first-child,
+  .tl-actual-table thead th:nth-child(2) {
+    z-index: 5;
+    background: var(--surface-subtle) !important;
+  }
+
+  .tl-act-tiet-col.is-extra-slot {
+    background: #f8fafc !important;
+  }
+
+  .tl-act-week-dates {
+    font-size: 0.64rem;
+    line-height: 1.25;
+  }
+
+  .tl-act-input {
+    font-size: 0.84rem;
+    padding: 5px 6px;
+  }
+
+  .tl-act-tools {
+    opacity: 1 !important;
+  }
+
+  .tl-act-tool-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 0.8rem;
+  }
+
+  /* Sub-tab Sổ đồ dùng: Zero-scroll native Mobile Card list */
+  .tl-equip-month-head {
+    padding: 12px 14px;
+  }
+
+  .tl-equip-month-head h3 {
+    font-size: 0.9rem;
+  }
+
+  .tl-equip-table,
+  .tl-equip-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .tl-equip-table thead {
+    display: none;
+  }
+
+  .tl-equip-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .tl-equip-table tr:last-child {
+    border-bottom: none;
+  }
+
+  .tl-equip-table td {
+    display: block;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .tl-equip-time-col {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 0.82rem;
+    align-self: center;
+    white-space: normal;
+  }
+
+  .tl-equip-class-col {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    align-self: center;
+  }
+
+  .tl-equip-lesson-col {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.38;
+  }
+
+  .tl-equip-name-col {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    background: var(--surface-subtle) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 9px;
+    padding: 7px 10px !important;
+    line-height: 1.4;
+  }
+
+  .tl-equip-name-col::before {
+    content: "Đồ dùng: ";
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  /* Sub-tab Thời khóa biểu: compact 2-col semester setup + frozen Tiết col */
+  .tl-sem-config-grid.is-7cols > .form-group:first-child,
+  .tl-sem-config-grid.is-7cols > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .tl-tkb-ver-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .tl-tkb-ver-btn {
+    flex-shrink: 0;
+    min-width: 136px;
+  }
+
+  .tl-tkb-range-strip {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .tl-tkb-table {
+    min-width: 480px;
+  }
+
+  .tl-tkb-cell {
+    height: 44px;
+  }
+
+  .tl-tkb-pill {
+    padding: 3px 8px;
+    font-size: 0.78rem;
+  }
+
+  /* Sub-tab Kế hoạch dạy học: Zero-scroll native Mobile Card list */
+  .tl-plan-card {
+    overflow: hidden !important;
+  }
+
+  .tl-plan-table,
+  .tl-plan-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .tl-plan-table thead {
+    display: none;
+  }
+
+  .tl-plan-table tbody tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .tl-plan-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .tl-plan-table tbody td {
+    display: block;
+    padding: 0 !important;
+    border: none !important;
+    text-align: left !important;
+  }
+
+  .tl-plan-col-ppct {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .tl-plan-col-act {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tl-plan-col-name {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .tl-plan-col-equip {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    font-size: 0.8rem !important;
+    background: var(--surface-subtle);
+    border: 1px solid var(--border) !important;
+    border-radius: 8px;
+    padding: 6px 9px !important;
+    line-height: 1.38;
+  }
+
+  .tl-plan-col-equip::before {
+    content: "Đồ dùng: ";
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  .tl-plan-col-equip.is-empty-equip {
+    display: none !important;
+  }
+
+  .tl-plan-table tbody td[colspan] {
+    grid-column: 1 / -1;
+    text-align: center !important;
+    padding: 28px 12px !important;
+  }
+
+  .tl-seg-toggle {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tl-seg-btn {
+    text-align: center;
+  }
+
+  /* Modal polish for iPhone Safari dynamic viewport height */
+  .modal-card {
+    width: calc(100vw - 24px);
+    max-height: 90dvh;
+    border-radius: 16px;
+  }
+
+  .form-row-2 {
+    grid-template-columns: 1fr;
   }
 }
 
