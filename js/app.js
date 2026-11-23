@@ -1,7 +1,7 @@
 import { api, setToken } from './api.js?v=20261123p';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261123v';
-import { createStudentController } from './student-ui.js?v=20261123s';
+import { createTeacherController } from './teacher-ui.js?v=20261123x';
+import { createStudentController } from './student-ui.js?v=20261123x';
 import { createHtmlLabController } from './html-lab.js?v=20261123s';
 import { createTeachingLogController } from './teaching-log.js?v=20261123o';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';

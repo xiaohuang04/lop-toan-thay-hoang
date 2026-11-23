@@ -432,7 +432,7 @@ export function renderTuitionAdminSection({ students, classes, tuition: rawTuiti
                         info.paid
                           ? `
                             <div style="font-size:0.84rem; font-weight:600; color:var(--text);">
-                              ${escapeHtml(formatDateVNAdmin(info.paidAt))} • ${escapeHtml(methodLabel(info.method))}
+                              ${info.paidAt ? `${escapeHtml(formatDateVNAdmin(info.paidAt))} • ` : ''}${escapeHtml(methodLabel(info.method))}
                             </div>
                             <div class="tl-plan-note">
                               Đã thu: ${escapeHtml(formatVnd(info.paidAmount))}${info.payNote ? ` — ${escapeHtml(info.payNote)}` : ''}
@@ -894,7 +894,8 @@ function openCollectPaymentModal({ student, tuition, selMonth, uiHelpers, onSave
   const info = computeStudentMonthTuition(student, tuition, selMonth);
   const key = `${student.id}|${selMonth}`;
   const defaultAmount = info.paid ? info.paidAmount : info.amount;
-  const defaultDateVN = formatDateVNAdmin(info.paid && info.paidAt ? info.paidAt : getTodayIsoLocal());
+  const initNoDate = Boolean(info.paid && !info.paidAt);
+  let lastDateVN = formatDateVNAdmin(info.paid && info.paidAt ? info.paidAt : getTodayIsoLocal());
   let chosenMethod = info.paid && info.method === 'cash' ? 'cash' : 'transfer';
 
   openModal({
@@ -913,8 +914,12 @@ function openCollectPaymentModal({ student, tuition, selMonth, uiHelpers, onSave
           <div class="tui-k-preview" id="payAmountPreview"></div>
         </div>
         <div class="form-group">
-          <label>Ngày nộp (dd/mm/yyyy) *</label>
-          <input id="payDateInp" type="text" maxlength="10" class="input-control" value="${escapeAttr(defaultDateVN)}" />
+          <label>Ngày nộp (dd/mm/yyyy)</label>
+          <input id="payDateInp" type="text" maxlength="10" class="input-control" placeholder="${initNoDate ? 'Không ghi ngày' : 'dd/mm/yyyy'}" value="${escapeAttr(initNoDate ? '' : lastDateVN)}" ${initNoDate ? 'disabled' : ''} />
+          <label style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:0.82rem; font-weight:600; color:var(--text-secondary); cursor:pointer;">
+            <input type="checkbox" id="payNoDateChk" ${initNoDate ? 'checked' : ''} />
+            <span>Không có ngày</span>
+          </label>
         </div>
       </div>
       <div class="form-group">
@@ -940,6 +945,22 @@ function openCollectPaymentModal({ student, tuition, selMonth, uiHelpers, onSave
     onMount: (m) => {
       const payInp = m.querySelector('#payAmountInp');
       const payPrev = m.querySelector('#payAmountPreview');
+      const dateInp = m.querySelector('#payDateInp');
+      const noDateChk = m.querySelector('#payNoDateChk');
+
+      noDateChk.addEventListener('change', () => {
+        if (noDateChk.checked) {
+          if (dateInp.value.trim()) lastDateVN = dateInp.value.trim();
+          dateInp.value = '';
+          dateInp.placeholder = 'Không ghi ngày';
+          dateInp.disabled = true;
+        } else {
+          dateInp.disabled = false;
+          dateInp.placeholder = 'dd/mm/yyyy';
+          dateInp.value = lastDateVN || formatDateVNAdmin(getTodayIsoLocal());
+        }
+      });
+
       const syncPayPreview = () => {
         const vnd = kToVnd(payInp.value);
         if (!Number.isFinite(vnd) || vnd < 0) {
@@ -978,15 +999,22 @@ function openCollectPaymentModal({ student, tuition, selMonth, uiHelpers, onSave
           return;
         }
         let paidAtIso = '';
-        try {
-          paidAtIso = parseVnDateOnlyToIso(m.querySelector('#payDateInp').value, 'Ngày nộp');
-        } catch (err) {
-          showToast(err.message, 'error');
-          return;
+        if (!noDateChk.checked) {
+          const rawDate = dateInp.value.trim();
+          if (rawDate) {
+            try {
+              paidAtIso = parseVnDateOnlyToIso(rawDate, 'Ngày nộp');
+            } catch (err) {
+              showToast(err.message, 'error');
+              return;
+            }
+          } else {
+            paidAtIso = getTodayIsoLocal();
+          }
         }
         tuition.payments[key] = {
           paid: true,
-          paidAt: paidAtIso || getTodayIsoLocal(),
+          paidAt: paidAtIso,
           amount: amt,
           method: chosenMethod,
           note: m.querySelector('#payNoteInp').value.trim(),

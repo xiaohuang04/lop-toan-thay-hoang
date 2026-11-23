@@ -237,11 +237,17 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         ${diffBannerHtml}
         ${curCarryHtml}
         ${cur.adjustmentNote ? `<div class="stu-tuition-sub">${escapeHtml(cur.adjustmentNote)}</div>` : ''}
-        <div class="stu-tuition-meta-grid">
-          <div class="stu-tuition-meta-item">
-            <span>Ngày nộp</span>
-            <strong>${escapeHtml(cur.paidAt ? formatDateVNAdmin(cur.paidAt) : '—')}</strong>
-          </div>
+        <div class="stu-tuition-meta-grid ${cur.paidAt ? '' : 'is-two-col'}">
+          ${
+            cur.paidAt
+              ? `
+                <div class="stu-tuition-meta-item">
+                  <span>Ngày nộp</span>
+                  <strong>${escapeHtml(formatDateVNAdmin(cur.paidAt))}</strong>
+                </div>
+              `
+              : ''
+          }
           <div class="stu-tuition-meta-item">
             <span>Số tiền</span>
             <strong>${escapeHtml(formatVnd(paidVal))}</strong>
@@ -309,7 +315,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                       ${
                         m.paid
                           ? `<div class="stu-tuition-prev-meta">
-                              <span>Ngày nộp: <strong>${escapeHtml(m.paidAt ? formatDateVNAdmin(m.paidAt) : '—')}</strong></span>
+                              ${m.paidAt ? `<span>Ngày nộp: <strong>${escapeHtml(formatDateVNAdmin(m.paidAt))}</strong></span>` : ''}
                               <span>Hình thức: <strong>${escapeHtml(paymentMethodLabel(m.method))}</strong></span>
                               ${mDiffHtml}
                             </div>`

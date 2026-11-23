@@ -29,7 +29,7 @@ import {
   countMonthUnpaid,
   renderTuitionAdminSection,
   bindTuitionAdminEvents,
-} from './tuition-admin.js?v=20261123v';
+} from './tuition-admin.js?v=20261123x';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 

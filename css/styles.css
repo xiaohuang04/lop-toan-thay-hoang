@@ -6370,6 +6370,10 @@ iframe {
   text-align: left;
 }
 
+.stu-tuition-meta-grid.is-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .stu-tuition-meta-item {
   background: var(--surface-subtle);
   border: 1px solid var(--border);
