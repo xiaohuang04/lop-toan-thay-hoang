@@ -312,6 +312,242 @@ def extract_student_grade(user: dict | None) -> str | None:
     return m.group(1) if m else None
 
 
+def build_default_tuition() -> dict:
+    """Default tuition structure supporting class-level effective rate history,
+    one-click monthly adjustments, per-student prorated overrides, and payment logs."""
+    return {
+        "defaultRates": [
+            {"id": "rate-default-1", "fromMonth": "2026-09", "amount": 300000, "note": "Mức định mức chung"},
+        ],
+        "classRateHistory": {},
+        "monthAdjustments": {},
+        "studentOverrides": {},
+        "payments": {},
+    }
+
+
+def ensure_tuition(db: dict) -> dict:
+    t = db.get("tuition")
+    if not isinstance(t, dict) or "payments" not in t:
+        t = build_default_tuition()
+        db["tuition"] = t
+        save_db(db, keys=["tuition"])
+        return t
+    changed = False
+    if not isinstance(t.get("defaultRates"), list) or len(t["defaultRates"]) == 0:
+        t["defaultRates"] = build_default_tuition()["defaultRates"]
+        changed = True
+    for k in ("classRateHistory", "monthAdjustments", "studentOverrides", "payments"):
+        if not isinstance(t.get(k), dict):
+            t[k] = {}
+            changed = True
+    if changed:
+        save_db(db, keys=["tuition"])
+    return t
+
+
+def _vn_month_label(month_key: str) -> str:
+    m = re.match(r"^(\d{4})-(\d{2})$", str(month_key or ""))
+    if not m:
+        return str(month_key or "")
+    mm = int(m.group(2))
+    mm_str = f"0{mm}" if mm in (1, 2) else str(mm)
+    return f"Tháng {mm_str}/{m.group(1)}"
+
+
+def _iter_months(start_month: str, end_month: str) -> list[str]:
+    ms = re.match(r"^(\d{4})-(\d{2})$", str(start_month or ""))
+    me = re.match(r"^(\d{4})-(\d{2})$", str(end_month or ""))
+    if not ms or not me:
+        return [end_month] if me else []
+    sy, sm = int(ms.group(1)), int(ms.group(2))
+    ey, em = int(me.group(1)), int(me.group(2))
+    if (sy, sm) > (ey, em):
+        return []
+    out: list[str] = []
+    y, m = sy, sm
+    guard = 0
+    while (y, m) <= (ey, em) and guard < 48:
+        out.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+        guard += 1
+    return out
+
+
+def _compute_raw_month_fee(student: dict, tuition: dict, month_key: str) -> dict:
+    cls = str(student.get("className", "")).strip()
+    stu_id = str(student.get("id", ""))
+
+    # 1. Resolve standard rate from classRateHistory[cls] or defaultRates (latest fromMonth <= month_key)
+    class_hist = tuition.get("classRateHistory", {}).get(cls) if cls else None
+    rate_list = class_hist if isinstance(class_hist, list) and len(class_hist) > 0 else tuition.get("defaultRates", [])
+    sorted_rates = sorted(
+        [r for r in rate_list if isinstance(r, dict) and r.get("fromMonth")],
+        key=lambda r: str(r.get("fromMonth", "")),
+    )
+    picked_rate = None
+    for r in sorted_rates:
+        if str(r.get("fromMonth", "")) <= month_key:
+            picked_rate = r
+    if picked_rate is None and sorted_rates:
+        picked_rate = sorted_rates[0]
+
+    base_amount = max(0, int(picked_rate.get("amount", 0))) if picked_rate else 0
+    month_fee = base_amount
+    source = "default"
+    adj_note = ""
+
+    # 2. Apply monthly class/global adjustment
+    m_adjs = tuition.get("monthAdjustments", {}).get(month_key)
+    if isinstance(m_adjs, dict):
+        adj = (m_adjs.get(cls) if cls else None) or m_adjs.get("__all__")
+        if isinstance(adj, dict):
+            mode = str(adj.get("mode", "set"))
+            val = int(adj.get("value", 0) or 0)
+            if mode == "delta":
+                month_fee = max(0, base_amount + val)
+            else:
+                month_fee = max(0, val)
+            source = "adjusted"
+            adj_note = str(adj.get("note", "")).strip()
+
+    # 3. Apply per-student override (highest priority)
+    ov_key = f"{stu_id}|{month_key}"
+    ov = tuition.get("studentOverrides", {}).get(ov_key)
+    if isinstance(ov, dict) and ov.get("amount") is not None:
+        month_fee = max(0, int(ov.get("amount", 0)))
+        source = "custom"
+        adj_note = str(ov.get("note", "")).strip()
+
+    return {
+        "baseAmount": base_amount,
+        "monthFee": month_fee,
+        "source": source,
+        "adjustmentNote": adj_note,
+    }
+
+
+def compute_student_month_tuition(student: dict, tuition: dict, month_key: str) -> dict:
+    stu_id = str(student.get("id", ""))
+    start_date = str(student.get("startDate") or student.get("createdAt") or "")[:10]
+    start_month = start_date[:7] if re.match(r"^\d{4}-\d{2}", start_date) else ""
+
+    not_enrolled = bool(start_month and month_key < start_month)
+    if not_enrolled:
+        return {
+            "monthKey": month_key,
+            "monthLabel": _vn_month_label(month_key),
+            "notEnrolled": True,
+            "startDate": start_date,
+            "baseAmount": 0,
+            "monthFee": 0,
+            "carryFromPrev": 0,
+            "carryFromMonth": "",
+            "carryFromMonthLabel": "",
+            "amount": 0,
+            "source": "default",
+            "adjustmentNote": "",
+            "paid": False,
+            "paidAt": "",
+            "paidAmount": 0,
+            "balanceDiff": 0,
+            "method": "",
+            "note": "",
+        }
+
+    # Walk consecutively from start_month up to month_key so overpayment/underpayment
+    # automatically carries into the following month.
+    chain_start = start_month if (start_month and start_month <= month_key) else month_key
+    months_chain = _iter_months(chain_start, month_key) or [month_key]
+    payments_map = tuition.get("payments", {}) if isinstance(tuition.get("payments"), dict) else {}
+
+    prev_balance = 0  # > 0 means overpaid (credit next month); < 0 means underpaid (add to next month)
+    prev_month_key = ""
+    result = None
+
+    for mk in months_chain:
+        raw = _compute_raw_month_fee(student, tuition, mk)
+        carry_from_prev = prev_balance
+        carry_from_month = prev_month_key if carry_from_prev != 0 else ""
+        raw_due = raw["monthFee"] - carry_from_prev
+        amount = max(0, raw_due)
+
+        ov_key = f"{stu_id}|{mk}"
+        pay = payments_map.get(ov_key)
+        paid = bool(isinstance(pay, dict) and pay.get("paid"))
+        paid_at = str(pay.get("paidAt", "")).strip() if paid else ""
+        paid_amount = int(pay.get("amount", amount)) if paid and pay.get("amount") is not None else (amount if paid else 0)
+        method = str(pay.get("method", "transfer")) if paid else ""
+        pay_note = str(pay.get("note", "")).strip() if paid else ""
+
+        if paid:
+            balance_diff = paid_amount - raw_due
+            next_balance = balance_diff
+        else:
+            balance_diff = 0
+            next_balance = -raw_due if raw_due < 0 else 0
+
+        result = {
+            "monthKey": mk,
+            "monthLabel": _vn_month_label(mk),
+            "notEnrolled": False,
+            "startDate": start_date,
+            "baseAmount": raw["baseAmount"],
+            "monthFee": raw["monthFee"],
+            "carryFromPrev": carry_from_prev,
+            "carryFromMonth": carry_from_month,
+            "carryFromMonthLabel": _vn_month_label(carry_from_month) if carry_from_month else "",
+            "amount": amount,
+            "source": raw["source"],
+            "adjustmentNote": raw["adjustmentNote"],
+            "paid": paid,
+            "paidAt": paid_at,
+            "paidAmount": paid_amount,
+            "balanceDiff": balance_diff,
+            "method": method,
+            "note": pay_note,
+        }
+        prev_balance = next_balance
+        prev_month_key = mk
+
+    return result
+
+
+def build_student_tuition_payload(student: dict, tuition: dict) -> dict:
+    now_dt = datetime.now().astimezone()
+    cur_month = f"{now_dt.year:04d}-{now_dt.month:02d}"
+    start_date = str(student.get("startDate") or student.get("createdAt") or "")[:10]
+    start_month = start_date[:7] if re.match(r"^\d{4}-\d{2}", start_date) else cur_month
+    # Also include any month that has an explicit payment or override for this student
+    stu_prefix = f"{student.get('id', '')}|"
+    extra_months = []
+    for k in list(tuition.get("payments", {}).keys()) + list(tuition.get("studentOverrides", {}).keys()):
+        if isinstance(k, str) and k.startswith(stu_prefix):
+            mk = k.split("|", 1)[1]
+            if re.match(r"^\d{4}-\d{2}$", mk) and mk <= cur_month:
+                extra_months.append(mk)
+    earliest = min([start_month] + extra_months) if extra_months else start_month
+    if earliest > cur_month:
+        earliest = cur_month
+
+    all_months = _iter_months(earliest, cur_month)
+    current_entry = compute_student_month_tuition(student, tuition, cur_month)
+    prev_entries = [
+        compute_student_month_tuition(student, tuition, mk)
+        for mk in reversed([m for m in all_months if m < cur_month])
+    ]
+    prev_entries = [e for e in prev_entries if not e["notEnrolled"] or e["paid"]]
+
+    return {
+        "currentMonth": current_entry,
+        "previousMonths": prev_entries,
+        "startDate": start_date,
+    }
+
+
 def public_user(u: dict) -> dict:
     return {k: v for k, v in u.items() if k != "passwordHash"}
 
@@ -362,14 +598,44 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         sys.stdout.write(f"[EduLab] {self.address_string()} - {format % args}\n")
         sys.stdout.flush()
 
-    def send_json(self, status: int, payload: object) -> None:
+    def send_json(self, status: int, payload: object, extra_headers: list[tuple[str, str]] | None = None) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        if extra_headers:
+            for hk, hv in extra_headers:
+                self.send_header(hk, hv)
         self.end_headers()
         self.wfile.write(raw)
+
+    def _get_cookie_token(self) -> str:
+        cookie_hdr = self.headers.get("Cookie", "")
+        for part in cookie_hdr.split(";"):
+            k, sep, v = part.strip().partition("=")
+            if sep and k.strip() == "edulab_session":
+                return v.strip()
+        return ""
+
+    def _session_cookie_header(self, token: str) -> tuple[str, str]:
+        if token:
+            return ("Set-Cookie", f"edulab_session={token}; Path=/; HttpOnly; SameSite=Lax")
+        return ("Set-Cookie", "edulab_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+
+    def send_html_error(self, status: int, message: str) -> None:
+        html_body = (
+            f"<!doctype html><html lang='vi'><head><meta charset='utf-8'/>"
+            f"<title>Thông báo</title></head>"
+            f"<body style='font-family:system-ui,sans-serif;padding:40px;text-align:center;color:#334155;'>"
+            f"<h2>{message}</h2></body></html>"
+        ).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html_body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(html_body)
 
     def read_body_json(self) -> dict | list:
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -381,10 +647,12 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def get_auth_user(self, db: dict) -> tuple[dict | None, str | None]:
+        token = ""
         auth = self.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
-            return None, None
-        token = auth[7:].strip()
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+        if not token:
+            token = self._get_cookie_token()
         if not token:
             return None, None
         sessions = load_sessions()
@@ -433,10 +701,26 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             is_preview = qs.get("preview", ["0"])[0] == "1"
             is_capture = qs.get("capture", ["0"])[0] == "1"
             with LOCK:
+                db = load_db()
+                user, _ = self.get_auth_user(db)
+                vis_mode = get_models_visibility_mode(db)
                 model = STORE.get_model_by_id(model_id)
             if not model:
-                self.send_error(404, "Không tìm thấy mô hình tương tác.")
+                self.send_html_error(404, "Không tìm thấy mô hình tương tác.")
                 return
+            is_admin_user = bool(user and user.get("role") == "admin")
+            if not is_admin_user:
+                if vis_mode == "admin_only":
+                    self.send_html_error(403, "Chế độ hiện tại chỉ cho phép Giáo viên xem mô hình.")
+                    return
+                if not model.get("visible", True):
+                    self.send_html_error(404, "Không tìm thấy mô hình tương tác.")
+                    return
+                if vis_mode == "own_grade":
+                    stu_grade = extract_student_grade(user)
+                    if not stu_grade or str(model.get("grade")) != stu_grade:
+                        self.send_html_error(403, "Bạn chỉ có thể xem mô hình thuộc khối lớp của mình.")
+                        return
             html_str = model.get("html") or ""
             inject_parts = []
             # Synchronize brand favicon into standalone 3D model tabs if not already defined
@@ -583,7 +867,13 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 vis_mode = get_models_visibility_mode(db)
                 if not user:
                     return self.send_json(200, {"user": None, "modelsVisibilityMode": vis_mode})
-                return self.send_json(200, {"user": public_user(user), "modelsVisibilityMode": vis_mode})
+                _, tok = self.get_auth_user(db)
+                extra = [self._session_cookie_header(tok)] if tok and self._get_cookie_token() != tok else None
+                return self.send_json(
+                    200,
+                    {"user": public_user(user), "modelsVisibilityMode": vis_mode},
+                    extra_headers=extra,
+                )
 
             if path == "/api/models":
                 qs = parse_qs(parsed.query)
@@ -664,6 +954,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "assignments": db["assignments"],
                     "submissions": db["submissions"],
                     "posts": posts,
+                    "tuition": ensure_tuition(db),
                 })
 
             if path == "/api/student/dashboard":
@@ -711,6 +1002,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "submissions": sorted(my_subs, key=lambda x: x["submittedAt"], reverse=True),
                     "examsById": exams_by_id,
                     "posts": visible_posts,
+                    "tuition": build_student_tuition_payload(user, ensure_tuition(db)),
                 })
 
             return self.send_json(404, {"error": "API không tồn tại."})
@@ -740,11 +1032,15 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 sessions = load_sessions()
                 sessions[token] = matched["id"]
                 save_sessions(sessions)
-                return self.send_json(200, {
-                    "token": token,
-                    "user": public_user(matched),
-                    "modelsVisibilityMode": get_models_visibility_mode(db),
-                })
+                return self.send_json(
+                    200,
+                    {
+                        "token": token,
+                        "user": public_user(matched),
+                        "modelsVisibilityMode": get_models_visibility_mode(db),
+                    },
+                    extra_headers=[self._session_cookie_header(token)],
+                )
 
             user, token = self.get_auth_user(db)
             if path == "/api/logout":
@@ -752,7 +1048,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     sessions = load_sessions()
                     sessions.pop(token, None)
                     save_sessions(sessions)
-                return self.send_json(200, {"ok": True})
+                return self.send_json(200, {"ok": True}, extra_headers=[self._session_cookie_header("")])
 
             if not user:
                 return self.send_json(401, {"error": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."})
@@ -892,6 +1188,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "email": str(body.get("email", "")).strip(),
                     "phone": str(body.get("phone", "")).strip(),
                     "dob": str(body.get("dob", "")).strip(),
+                    "startDate": str(body.get("startDate", "")).strip() or datetime.now().astimezone().strftime("%Y-%m-%d"),
                     "createdAt": now_iso(),
                 }
                 db["users"].append(new_student)
@@ -1118,6 +1415,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 stu["email"] = str(body.get("email", stu.get("email", ""))).strip()
                 stu["phone"] = str(body.get("phone", stu.get("phone", ""))).strip()
                 stu["dob"] = str(body.get("dob", stu.get("dob", ""))).strip()
+                if "startDate" in body:
+                    stu["startDate"] = str(body.get("startDate", "")).strip()
                 new_pw = str(body.get("newPassword", "")).strip()
                 if new_pw:
                     if len(new_pw) < 4:
@@ -1180,6 +1479,21 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["settings"]["modelsVisibilityMode"] = mode
                 save_db(db, keys=["settings"])
                 return self.send_json(200, {"modelsVisibilityMode": mode})
+
+            # Save Tuition configuration & payment records (Admin only)
+            if path == "/api/admin/tuition":
+                if not isinstance(body, dict):
+                    return self.send_json(400, {"error": "Dữ liệu học phí không hợp lệ."})
+                clean_tuition = {
+                    "defaultRates": body.get("defaultRates") if isinstance(body.get("defaultRates"), list) else build_default_tuition()["defaultRates"],
+                    "classRateHistory": body.get("classRateHistory") if isinstance(body.get("classRateHistory"), dict) else {},
+                    "monthAdjustments": body.get("monthAdjustments") if isinstance(body.get("monthAdjustments"), dict) else {},
+                    "studentOverrides": body.get("studentOverrides") if isinstance(body.get("studentOverrides"), dict) else {},
+                    "payments": body.get("payments") if isinstance(body.get("payments"), dict) else {},
+                }
+                db["tuition"] = clean_tuition
+                save_db(db, keys=["tuition"])
+                return self.send_json(200, {"tuition": clean_tuition})
 
             # Update Classroom Newsfeed Post (Admin)
             if path.startswith("/api/admin/posts/"):

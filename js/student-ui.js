@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261123d';
+import { api } from './api.js?v=20261123p';
 import {
   escapeHtml,
   escapeAttr,
@@ -9,11 +9,30 @@ import {
 } from './exam-engine.js?v=20261123d';
 import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261123d';
 
+function formatVnd(amount) {
+  const n = Math.max(0, Math.round(Number(amount) || 0));
+  return `${n.toLocaleString('vi-VN')} ₫`;
+}
+
+function formatDateVNAdmin(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(iso || '');
+  const mm = Number(m[2]);
+  const mmStr = mm === 1 || mm === 2 ? `0${mm}` : String(mm);
+  return `${m[3]}/${mmStr}/${m[1]}`;
+}
+
+function paymentMethodLabel(method) {
+  if (method === 'cash') return 'Tiền mặt';
+  if (method === 'transfer') return 'Chuyển khoản';
+  return method || 'Chuyển khoản';
+}
+
 export function createStudentController({ rootEl, examRunner, uiHelpers, onUserUpdated }) {
   const { showToast, setHeaderStatus, renderMath } = uiHelpers;
 
   const state = {
-    subTab: 'feed', // 'feed' | 'assigned' | 'history'
+    subTab: 'feed', // 'feed' | 'exam' | 'tuition'
     feedSearch: '',
     data: {
       user: null,
@@ -21,6 +40,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       submissions: [],
       posts: [],
       examsById: {},
+      tuition: null,
     },
     inRunner: false,
   };
@@ -34,6 +54,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         submissions: res.submissions || [],
         posts: res.posts || [],
         examsById: res.examsById || {},
+        tuition: res.tuition || null,
       };
       if (state.data.user && typeof onUserUpdated === 'function') {
         onUserUpdated(state.data.user);
@@ -90,18 +111,27 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         <button class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}" data-stu-tab="feed">
           Bảng tin lớp học <span class="badge badge-neutral">${posts.length}</span>
         </button>
-        <button class="subtab-btn ${state.subTab === 'assigned' ? 'active' : ''}" data-stu-tab="assigned">
-          Thi Online <span class="badge badge-neutral">${assignments.length}</span>
+        <button class="subtab-btn ${state.subTab === 'exam' ? 'active' : ''}" data-stu-tab="exam">
+          Thi Online &amp; Kết quả <span class="badge badge-neutral">${assignments.length}</span>
         </button>
-        <button class="subtab-btn ${state.subTab === 'history' ? 'active' : ''}" data-stu-tab="history">
-          Lịch sử &amp; Kết quả <span class="badge badge-neutral">${submissions.length}</span>
+        <button class="subtab-btn ${state.subTab === 'tuition' ? 'active' : ''}" data-stu-tab="tuition">
+          Học phí
+          ${
+            state.data.tuition?.currentMonth && !state.data.tuition.currentMonth.notEnrolled
+              ? state.data.tuition.currentMonth.paid
+                ? `<span class="badge badge-success">Đã nộp</span>`
+                : state.data.tuition.currentMonth.amount > 0
+                  ? `<span class="badge badge-warning">Chưa nộp</span>`
+                  : ''
+              : ''
+          }
         </button>
       </div>
 
       <div id="studentSubContent">
         ${state.subTab === 'feed' ? renderFeedSection() : ''}
-        ${state.subTab === 'assigned' ? renderAssignedSection() : ''}
-        ${state.subTab === 'history' ? renderHistorySection() : ''}
+        ${state.subTab === 'exam' ? renderMergedExamSection() : ''}
+        ${state.subTab === 'tuition' ? renderTuitionSection() : ''}
       </div>
     `;
 
@@ -142,6 +172,160 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
             ? 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.'
             : 'Khi thầy Hoàng đăng video bài giảng, handout PDF hoặc tài liệu mới, nội dung sẽ xuất hiện ngay tại đây.',
         })}
+      </div>
+    `;
+  }
+
+  function renderMergedExamSection() {
+    const { assignments, submissions } = state.data;
+    return `
+      <div class="stu-exam-merged">
+        <div class="stu-section-heading">
+          <h3>Bài tập &amp; Đề thi được giao</h3>
+          <span class="badge badge-p1">${assignments.length} đề</span>
+        </div>
+        ${renderAssignedSection()}
+
+        <div class="stu-section-heading" style="margin-top:26px;">
+          <h3>Lịch sử &amp; Kết quả làm bài</h3>
+          <span class="badge badge-neutral">${submissions.length} bài đã nộp</span>
+        </div>
+        ${renderHistorySection()}
+      </div>
+    `;
+  }
+
+  function renderTuitionSection() {
+    const t = state.data.tuition;
+    if (!t || !t.currentMonth) {
+      return `
+        <div class="card panel-card" style="text-align:center; padding:42px; color:var(--text-muted);">
+          Chưa có dữ liệu học phí.
+        </div>
+      `;
+    }
+
+    const cur = t.currentMonth;
+    const prevList = Array.isArray(t.previousMonths) ? t.previousMonths : [];
+
+    let heroBodyHtml = '';
+    const curCarryHtml =
+      cur.carryFromPrev < 0
+        ? `<div class="stu-tuition-diff-banner is-short">Gồm HP tháng ${escapeHtml(formatVnd(cur.monthFee))} + <strong>${escapeHtml(formatVnd(Math.abs(cur.carryFromPrev)))}</strong> (thiếu ${escapeHtml(cur.carryFromMonthLabel || 'tháng trước')})</div>`
+        : cur.carryFromPrev > 0
+          ? `<div class="stu-tuition-diff-banner is-over">Gồm HP tháng ${escapeHtml(formatVnd(cur.monthFee))} − <strong>${escapeHtml(formatVnd(cur.carryFromPrev))}</strong> (thừa ${escapeHtml(cur.carryFromMonthLabel || 'tháng trước')})</div>`
+          : '';
+
+    if (cur.notEnrolled) {
+      heroBodyHtml = `
+        <div class="stu-tuition-status-pill is-neutral">Chưa đến ngày bắt đầu học</div>
+        <div class="stu-tuition-amount is-muted">—</div>
+        ${cur.startDate ? `<div class="stu-tuition-sub">Ngày bắt đầu học: <strong>${escapeHtml(formatDateVNAdmin(cur.startDate))}</strong></div>` : ''}
+      `;
+    } else if (cur.paid) {
+      const paidVal = cur.paidAmount !== undefined && cur.paidAmount !== null ? cur.paidAmount : cur.amount;
+      const diffVal = Number(cur.balanceDiff) || 0;
+      const diffBannerHtml =
+        diffVal < 0
+          ? `<div class="stu-tuition-diff-banner is-short">Nộp thiếu <strong>${escapeHtml(formatVnd(Math.abs(diffVal)))}</strong> - sẽ cộng vào tháng sau</div>`
+          : diffVal > 0
+            ? `<div class="stu-tuition-diff-banner is-over">Nộp thừa <strong>${escapeHtml(formatVnd(diffVal))}</strong> - sẽ trừ vào tháng sau</div>`
+            : '';
+      heroBodyHtml = `
+        <div class="stu-tuition-status-pill is-paid">✓ Đã đóng học phí</div>
+        <div class="stu-tuition-amount is-paid">${escapeHtml(formatVnd(paidVal))}</div>
+        ${diffBannerHtml}
+        ${curCarryHtml}
+        ${cur.adjustmentNote ? `<div class="stu-tuition-sub">${escapeHtml(cur.adjustmentNote)}</div>` : ''}
+        <div class="stu-tuition-meta-grid">
+          <div class="stu-tuition-meta-item">
+            <span>Ngày nộp</span>
+            <strong>${escapeHtml(cur.paidAt ? formatDateVNAdmin(cur.paidAt) : '—')}</strong>
+          </div>
+          <div class="stu-tuition-meta-item">
+            <span>Số tiền</span>
+            <strong>${escapeHtml(formatVnd(paidVal))}</strong>
+          </div>
+          <div class="stu-tuition-meta-item">
+            <span>Hình thức</span>
+            <strong>${escapeHtml(paymentMethodLabel(cur.method))}</strong>
+          </div>
+        </div>
+        ${cur.note ? `<div class="stu-tuition-note">Ghi chú: ${escapeHtml(cur.note)}</div>` : ''}
+      `;
+    } else {
+      heroBodyHtml = `
+        <div class="stu-tuition-status-pill is-unpaid">Chưa đóng học phí</div>
+        <div class="stu-tuition-due-label">Số tiền cần nộp</div>
+        <div class="stu-tuition-amount is-unpaid">${escapeHtml(formatVnd(cur.amount))}</div>
+        ${curCarryHtml}
+        ${cur.adjustmentNote ? `<div class="stu-tuition-sub">${escapeHtml(cur.adjustmentNote)}</div>` : ''}
+      `;
+    }
+
+    return `
+      <div class="stu-tuition-wrap">
+        <!-- Large Centered Current Month Tuition Card -->
+        <div class="card stu-tuition-hero ${cur.paid ? 'is-paid' : cur.notEnrolled ? '' : 'is-unpaid'}">
+          <div class="stu-tuition-hero-top">
+            <span class="stu-tuition-month-eyebrow">HỌC PHÍ THÁNG NÀY</span>
+            <h2>${escapeHtml(cur.monthLabel)}</h2>
+          </div>
+          ${heroBodyHtml}
+        </div>
+
+        <!-- Smaller Previous Months Grid -->
+        <div class="stu-tuition-history-sec">
+          <div class="stu-section-heading">
+            <h3>Trạng thái học phí các tháng trước</h3>
+            <span class="badge badge-neutral">${prevList.length} tháng</span>
+          </div>
+          ${
+            prevList.length === 0
+              ? `<div class="card panel-card" style="text-align:center; padding:28px; color:var(--text-muted); font-size:0.88rem;">
+                  Chưa có lịch sử học phí của các tháng trước.
+                </div>`
+              : `
+                <div class="stu-tuition-prev-grid">
+                  ${prevList
+                    .map((m) => {
+                      const mPaidVal = m.paidAmount !== undefined && m.paidAmount !== null ? m.paidAmount : m.amount;
+                      const mDiff = Number(m.balanceDiff) || 0;
+                      const mDiffHtml =
+                        m.paid && mDiff < 0
+                          ? `<span class="tui-carry-note is-short">Thiếu ${escapeHtml(formatVnd(Math.abs(mDiff)))} (cộng tháng sau)</span>`
+                          : m.paid && mDiff > 0
+                            ? `<span class="tui-carry-note is-over">Thừa ${escapeHtml(formatVnd(mDiff))} (trừ tháng sau)</span>`
+                            : '';
+                      return `
+                    <div class="card stu-tuition-prev-card ${m.paid ? 'is-paid' : 'is-unpaid'}">
+                      <div class="stu-tuition-prev-head">
+                        <strong>${escapeHtml(m.monthLabel)}</strong>
+                        <span class="badge ${m.paid ? 'badge-success' : 'badge-warning'}">
+                          ${m.paid ? 'Đã nộp' : 'Chưa nộp'}
+                        </span>
+                      </div>
+                      <div class="stu-tuition-prev-amt">${escapeHtml(formatVnd(m.paid ? mPaidVal : m.amount))}</div>
+                      ${
+                        m.paid
+                          ? `<div class="stu-tuition-prev-meta">
+                              <span>Ngày nộp: <strong>${escapeHtml(m.paidAt ? formatDateVNAdmin(m.paidAt) : '—')}</strong></span>
+                              <span>Hình thức: <strong>${escapeHtml(paymentMethodLabel(m.method))}</strong></span>
+                              ${mDiffHtml}
+                            </div>`
+                          : `<div class="stu-tuition-prev-meta">
+                              <span>Cần nộp: <strong>${escapeHtml(formatVnd(m.amount))}</strong></span>
+                              ${m.adjustmentNote ? `<span>${escapeHtml(m.adjustmentNote)}</span>` : ''}
+                            </div>`
+                      }
+                    </div>
+                  `;
+                    })
+                    .join('')}
+                </div>
+              `
+          }
+        </div>
       </div>
     `;
   }

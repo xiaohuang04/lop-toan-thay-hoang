@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261123d';
+import { api } from './api.js?v=20261123p';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
@@ -22,6 +22,14 @@ import {
   bindFeedEvents,
   openPostComposerModal,
 } from './classroom-feed.js?v=20261123d';
+import {
+  formatDateVNAdmin,
+  getCurrentMonthKey,
+  getTodayIsoLocal,
+  countMonthUnpaid,
+  renderTuitionAdminSection,
+  bindTuitionAdminEvents,
+} from './tuition-admin.js?v=20261123v';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -67,7 +75,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
 
   const state = {
-    subTab: 'feed', // 'feed' | 'exams' | 'assignments' | 'students' | 'submissions'
+    subTab: 'feed', // 'feed' | 'exams' | 'assignments' | 'students' | 'tuition' | 'submissions'
     data: {
       user: null,
       exams: [],
@@ -75,6 +83,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       assignments: [],
       submissions: [],
       posts: [],
+      tuition: null,
     },
     editingExam: null, // null | cloned exam draft
     editorPartTab: 'part1', // 'part1' | 'part2' | 'part3'
@@ -82,6 +91,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     feedSearch: '',
     subFilterAsg: 'all',
     subSearch: '',
+    tuitionMonth: getCurrentMonthKey(),
+    tuitionClass: 'all',
+    tuitionStatus: 'all',
     inRunner: false,
   };
 
@@ -95,6 +107,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         assignments: res.assignments || [],
         submissions: res.submissions || [],
         posts: res.posts || [],
+        tuition: res.tuition || null,
       };
       if (!state.inRunner) render();
     } catch (err) {
@@ -111,6 +124,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       (p.targetClasses || []).forEach((c) => {
         if (c && c.trim()) set.add(c.trim());
       });
+    });
+    Object.keys(state.data.tuition?.classRateHistory || {}).forEach((c) => {
+      if (c && c.trim()) set.add(c.trim());
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
   }
@@ -144,8 +160,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       return;
     }
 
-    const { exams, students, assignments, submissions, posts, storageMode, storageError } = state.data;
+    const { exams, students, assignments, submissions, posts, tuition, storageMode, storageError } = state.data;
     const isCloud = storageMode === 'supabase';
+    const unpaidCurCount = countMonthUnpaid(students, tuition);
 
     rootEl.innerHTML = `
       <div class="role-hero teacher-hero">
@@ -168,28 +185,28 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
       <div class="subtab-bar">
         <button class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}" data-subtab="feed">
-          Bảng tin &amp; Tài liệu <span class="badge badge-neutral">${posts.length}</span>
+          Bảng tin <span class="badge badge-neutral">${posts.length}</span>
         </button>
         <button class="subtab-btn ${state.subTab === 'exams' ? 'active' : ''}" data-subtab="exams">
           Ngân hàng đề thi <span class="badge badge-neutral">${exams.length}</span>
         </button>
+        <button class="subtab-btn ${state.subTab === 'tuition' ? 'active' : ''}" data-subtab="tuition">
+          Học phí <span class="badge ${unpaidCurCount > 0 ? 'badge-warning' : 'badge-success'}">${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'}</span>
+        </button>
         <button class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}" data-subtab="assignments">
-          Giao bài &amp; Hạn nộp <span class="badge badge-neutral">${assignments.length}</span>
+          Bài tập <span class="badge badge-neutral">${assignments.length}</span>
         </button>
         <button class="subtab-btn ${state.subTab === 'students' ? 'active' : ''}" data-subtab="students">
           Tài khoản học sinh <span class="badge badge-neutral">${students.length}</span>
-        </button>
-        <button class="subtab-btn ${state.subTab === 'submissions' ? 'active' : ''}" data-subtab="submissions">
-          Kết quả &amp; Bài nộp <span class="badge badge-neutral">${submissions.length}</span>
         </button>
       </div>
 
       <div id="teacherSubContent">
         ${state.subTab === 'feed' ? renderFeedSection() : ''}
         ${state.subTab === 'exams' ? renderExamsSection() : ''}
-        ${state.subTab === 'assignments' ? renderAssignmentsSection() : ''}
+        ${state.subTab === 'tuition' ? renderTuitionAdminSection({ students, classes: getKnownClasses(), tuition, state }) : ''}
+        ${state.subTab === 'assignments' ? renderMergedHomeworkSection() : ''}
         ${state.subTab === 'students' ? renderStudentsSection() : ''}
-        ${state.subTab === 'submissions' ? renderSubmissionsSection() : ''}
       </div>
     `;
 
@@ -1109,6 +1126,28 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   }
 
   // =========================================================
+  // SUB-TAB: MERGED HOMEWORK (ASSIGNMENTS + SUBMISSIONS)
+  // =========================================================
+  function renderMergedHomeworkSection() {
+    const { assignments, submissions } = state.data;
+    return `
+      <div class="stu-exam-merged">
+        <div class="stu-section-heading">
+          <h3>Đợt giao bài &amp; Hạn nộp</h3>
+          <span class="badge badge-p1">${assignments.length} đợt giao</span>
+        </div>
+        ${renderAssignmentsSection()}
+
+        <div id="teacherSubmissionsSection" class="stu-section-heading" style="margin-top:28px;">
+          <h3>Kết quả &amp; Bài nộp của học sinh</h3>
+          <span class="badge badge-neutral">${submissions.length} lượt nộp</span>
+        </div>
+        ${renderSubmissionsSection()}
+      </div>
+    `;
+  }
+
+  // =========================================================
   // SUB-TAB 3: STUDENT ACCOUNTS MANAGEMENT
   // =========================================================
   function renderStudentsSection() {
@@ -1146,7 +1185,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                       (s) => `
                   <tr>
                     <td><code class="username-pill">@${escapeHtml(s.username)}</code></td>
-                    <td><strong>${escapeHtml(s.fullName)}</strong></td>
+                    <td>
+                      <strong>${escapeHtml(s.fullName)}</strong>
+                      ${
+                        s.startDate || s.createdAt
+                          ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Vào học: ${escapeHtml(formatDateVNAdmin(s.startDate || (s.createdAt || '').slice(0, 10)))}</div>`
+                          : ''
+                      }
+                    </td>
                     <td><span class="badge badge-p1">${escapeHtml(s.className || '—')}</span></td>
                     <td>${escapeHtml(s.studentCode || '—')}</td>
                     <td style="font-size:0.82rem; color:var(--text-secondary);">
@@ -1170,6 +1216,16 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   }
 
   function openStudentModal(existing = null) {
+    const knownClasses = getKnownClasses();
+    const curClass = (existing?.className || '').trim();
+    if (curClass && !knownClasses.includes(curClass)) {
+      knownClasses.push(curClass);
+      knownClasses.sort((a, b) => a.localeCompare(b, 'vi'));
+    }
+    const defaultStartIso = existing
+      ? existing.startDate || (existing.createdAt || '').slice(0, 10) || ''
+      : getTodayIsoLocal();
+
     openModal({
       title: existing ? `Chỉnh sửa tài khoản: @${existing.username}` : 'Tạo tài khoản học sinh mới',
       bodyHtml: `
@@ -1190,7 +1246,26 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           </div>
           <div class="form-group">
             <label>Lớp</label>
-            <input id="stuClass" class="input-control" placeholder="Nhập lớp (tùy chọn)" value="${escapeAttr(existing?.className || '')}" />
+            <select id="stuClassSelect" class="input-control">
+              <option value="" ${!curClass ? 'selected' : ''}>-- Chọn lớp hiện có --</option>
+              ${knownClasses
+                .map(
+                  (c) => `<option value="${escapeAttr(c)}" ${curClass === c ? 'selected' : ''}>Lớp ${escapeHtml(c)}</option>`
+                )
+                .join('')}
+              <option value="__new__">+ Thêm lớp mới...</option>
+            </select>
+            <input id="stuClassNew" class="input-control hidden" style="margin-top:8px;" placeholder="Nhập tên lớp mới (VD: 12A1, 11/6...)" />
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Ngày bắt đầu học (dd/mm/yyyy) *</label>
+            <input id="stuStartDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateVNAdmin(defaultStartIso))}" />
+          </div>
+          <div class="form-group">
+            <label>Ngày sinh (dd/mm/yyyy)</label>
+            <input id="stuDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(existing?.dob || ''))}" />
           </div>
         </div>
         <div class="form-row-2">
@@ -1199,19 +1274,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             <input id="stuCode" class="input-control" placeholder="Nhập mã HS (tùy chọn)" value="${escapeAttr(existing?.studentCode || '')}" />
           </div>
           <div class="form-group">
-            <label>Ngày sinh (dd/mm/yyyy)</label>
-            <input id="stuDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(existing?.dob || ''))}" />
-          </div>
-        </div>
-        <div class="form-row-2">
-          <div class="form-group" style="margin-bottom:0;">
-            <label>Email</label>
-            <input id="stuEmail" type="email" class="input-control" placeholder="Nhập email (tùy chọn)" value="${escapeAttr(existing?.email || '')}" />
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
             <label>Số điện thoại</label>
             <input id="stuPhone" class="input-control" placeholder="Nhập số điện thoại (tùy chọn)" value="${escapeAttr(existing?.phone || '')}" />
           </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Email</label>
+          <input id="stuEmail" type="email" class="input-control" placeholder="Nhập email (tùy chọn)" value="${escapeAttr(existing?.email || '')}" />
         </div>
       `,
       footerHtml: `
@@ -1219,19 +1288,46 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <button class="btn btn-primary" id="modalSaveStu">${existing ? 'Lưu thông tin' : 'Tạo tài khoản'}</button>
       `,
       onMount: (modalEl) => {
+        const clsSel = modalEl.querySelector('#stuClassSelect');
+        const clsNew = modalEl.querySelector('#stuClassNew');
+        clsSel.addEventListener('change', () => {
+          const isNew = clsSel.value === '__new__';
+          clsNew.classList.toggle('hidden', !isNew);
+          if (isNew) clsNew.focus();
+        });
+
         modalEl.querySelector('#modalCancelStu').addEventListener('click', closeModal);
         modalEl.querySelector('#modalSaveStu').addEventListener('click', async () => {
           let dobIso = '';
+          let startDateIso = '';
           try {
             dobIso = parseVnDateOnlyToIso(modalEl.querySelector('#stuDob').value, 'Ngày sinh');
+            const rawStart = modalEl.querySelector('#stuStartDate').value.trim();
+            if (rawStart) {
+              startDateIso = parseVnDateOnlyToIso(rawStart, 'Ngày bắt đầu học');
+            } else if (!existing) {
+              startDateIso = getTodayIsoLocal();
+            }
           } catch (err) {
             showToast(err.message, 'error');
             return;
           }
+
+          let className = clsSel.value.trim();
+          if (className === '__new__') {
+            className = clsNew.value.trim();
+            if (!className) {
+              showToast('Vui lòng nhập tên lớp mới.', 'error');
+              clsNew.focus();
+              return;
+            }
+          }
+
           const payload = {
             username: modalEl.querySelector('#stuUsername').value.trim(),
             fullName: modalEl.querySelector('#stuFullName').value.trim(),
-            className: modalEl.querySelector('#stuClass').value.trim(),
+            className,
+            startDate: startDateIso,
             studentCode: modalEl.querySelector('#stuCode').value.trim(),
             dob: dobIso,
             email: modalEl.querySelector('#stuEmail').value.trim(),
@@ -1513,8 +1609,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     rootEl.querySelectorAll('[data-view-asg-subs]').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.subFilterAsg = btn.dataset.viewAsgSubs;
-        state.subTab = 'submissions';
+        state.subTab = 'assignments';
         render();
+        rootEl.querySelector('#teacherSubmissionsSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
     rootEl.querySelectorAll('[data-del-asg]').forEach((btn) => {
@@ -1564,6 +1661,29 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         });
       });
     });
+
+    // Tuition tab events
+    if (state.subTab === 'tuition') {
+      bindTuitionAdminEvents({
+        rootEl,
+        students: state.data.students,
+        classes: getKnownClasses(),
+        tuition: state.data.tuition,
+        state,
+        uiHelpers,
+        onSaveTuition: async (nextTuition, successMsg) => {
+          try {
+            const res = await api.saveTuition(nextTuition);
+            state.data.tuition = res.tuition;
+            if (successMsg) showToast(successMsg, 'success');
+            render();
+          } catch (err) {
+            showToast(err.message || 'Không thể lưu dữ liệu học phí.', 'error');
+          }
+        },
+        onRender: render,
+      });
+    }
 
     // Submissions tab events
     rootEl.querySelector('#selSubFilterAsg')?.addEventListener('change', (e) => {

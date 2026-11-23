@@ -235,14 +235,21 @@ function compressImageToDataUrl(file, maxWidth = 720) {
   });
 }
 
-export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteChange, onVisibilityModeChanged }) {
+export function createHtmlLabController({
+  rootEl,
+  uiHelpers,
+  getUser,
+  getVisibilityMode,
+  onRouteChange,
+  onVisibilityModeChanged,
+}) {
   const { showToast, openModal, closeModal } = uiHelpers;
 
   const state = {
     models: [],
     grade: '12', // '10' | '11' | '12'
     mode: 'showcase', // 'showcase' (Trình bày - default) | 'manage' (Chỉnh sửa - admin only)
-    visibilityMode: 'all_grades', // 'admin_only' | 'own_grade' | 'all_grades'
+    visibilityMode: 'admin_only', // fail-closed until server confirms actual mode
     studentGrade: '',
     search: '',
     collapsedChapters: new Set(),
@@ -252,6 +259,26 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
 
   let previewObserver = null;
   let previewSessionId = 0;
+  let fetchSeq = 0;
+  let lastLoadedUserId = '';
+
+  function reset() {
+    fetchSeq += 1;
+    previewSessionId += 1;
+    if (previewObserver) {
+      previewObserver.disconnect();
+      previewObserver = null;
+    }
+    state.models = [];
+    state.studentGrade = '';
+    state.hasInitializedGrade = false;
+    state.mode = 'showcase';
+    state.search = '';
+    state.collapsedChapters.clear();
+    state.visibilityMode = getVisibilityMode?.() || 'admin_only';
+    lastLoadedUserId = '';
+    if (rootEl) rootEl.innerHTML = '';
+  }
 
   function isAdmin() {
     return getUser?.()?.role === 'admin';
@@ -276,17 +303,46 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
   }
 
   async function init(routeOpts = null) {
+    const curUserId = String(getUser?.()?.id || '');
+    const latestVis = getVisibilityMode?.();
+    if (latestVis) state.visibilityMode = latestVis;
+
+    // Never keep or flash stale/unauthorized DOM/models (always fail-closed for non-admin before fresh fetch)
+    if (!isAdmin() || !curUserId || curUserId !== lastLoadedUserId || state.models.length === 0) {
+      reset();
+      if (latestVis) state.visibilityMode = latestVis;
+      if (rootEl) {
+        rootEl.innerHTML = `
+          <div class="lab-shell">
+            <div class="card lab-empty-state" style="padding:36px;">
+              <p style="margin:0; color:var(--text-muted);">Đang tải thư viện mô hình...</p>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    const preAllowed = getAllowedGrades();
     if (routeOpts?.grade && ['10', '11', '12'].includes(String(routeOpts.grade))) {
-      state.grade = String(routeOpts.grade);
-      state.hasInitializedGrade = true;
+      if (isAdmin() || preAllowed.includes(String(routeOpts.grade))) {
+        state.grade = String(routeOpts.grade);
+        state.hasInitializedGrade = true;
+      }
+    } else if (!isAdmin() && preAllowed.length > 0 && !preAllowed.includes(state.grade)) {
+      state.grade = preAllowed[0];
     }
     state.mode = routeOpts?.manage && isAdmin() ? 'manage' : 'showcase';
-    await refresh(!routeOpts?.grade);
+    await refresh(!routeOpts?.grade, curUserId);
   }
 
-  async function refresh(autoPickGrade = false) {
+  async function refresh(autoPickGrade = false, expectedUserId = null) {
+    const reqSeq = ++fetchSeq;
+    const targetUid = expectedUserId !== null ? expectedUserId : String(getUser?.()?.id || '');
     try {
       const res = await api.getModels();
+      // Abort if user logged out/switched or a newer request superseded this one
+      if (reqSeq !== fetchSeq || String(getUser?.()?.id || '') !== targetUid) return;
+
       state.models = Array.isArray(res.models) ? res.models : [];
       if (res.modelsVisibilityMode) {
         state.visibilityMode = res.modelsVisibilityMode;
@@ -295,13 +351,22 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
       if (typeof res.studentGrade === 'string') {
         state.studentGrade = res.studentGrade;
       }
+      lastLoadedUserId = targetUid;
       state.renderRev = Date.now();
     } catch (err) {
+      if (reqSeq !== fetchSeq || String(getUser?.()?.id || '') !== targetUid) return;
       state.models = [];
       showToast(err.message || 'Không thể tải danh sách mô hình.', 'error');
     }
 
     const allowed = getAllowedGrades();
+    // Defense-in-depth client-side filter: never retain disallowed grades in memory for non-admin
+    if (!isAdmin()) {
+      state.models = state.models.filter(
+        (m) => m && m.visible !== false && allowed.includes(String(m.grade))
+      );
+    }
+
     if (!isAdmin() && allowed.length > 0 && !allowed.includes(state.grade)) {
       state.grade = allowed[0];
       onRouteChange?.(`/mo-hinh/toan-${state.grade}`, { replace: true });
@@ -1490,5 +1555,5 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
     });
   }
 
-  return { init };
+  return { init, reset };
 }

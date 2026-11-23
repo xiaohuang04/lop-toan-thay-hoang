@@ -69,6 +69,9 @@ export const api = {
   getTeachingLog: () => request('/api/admin/teaching-log'),
   saveTeachingLog: (teachingLog) => request('/api/admin/teaching-log', { method: 'PUT', body: teachingLog }),
 
+  // Admin Tuition Management (Quản lý học phí)
+  saveTuition: (tuition) => request('/api/admin/tuition', { method: 'PUT', body: tuition }),
+
   // Student
   studentDashboard: () => request('/api/student/dashboard'),
   submitExam: (payload) => request('/api/student/submissions', { method: 'POST', body: payload }),

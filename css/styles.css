@@ -1655,6 +1655,7 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  pointer-events: none;
 }
 
 .toast {
@@ -4466,24 +4467,18 @@ iframe {
 
   /* Horizontal swipeable sub-tab bar (no awkward multi-row stacking) */
   .subtab-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    overflow-x: visible;
     gap: 6px;
     padding-bottom: 10px;
     margin-bottom: 14px;
   }
 
-  .subtab-bar::-webkit-scrollbar {
-    display: none;
-  }
-
   .subtab-btn {
     flex-shrink: 0;
     white-space: nowrap;
-    padding: 8px 12px;
-    font-size: 0.83rem;
+    padding: 7px 10px;
+    font-size: 0.81rem;
   }
 
   /* Toolbars & Filters */
@@ -6223,6 +6218,722 @@ iframe {
   }
 
   .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   STUDENT MERGED EXAM & TUITION + ADMIN TUITION MANAGEMENT
+   ========================================================= */
+.stu-exam-merged {
+  display: flex;
+  flex-direction: column;
+}
+
+.stu-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.stu-section-heading h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* Student Tuition Hero (Large Centered Current Month Card) */
+.stu-tuition-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.stu-tuition-hero {
+  max-width: 680px;
+  width: 100%;
+  margin: 4px auto 0;
+  padding: 28px 26px 26px;
+  border-radius: 20px;
+  text-align: center;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 10px 30px -14px rgba(15, 23, 42, 0.14);
+}
+
+.stu-tuition-hero.is-paid {
+  border-color: #a7f3d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 52%);
+}
+
+.stu-tuition-hero.is-unpaid {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 52%);
+}
+
+.stu-tuition-hero-top {
+  margin-bottom: 14px;
+}
+
+.stu-tuition-month-eyebrow {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stu-tuition-hero-top h2 {
+  margin: 0;
+  font-size: 1.48rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.stu-tuition-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.stu-tuition-status-pill.is-paid {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.stu-tuition-status-pill.is-unpaid {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.stu-tuition-status-pill.is-neutral {
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.stu-tuition-due-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.stu-tuition-amount {
+  font-size: 2.3rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
+.stu-tuition-amount.is-paid {
+  color: #15803d;
+}
+
+.stu-tuition-amount.is-unpaid {
+  color: #b45309;
+}
+
+.stu-tuition-amount.is-muted {
+  color: var(--text-muted);
+}
+
+.stu-tuition-sub {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.stu-tuition-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+  text-align: left;
+}
+
+.stu-tuition-meta-item {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stu-tuition-meta-item span {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.stu-tuition-meta-item strong {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.stu-tuition-note {
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+/* Previous Months Compact Grid */
+.stu-tuition-history-sec {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.stu-tuition-prev-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 12px;
+}
+
+.stu-tuition-prev-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 4px solid var(--border);
+}
+
+.stu-tuition-prev-card.is-paid {
+  border-left-color: #16a34a;
+}
+
+.stu-tuition-prev-card.is-unpaid {
+  border-left-color: #d97706;
+}
+
+.stu-tuition-prev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stu-tuition-prev-head strong {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.stu-tuition-prev-amt {
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.stu-tuition-prev-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+/* Admin Tuition Management */
+.tui-toolbar {
+  gap: 12px;
+  align-items: center;
+}
+
+.tui-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tui-month-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tui-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tui-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tui-kpi-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tui-kpi-card.is-warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.tui-kpi-card.is-ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.tui-kpi-lbl {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.tui-kpi-val {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.tui-kpi-card.is-warn .tui-kpi-val,
+.tui-kpi-val.is-money-warn {
+  color: #b45309;
+}
+
+.tui-kpi-card.is-ok .tui-kpi-val,
+.tui-kpi-val.is-money-ok {
+  color: #15803d;
+}
+
+.tui-stu-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tui-stu-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.tui-mini-btn {
+  padding: 3px 8px !important;
+  font-size: 0.74rem !important;
+  min-height: 26px !important;
+}
+
+.tui-method-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tui-method-btn {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.tui-method-btn.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.12);
+}
+
+/* Thousand-VND Input with Suffix & Live Preview */
+.tui-k-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tui-k-input-wrap .input-control {
+  padding-right: 68px;
+  font-weight: 700;
+}
+
+.tui-k-suffix {
+  position: absolute;
+  right: 12px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.tui-k-preview {
+  margin-top: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tui-k-preview.is-ok {
+  color: #15803d;
+}
+
+.tui-k-preview.is-short {
+  color: #b45309;
+}
+
+.tui-k-preview.is-over {
+  color: #0369a1;
+}
+
+/* Carry-Over / Shortfall / Overpayment Indicators */
+.tui-carry-note {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.tui-carry-note.is-short {
+  color: #b45309;
+}
+
+.tui-carry-note.is-over {
+  color: #0369a1;
+}
+
+.stu-tuition-diff-banner {
+  margin: 8px auto 6px;
+  max-width: 520px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 0.83rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.stu-tuition-diff-banner.is-short {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.stu-tuition-diff-banner.is-over {
+  background: #f0f9ff;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+@media (max-width: 768px) {
+  /* ===== STUDENT TUITION (Universal Mobile: 360px Android -> 440px+ iPhone) ===== */
+  .stu-tuition-wrap {
+    gap: 18px;
+  }
+
+  .stu-tuition-hero {
+    padding: 20px 15px 18px;
+    border-radius: 16px;
+    margin-top: 0;
+  }
+
+  .stu-tuition-hero-top h2 {
+    font-size: clamp(1.22rem, 5.2vw, 1.44rem);
+  }
+
+  .stu-tuition-status-pill {
+    font-size: 0.82rem;
+    padding: 6px 14px;
+    margin-bottom: 12px;
+  }
+
+  .stu-tuition-amount {
+    font-size: clamp(1.65rem, 8.2vw, 2.05rem);
+    word-break: break-word;
+  }
+
+  .stu-tuition-diff-banner {
+    font-size: 0.8rem;
+    padding: 8px 11px;
+  }
+
+  .stu-tuition-meta-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+
+  .stu-tuition-meta-item {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .stu-tuition-meta-item strong {
+    text-align: right;
+    font-size: 0.88rem;
+  }
+
+  .stu-tuition-prev-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .stu-tuition-prev-card {
+    padding: 12px;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .stu-tuition-prev-head {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .stu-tuition-prev-head strong {
+    font-size: 0.86rem;
+  }
+
+  .stu-tuition-prev-amt {
+    font-size: 1rem;
+  }
+
+  .stu-tuition-prev-meta {
+    font-size: 0.75rem;
+  }
+
+  /* ===== ADMIN TUITION (Optimized for iPhone 17 Pro Max 440px Safari) ===== */
+  .tui-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .tui-filter-group {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .tui-month-nav {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .tui-month-nav .tl-week-nav-btn {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+
+  .tui-month-nav select {
+    flex: 1;
+    min-width: 0 !important;
+    min-height: 40px;
+    font-size: 0.94rem;
+  }
+
+  .tui-filter-group > select {
+    flex: 1 1 46%;
+    min-width: 0 !important;
+    min-height: 38px;
+    font-size: 0.88rem;
+  }
+
+  .tui-action-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .tui-action-group .btn {
+    min-height: 40px;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.84rem;
+  }
+
+  .tui-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .tui-kpi-card {
+    padding: 11px 12px;
+    border-radius: 12px;
+  }
+
+  .tui-kpi-lbl {
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tui-kpi-val {
+    font-size: 1.02rem;
+  }
+
+  /* Admin Tuition Table → Crisp 2-Column Mobile Cards */
+  .tui-table-card {
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .tui-table {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  .tui-table thead {
+    display: none;
+  }
+
+  .tui-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .tui-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    padding: 13px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  }
+
+  .tui-table tbody tr:hover {
+    background: var(--surface);
+  }
+
+  .tui-table tbody td {
+    display: block;
+    padding: 0 !important;
+    border: none !important;
+    text-align: left !important;
+  }
+
+  .tui-table tbody td.tui-col-stu {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .tui-table tbody td.tui-col-status {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+  }
+
+  .tui-table tbody td.tui-col-fee {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-top: 6px !important;
+    border-top: 1px dashed var(--border) !important;
+  }
+
+  .tui-table tbody td.tui-col-fee > div:first-child {
+    justify-content: space-between;
+  }
+
+  .tui-table tbody td.tui-col-detail {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    background: var(--surface-subtle);
+    border: 1px solid var(--border) !important;
+    border-radius: 10px;
+    padding: 8px 10px !important;
+  }
+
+  .tui-table tbody td.tui-col-detail.is-empty-detail {
+    display: none !important;
+  }
+
+  .tui-table tbody td.tui-col-act {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    display: flex !important;
+    gap: 8px;
+    padding-top: 2px !important;
+  }
+
+  .tui-table tbody td.tui-col-act .btn {
+    flex: 1;
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  .tui-table tbody td[colspan] {
+    grid-column: 1 / -1;
+    text-align: center !important;
+    padding: 24px 12px !important;
+  }
+
+  /* Prevent iOS Safari auto-zoom on Tuition numeric inputs */
+  .tui-k-input-wrap .input-control {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .tui-method-btn {
+    min-height: 44px;
+  }
+}
+
+/* Narrow Smartphones (<= 389px, e.g., iPhone SE / compact Android) */
+@media (max-width: 389px) {
+  .stu-tuition-prev-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stu-tuition-hero {
+    padding: 18px 13px 16px;
+  }
+
+  .tui-action-group {
     grid-template-columns: 1fr;
   }
 }

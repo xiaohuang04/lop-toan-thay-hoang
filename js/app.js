@@ -1,8 +1,8 @@
-import { api, setToken } from './api.js?v=20261123l';
+import { api, setToken } from './api.js?v=20261123p';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261123d';
-import { createStudentController } from './student-ui.js?v=20261123d';
-import { createHtmlLabController } from './html-lab.js?v=20261123l';
+import { createTeacherController } from './teacher-ui.js?v=20261123v';
+import { createStudentController } from './student-ui.js?v=20261123s';
+import { createHtmlLabController } from './html-lab.js?v=20261123s';
 import { createTeachingLogController } from './teaching-log.js?v=20261123o';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
@@ -187,6 +187,7 @@ const labCtrl = createHtmlLabController({
   rootEl: document.getElementById('labRoot'),
   uiHelpers,
   getUser: () => currentUser,
+  getVisibilityMode: () => modelsVisibilityMode,
   onVisibilityModeChanged: (mode) => {
     modelsVisibilityMode = mode || 'all_grades';
     updateUserHeader();
@@ -751,6 +752,11 @@ btnSwitchFullLogin?.addEventListener('click', () => {
 
 function showAuthScreen() {
   examRunner.cleanup();
+  labCtrl.reset();
+  const examRootEl = document.getElementById('examRoot');
+  if (examRootEl) examRootEl.innerHTML = '';
+  const tlRootEl = document.getElementById('teachingLogRoot');
+  if (tlRootEl) tlRootEl.innerHTML = '';
   currentUser = null;
   activeRoleCtrl = null;
   appShell.classList.add('hidden');
@@ -764,6 +770,7 @@ function showAuthScreen() {
 }
 
 async function enterApp(user) {
+  labCtrl.reset();
   currentUser = user;
   updateUserHeader();
   updateLabTabLock();
