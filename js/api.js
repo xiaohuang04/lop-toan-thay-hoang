@@ -65,6 +65,10 @@ export const api = {
   getStorageStats: () => request('/api/admin/storage'),
   cleanupOrphanFiles: () => request('/api/admin/storage/cleanup-orphans', { method: 'POST', body: {} }),
 
+  // Admin Teaching Log & Equipment Register (Sổ báo giảng & Sổ đồ dùng)
+  getTeachingLog: () => request('/api/admin/teaching-log'),
+  saveTeachingLog: (teachingLog) => request('/api/admin/teaching-log', { method: 'PUT', body: teachingLog }),
+
   // Student
   studentDashboard: () => request('/api/student/dashboard'),
   submitExam: (payload) => request('/api/student/submissions', { method: 'POST', body: payload }),

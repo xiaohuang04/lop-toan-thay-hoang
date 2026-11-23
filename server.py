@@ -22,6 +22,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+from curriculum_data import build_builtin_curriculum_plans
 from parsers import parse_docx_bytes, parse_extest_latex, parse_structured_exam_text
 from storage import StorageBackend
 
@@ -172,7 +173,99 @@ def build_seed_db() -> dict:
         "assignments": assignments,
         "submissions": [],
         "models": [],
+        "teaching_log": build_default_teaching_log(),
     }
+
+
+def build_default_teaching_log() -> dict:
+    """Seed teaching log with the built-in official annual curriculum plans for Grades 10, 11, 12
+    (105 regular periods + 35 Chuyên đề periods per grade) and a ready-to-use HK I semester."""
+    return {
+        "demoVersion": 3,
+        "curriculumVersion": 1,
+        "activeSemesterId": "sem-demo-hk1",
+        "semesters": [
+            {
+                "id": "sem-demo-hk1",
+                "name": "Học kì I — Năm học 2026–2027",
+                "termNumber": 1,
+                "session": "sang",
+                "startWeek": 1,
+                "startDate": "2026-09-07",
+                "totalWeeks": 18,
+                "classes": [
+                    {"id": "cls-10a1", "name": "10A1", "grade": "10"},
+                    {"id": "cls-10a2", "name": "10A2", "grade": "10"},
+                ],
+                "timetables": [
+                    {
+                        "id": "tkb-1",
+                        "name": "TKB 1",
+                        "fromWeek": 1,
+                        "slots": [
+                            # 10A1 (Buổi Sáng): 4 tiết/tuần (tự động 3 Chính khóa + 1 CĐ)
+                            {"dayOfWeek": 1, "session": "sang", "period": 1, "classId": "cls-10a1"},
+                            {"dayOfWeek": 1, "session": "sang", "period": 2, "classId": "cls-10a1"},
+                            {"dayOfWeek": 3, "session": "sang", "period": 3, "classId": "cls-10a1"},
+                            {"dayOfWeek": 5, "session": "sang", "period": 1, "classId": "cls-10a1"},
+                            # 10A2 (Buổi Sáng): 4 tiết/tuần (tự động 3 Chính khóa + 1 CĐ)
+                            {"dayOfWeek": 1, "session": "sang", "period": 3, "classId": "cls-10a2"},
+                            {"dayOfWeek": 1, "session": "sang", "period": 4, "classId": "cls-10a2"},
+                            {"dayOfWeek": 3, "session": "sang", "period": 1, "classId": "cls-10a2"},
+                            {"dayOfWeek": 3, "session": "sang", "period": 2, "classId": "cls-10a2"},
+                        ],
+                    }
+                ],
+                "timetable": [
+                    {"dayOfWeek": 1, "session": "sang", "period": 1, "classId": "cls-10a1"},
+                    {"dayOfWeek": 1, "session": "sang", "period": 2, "classId": "cls-10a1"},
+                    {"dayOfWeek": 3, "session": "sang", "period": 3, "classId": "cls-10a1"},
+                    {"dayOfWeek": 5, "session": "sang", "period": 1, "classId": "cls-10a1"},
+                    {"dayOfWeek": 1, "session": "sang", "period": 3, "classId": "cls-10a2"},
+                    {"dayOfWeek": 1, "session": "sang", "period": 4, "classId": "cls-10a2"},
+                    {"dayOfWeek": 3, "session": "sang", "period": 1, "classId": "cls-10a2"},
+                    {"dayOfWeek": 3, "session": "sang", "period": 2, "classId": "cls-10a2"},
+                ],
+                "holidays": [],
+                "swaps": [],
+                "saturdayMidterms": [],
+                "actualPlans": {
+                    "grade:10": {
+                        "regularPerWeek": 3,
+                        "extraPerWeek": 1,
+                        "cells": {},
+                    }
+                },
+            }
+        ],
+        "curriculumPlans": build_builtin_curriculum_plans(),
+    }
+
+
+def ensure_teaching_log(db: dict) -> dict:
+    tl = db.get("teaching_log")
+    if not isinstance(tl, dict) or not tl.get("semesters"):
+        tl = build_default_teaching_log()
+        db["teaching_log"] = tl
+        save_db(db, keys=["teaching_log"])
+        return tl
+    changed = False
+    # Seed/upgrade official built-in Grade 10-12 curriculum plans into program state
+    if tl.get("curriculumVersion", 0) < 1:
+        if (
+            tl.get("demoVersion", 1) < 3
+            and len(tl.get("semesters", [])) == 1
+            and tl["semesters"][0].get("id") == "sem-demo-hk1"
+        ):
+            tl = build_default_teaching_log()
+            db["teaching_log"] = tl
+        else:
+            tl["curriculumPlans"] = build_builtin_curriculum_plans()
+            tl["curriculumVersion"] = 1
+        changed = True
+    if changed:
+        save_db(db, keys=["teaching_log"])
+    return tl
 
 
 STORE = StorageBackend(BASE_DIR, build_seed_db)
@@ -435,12 +528,14 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         if not path.startswith("/api/"):
             if self.block_private_paths(path):
                 return
-            # Clean SPA routes (/lop-hoc, /mo-hinh, /mo-hinh/toan-11, etc.) -> serve index.html
+            # Clean SPA routes (/lop-hoc, /mo-hinh, /so-bao-giang, ...) -> serve index.html
             if (
                 path == "/lop-hoc"
                 or path.startswith("/lop-hoc/")
                 or path == "/mo-hinh"
                 or path.startswith("/mo-hinh/")
+                or path == "/so-bao-giang"
+                or path.startswith("/so-bao-giang/")
             ):
                 idx_bytes = (BASE_DIR / "index.html").read_bytes()
                 self.send_response(200)
@@ -489,6 +584,11 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
+
+            if path == "/api/admin/teaching-log":
+                if user["role"] != "admin":
+                    return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền truy cập Sổ báo giảng."})
+                return self.send_json(200, {"teachingLog": ensure_teaching_log(db)})
 
             if path == "/api/admin/storage":
                 if user["role"] != "admin":
@@ -1006,6 +1106,14 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 asg["allowRetake"] = False
                 save_db(db, keys=["assignments"])
                 return self.send_json(200, {"assignment": asg})
+
+            # Save Teaching Log & Equipment Register (Admin only)
+            if path == "/api/admin/teaching-log":
+                if not isinstance(body, dict) or not isinstance(body.get("semesters"), list):
+                    return self.send_json(400, {"error": "Dữ liệu Sổ báo giảng không hợp lệ."})
+                db["teaching_log"] = body
+                save_db(db, keys=["teaching_log"])
+                return self.send_json(200, {"teachingLog": db["teaching_log"]})
 
             # Update Classroom Newsfeed Post (Admin)
             if path.startswith("/api/admin/posts/"):

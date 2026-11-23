@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261123a';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123a';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123a';
+import { api } from './api.js?v=20261123d';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123d';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 
 const HTML2CANVAS_PRO_URL = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
 const HTML2CANVAS_FALLBACK_URL = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';

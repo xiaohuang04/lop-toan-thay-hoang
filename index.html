@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-  <link rel="stylesheet" href="/css/styles.css?v=20261123a" />
+  <link rel="stylesheet" href="/css/styles.css?v=20261123g" />
 </head>
 <body>
   <!-- AUTH SCREEN (Shown when not logged in) -->
@@ -32,15 +32,16 @@
         </div>
       </div>
 
-      <h1 class="auth-title" style="margin-bottom:20px;">Đăng nhập hệ thống</h1>
+      <div id="authQuickBadge" class="badge badge-p2 hidden" style="margin-bottom:10px;">Truy cập nhanh • Sổ báo giảng</div>
+      <h1 class="auth-title" id="authTitleText" style="margin-bottom:20px;">Đăng nhập hệ thống</h1>
 
       <form id="loginForm">
-        <div class="form-group">
+        <div class="form-group" id="loginUsernameGroup">
           <label for="loginUsername">Tên đăng nhập</label>
           <input id="loginUsername" class="input-control" type="text" placeholder="Nhập tên đăng nhập" autocomplete="username" required />
         </div>
         <div class="form-group">
-          <label for="loginPassword">Mật khẩu</label>
+          <label for="loginPassword" id="loginPasswordLabel">Mật khẩu</label>
           <div class="password-input-wrap">
             <input id="loginPassword" class="input-control" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required />
             <button type="button" class="password-toggle-btn" id="btnToggleLoginPw" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">
@@ -57,6 +58,9 @@
         <button type="submit" class="btn btn-primary btn-lg" style="width:100%;" id="btnLoginSubmit">
           Đăng nhập
         </button>
+        <div id="authQuickSwitchWrap" class="hidden" style="text-align:center; margin-top:12px;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnSwitchFullLogin">Đăng nhập bằng tài khoản khác</button>
+        </div>
       </form>
     </div>
   </div>
@@ -93,6 +97,15 @@
               <polyline points="2 12 12 17 22 12"/>
             </svg>
             <span>Mô hình tương tác</span>
+          </button>
+          <button class="main-tab hidden" role="tab" aria-selected="false" data-tab="teaching-log" id="tabBtnTeachingLog">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span>Sổ báo giảng</span>
           </button>
         </nav>
 
@@ -145,6 +158,10 @@
       <section id="panel-lab" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnLab">
         <div id="labRoot"></div>
       </section>
+
+      <section id="panel-teaching-log" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnTeachingLog">
+        <div id="teachingLogRoot"></div>
+      </section>
     </main>
   </div>
 
@@ -166,6 +183,6 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/app.js?v=20261123a"></script>
+  <script type="module" src="/js/app.js?v=20261123g"></script>
 </body>
 </html>

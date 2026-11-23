@@ -1,16 +1,24 @@
-import { api, setToken } from './api.js?v=20261123a';
-import { createExamRunner } from './exam-runner.js?v=20261123a';
-import { createTeacherController } from './teacher-ui.js?v=20261123a';
-import { createStudentController } from './student-ui.js?v=20261123a';
-import { createHtmlLabController } from './html-lab.js?v=20261123a';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123a';
+import { api, setToken } from './api.js?v=20261123d';
+import { createExamRunner } from './exam-runner.js?v=20261123d';
+import { createTeacherController } from './teacher-ui.js?v=20261123d';
+import { createStudentController } from './student-ui.js?v=20261123d';
+import { createHtmlLabController } from './html-lab.js?v=20261123d';
+import { createTeachingLogController } from './teaching-log.js?v=20261123g';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
 const loginForm = document.getElementById('loginForm');
 const loginUsername = document.getElementById('loginUsername');
+const loginUsernameGroup = document.getElementById('loginUsernameGroup');
 const loginPassword = document.getElementById('loginPassword');
+const loginPasswordLabel = document.getElementById('loginPasswordLabel');
 const btnToggleLoginPw = document.getElementById('btnToggleLoginPw');
+const authQuickBadge = document.getElementById('authQuickBadge');
+const authTitleText = document.getElementById('authTitleText');
+const authQuickSwitchWrap = document.getElementById('authQuickSwitchWrap');
+const btnSwitchFullLogin = document.getElementById('btnSwitchFullLogin');
+const btnLoginSubmit = document.getElementById('btnLoginSubmit');
 const loginError = document.getElementById('loginError');
 
 const userRoleBadge = document.getElementById('userRoleBadge');
@@ -137,6 +145,22 @@ const studentCtrl = createStudentController({
 
 function parseRouteFromLocation() {
   const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
+  if (raw === '/so-bao-giang' || raw.startsWith('/so-bao-giang/')) {
+    const rest = raw.slice('/so-bao-giang'.length).replace(/^\/+/, '');
+    const subMap = {
+      '': 'log',
+      'thuc-te': 'actual',
+      'so-do-dung': 'equipment',
+      'tkb': 'tkb',
+      'khdh': 'plan',
+    };
+    return {
+      tab: 'teaching-log',
+      subTab: subMap[rest] || 'log',
+      grade: null,
+      manage: false,
+    };
+  }
   if (raw === '/mo-hinh' || raw.startsWith('/mo-hinh/')) {
     const rest = raw.slice('/mo-hinh'.length).replace(/^\/+/, '');
     const gradeMatch = rest.match(/^toan-(10|11|12)$/);
@@ -168,13 +192,25 @@ const labCtrl = createHtmlLabController({
   },
 });
 
-// 2-Tab Navigation + Clean History API URL Routing (/lop-hoc & /mo-hinh)
+const teachingLogCtrl = createTeachingLogController({
+  rootEl: document.getElementById('teachingLogRoot'),
+  uiHelpers,
+  onRouteChange: (subPath, opts) => {
+    if (panels['teaching-log']?.classList.contains('active')) {
+      syncBrowserUrl(subPath, opts);
+    }
+  },
+});
+
+// 3-Tab Navigation (Tab 3 Admin-only) + Clean History API URL Routing (/lop-hoc, /mo-hinh, /so-bao-giang)
 const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
+const tabBtnTeachingLog = document.getElementById('tabBtnTeachingLog');
 const tabExamLabel = document.getElementById('tabExamLabel');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
+  'teaching-log': document.getElementById('panel-teaching-log'),
 };
 
 function updateLabTabLock() {
@@ -185,7 +221,9 @@ function updateLabTabLock() {
 }
 
 function updateDocumentTitle(tabName) {
-  if (tabName === 'lab') {
+  if (tabName === 'teaching-log') {
+    document.title = 'Sổ báo giảng — Lớp toán thầy Hoàng';
+  } else if (tabName === 'lab') {
     document.title = 'Mô hình tương tác — Lớp toán thầy Hoàng';
   } else if (currentUser?.role === 'admin') {
     document.title = 'Quản lý lớp học — Lớp toán thầy Hoàng';
@@ -195,6 +233,11 @@ function updateDocumentTitle(tabName) {
 }
 
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
+  // Guard Admin-only Sổ báo giảng tab
+  if (tabName === 'teaching-log' && currentUser?.role !== 'admin') {
+    tabName = 'exam';
+  }
+
   tabButtons.forEach((btn) => {
     const active = btn.dataset.tab === tabName;
     btn.classList.toggle('active', active);
@@ -207,7 +250,20 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
   setHeaderStatus('');
   updateDocumentTitle(tabName);
 
-  if (tabName === 'lab') {
+  if (tabName === 'teaching-log') {
+    if (updateUrl) {
+      const subUrlMap = {
+        log: '/so-bao-giang',
+        actual: '/so-bao-giang/thuc-te',
+        equipment: '/so-bao-giang/so-do-dung',
+        tkb: '/so-bao-giang/tkb',
+        plan: '/so-bao-giang/khdh',
+      };
+      const targetUrl = subUrlMap[routeOpts?.subTab] || '/so-bao-giang';
+      syncBrowserUrl(targetUrl, { replace: replaceUrl });
+    }
+    teachingLogCtrl.init(routeOpts);
+  } else if (tabName === 'lab') {
     if (updateUrl) {
       const targetUrl = routeOpts?.manage
         ? '/mo-hinh/quan-ly'
@@ -280,6 +336,9 @@ function updateUserHeader() {
   }
   if (menuItemStorage) {
     menuItemStorage.classList.toggle('hidden', !isAdmin);
+  }
+  if (tabBtnTeachingLog) {
+    tabBtnTeachingLog.classList.toggle('hidden', !isAdmin);
   }
 }
 
@@ -648,6 +707,35 @@ btnToggleLoginPw?.addEventListener('click', () => {
   setLoginPasswordVisible(loginPassword.type === 'password');
 });
 
+function configureAuthMode(quickAdminOnly) {
+  if (quickAdminOnly) {
+    authQuickBadge?.classList.remove('hidden');
+    if (authTitleText) authTitleText.textContent = 'Truy cập nhanh Sổ báo giảng';
+    loginUsernameGroup?.classList.add('hidden');
+    loginUsername.value = 'admin';
+    if (loginPasswordLabel) loginPasswordLabel.textContent = 'Mật khẩu Giáo viên (Admin)';
+    loginPassword.placeholder = 'Nhập mật khẩu quản trị...';
+    if (btnLoginSubmit) btnLoginSubmit.textContent = 'Vào Sổ báo giảng →';
+    authQuickSwitchWrap?.classList.remove('hidden');
+    document.title = 'Sổ báo giảng — Lớp toán thầy Hoàng';
+    setTimeout(() => loginPassword?.focus(), 40);
+  } else {
+    authQuickBadge?.classList.add('hidden');
+    if (authTitleText) authTitleText.textContent = 'Đăng nhập hệ thống';
+    loginUsernameGroup?.classList.remove('hidden');
+    if (loginUsername.value === 'admin') loginUsername.value = '';
+    if (loginPasswordLabel) loginPasswordLabel.textContent = 'Mật khẩu';
+    loginPassword.placeholder = 'Nhập mật khẩu';
+    if (btnLoginSubmit) btnLoginSubmit.textContent = 'Đăng nhập';
+    authQuickSwitchWrap?.classList.add('hidden');
+  }
+}
+
+btnSwitchFullLogin?.addEventListener('click', () => {
+  configureAuthMode(false);
+  loginUsername?.focus();
+});
+
 function showAuthScreen() {
   examRunner.cleanup();
   currentUser = null;
@@ -657,6 +745,9 @@ function showAuthScreen() {
   loginError.classList.add('hidden');
   loginPassword.value = '';
   setLoginPasswordVisible(false);
+
+  const route = parseRouteFromLocation();
+  configureAuthMode(route.tab === 'teaching-log');
 }
 
 async function enterApp(user) {
@@ -674,7 +765,10 @@ async function enterApp(user) {
   }
 
   const initialRoute = parseRouteFromLocation();
-  if (initialRoute.tab === 'lab') {
+  if (initialRoute.tab === 'teaching-log' && user.role === 'admin') {
+    switchTab('teaching-log', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    activeRoleCtrl.init();
+  } else if (initialRoute.tab === 'lab') {
     switchTab('lab', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
     // Preload classroom dashboard quietly so switching back to /lop-hoc is instant
     activeRoleCtrl.init();

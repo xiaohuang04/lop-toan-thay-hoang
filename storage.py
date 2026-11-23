@@ -134,7 +134,7 @@ class StorageBackend:
         # Only fetch core metadata keys on boot — never load heavy `file:<id>` blobs into boot RAM
         rows = self._sb_request(
             "GET",
-            "app_store?key=in.(users,exams,assignments,submissions,posts,files,sessions)&select=key,value",
+            "app_store?key=in.(users,exams,assignments,submissions,posts,files,sessions,teaching_log)&select=key,value",
         )
         kv = {r["key"]: r["value"] for r in (rows or []) if isinstance(r, dict)}
 
@@ -146,6 +146,7 @@ class StorageBackend:
                 "submissions": kv.get("submissions", []),
                 "posts": kv.get("posts", []),
                 "files": kv.get("files", []),
+                "teaching_log": kv.get("teaching_log"),
             }
             self._sessions_cache = kv.get("sessions", {}) if isinstance(kv.get("sessions"), dict) else {}
         else:
@@ -158,6 +159,7 @@ class StorageBackend:
                 "submissions": seeded["submissions"],
                 "posts": seeded.get("posts", []),
                 "files": seeded.get("files", []),
+                "teaching_log": seeded.get("teaching_log"),
             }
             self._sessions_cache = {}
             self._sb_request(
@@ -170,6 +172,7 @@ class StorageBackend:
                     {"key": "submissions", "value": db["submissions"]},
                     {"key": "posts", "value": db["posts"]},
                     {"key": "files", "value": db["files"]},
+                    {"key": "teaching_log", "value": db["teaching_log"] or {}},
                     {"key": "sessions", "value": {}},
                 ],
                 extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
@@ -192,11 +195,13 @@ class StorageBackend:
                 db.setdefault("models", [])
                 db.setdefault("posts", [])
                 db.setdefault("files", [])
+                db.setdefault("teaching_log", None)
                 self._db_cache = db
                 return db
         db = self.seed_factory()
         db.setdefault("posts", [])
         db.setdefault("files", [])
+        db.setdefault("teaching_log", None)
         self._atomic_write_json(self.db_file, db)
         self._db_cache = db
         return db
@@ -210,7 +215,10 @@ class StorageBackend:
         self._db_cache = db
         if self.use_supabase:
             target_keys = keys or ["users", "exams", "assignments", "submissions", "posts", "files"]
-            payload = [{"key": k, "value": db.get(k, [])} for k in target_keys]
+            payload = [
+                {"key": k, "value": db.get(k) if db.get(k) is not None else ({} if k == "teaching_log" else [])}
+                for k in target_keys
+            ]
             self._sb_request(
                 "POST",
                 "app_store?on_conflict=key",
