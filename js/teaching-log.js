@@ -1,9 +1,9 @@
-import { api } from './api.js?v=20261123g';
+import { api } from './api.js?v=20261123h';
 import {
   escapeHtml,
   escapeAttr,
   parseVnDateOnlyToIso,
-} from './exam-engine.js?v=20261123g';
+} from './exam-engine.js?v=20261123h';
 
 const DAY_LABELS = {
   1: 'Thứ 2',
@@ -1967,6 +1967,24 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     });
   }
 
+  function openConfirmDeleteModal({ title, messageHtml, confirmText = 'Xóa', onConfirm }) {
+    openModal({
+      title,
+      bodyHtml: `<p style="margin:0; line-height:1.55; color:var(--text);">${messageHtml}</p>`,
+      footerHtml: `
+        <button type="button" class="btn btn-secondary" id="mCancelConfirmDel">Hủy</button>
+        <button type="button" class="btn btn-danger-outline" id="mOkConfirmDel">${escapeHtml(confirmText)}</button>
+      `,
+      onMount: (m) => {
+        m.querySelector('#mCancelConfirmDel').addEventListener('click', closeModal);
+        m.querySelector('#mOkConfirmDel').addEventListener('click', async () => {
+          closeModal();
+          await onConfirm();
+        });
+      },
+    });
+  }
+
   function openAddTkbModal(sem) {
     const tkbRanges = ensureTimetables(sem);
     const firstWeek = Math.max(1, Number(sem.startWeek) || 1);
@@ -2227,13 +2245,20 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
 
     rootEl.querySelector('#btnNewSemester')?.addEventListener('click', openNewSemesterModal);
 
-    rootEl.querySelector('#btnDeleteSemester')?.addEventListener('click', async () => {
+    rootEl.querySelector('#btnDeleteSemester')?.addEventListener('click', () => {
       if (state.data.semesters.length <= 1) return;
-      if (!window.confirm(`Xóa học kì "${sem.name}"?`)) return;
-      state.data.semesters = state.data.semesters.filter((s) => s.id !== sem.id);
-      state.data.activeSemesterId = state.data.semesters[0].id;
-      state.selectedWeekIdx = 0;
-      await persist('Đã xóa học kì.');
+      openConfirmDeleteModal({
+        title: 'Xác nhận xóa học kì',
+        messageHtml: `Bạn có chắc chắn muốn xóa học kì <strong>${escapeHtml(sem.name)}</strong>? Toàn bộ TKB, ngày nghỉ và dữ liệu thực tế của học kì này sẽ bị xóa.`,
+        confirmText: 'Xóa học kì',
+        onConfirm: async () => {
+          state.data.semesters = state.data.semesters.filter((s) => s.id !== sem.id);
+          state.data.activeSemesterId = state.data.semesters[0].id;
+          state.selectedWeekIdx = 0;
+          state.activeTkbId = '';
+          await persist('Đã xóa học kì.');
+        },
+      });
     });
 
     rootEl.querySelectorAll('[data-tl-tab]').forEach((btn) => {
@@ -2514,16 +2539,23 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       await persist(`Đã cập nhật thời gian áp dụng cho ${target.name}!`);
     });
 
-    rootEl.querySelector('#btnDeleteTkbVersion')?.addEventListener('click', async () => {
+    rootEl.querySelector('#btnDeleteTkbVersion')?.addEventListener('click', () => {
       ensureTimetables(sem);
       if (sem.timetables.length <= 1) return;
       const target = sem.timetables.find((t) => t.id === state.activeTkbId);
-      if (!target || !window.confirm(`Xóa "${target.name}"?`)) return;
-      sem.timetables = sem.timetables.filter((t) => t.id !== target.id);
-      ensureTimetables(sem);
-      state.activeTkbId = sem.timetables[0]?.id || '';
-      sem.timetable = sem.timetables[0]?.slots || [];
-      await persist(`Đã xóa ${target.name}.`);
+      if (!target) return;
+      openConfirmDeleteModal({
+        title: 'Xác nhận xóa Thời khóa biểu',
+        messageHtml: `Bạn có chắc chắn muốn xóa <strong>${escapeHtml(target.name)}</strong>? Thời gian áp dụng của các TKB còn lại sẽ tự động điều chỉnh.`,
+        confirmText: 'Xóa TKB',
+        onConfirm: async () => {
+          sem.timetables = sem.timetables.filter((t) => t.id !== target.id);
+          ensureTimetables(sem);
+          state.activeTkbId = sem.timetables[0]?.id || '';
+          sem.timetable = sem.timetables[0]?.slots || [];
+          await persist(`Đã xóa ${target.name}.`);
+        },
+      });
     });
 
     rootEl.querySelectorAll('[data-brush-cls]').forEach((el) => {
@@ -2535,19 +2567,26 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     });
 
     rootEl.querySelectorAll('[data-del-cls]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const cid = btn.dataset.delCls;
         const cls = (sem.classes || []).find((c) => c.id === cid);
-        if (!cls || !window.confirm(`Xóa lớp ${cls.name}?`)) return;
-        sem.classes = (sem.classes || []).filter((c) => c.id !== cid);
-        ensureTimetables(sem);
-        (sem.timetables || []).forEach((t) => {
-          t.slots = (t.slots || []).filter((s) => s.classId !== cid);
+        if (!cls) return;
+        openConfirmDeleteModal({
+          title: 'Xác nhận xóa lớp',
+          messageHtml: `Bạn có chắc chắn muốn xóa lớp <strong>${escapeHtml(cls.name)}</strong> (Khối ${escapeHtml(cls.grade)})? Các tiết đã xếp của lớp này trong TKB sẽ được gỡ bỏ.`,
+          confirmText: 'Xóa lớp',
+          onConfirm: async () => {
+            sem.classes = (sem.classes || []).filter((c) => c.id !== cid);
+            ensureTimetables(sem);
+            (sem.timetables || []).forEach((t) => {
+              t.slots = (t.slots || []).filter((s) => s.classId !== cid);
+            });
+            sem.timetable = sem.timetables[0]?.slots || [];
+            if (state.tkbBrushClassId === cid) state.tkbBrushClassId = sem.classes[0]?.id || '';
+            await persist(`Đã xóa lớp ${cls.name}.`);
+          },
         });
-        sem.timetable = sem.timetables[0]?.slots || [];
-        if (state.tkbBrushClassId === cid) state.tkbBrushClassId = sem.classes[0]?.id || '';
-        await persist(`Đã xóa lớp ${cls.name}.`);
       });
     });
 
@@ -2617,19 +2656,26 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       });
     });
     rootEl.querySelectorAll('[data-del-plan]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const ppct = Number(btn.dataset.delPlan);
         const isSpecial = state.planMode === 'special';
-        if (!window.confirm(`Xóa ${isSpecial ? `CĐ${ppct}` : `Tiết ${ppct}`} khỏi Kế hoạch dạy học?`)) return;
-        state.data.curriculumPlans[state.planGrade] = (state.data.curriculumPlans[state.planGrade] || []).filter(
-          (x) =>
-            !(
-              Number(x.ppct) === ppct &&
-              Number(x.term || 1) === state.planTerm &&
-              Boolean(x.isSpecialTopic) === isSpecial
-            )
-        );
-        await persist(`Đã xóa ${isSpecial ? `CĐ${ppct}` : `Tiết ${ppct}`}.`);
+        const label = isSpecial ? `CĐ${ppct}` : `Tiết ${ppct}`;
+        openConfirmDeleteModal({
+          title: 'Xác nhận xóa tiết học',
+          messageHtml: `Bạn có chắc chắn muốn xóa <strong>${escapeHtml(label)}</strong> khỏi Kế hoạch dạy học?`,
+          confirmText: 'Xóa tiết',
+          onConfirm: async () => {
+            state.data.curriculumPlans[state.planGrade] = (state.data.curriculumPlans[state.planGrade] || []).filter(
+              (x) =>
+                !(
+                  Number(x.ppct) === ppct &&
+                  Number(x.term || 1) === state.planTerm &&
+                  Boolean(x.isSpecialTopic) === isSpecial
+                )
+            );
+            await persist(`Đã xóa ${label}.`);
+          },
+        });
       });
     });
   }
