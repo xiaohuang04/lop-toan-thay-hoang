@@ -79,4 +79,6 @@ export const api = {
   uploadModel: (payload) => request('/api/models', { method: 'POST', body: payload }),
   updateModel: (id, payload) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }),
   deleteModel: (id) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  saveModelsSettings: (modelsVisibilityMode) =>
+    request('/api/admin/models-settings', { method: 'PUT', body: { modelsVisibilityMode } }),
 };

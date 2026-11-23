@@ -1,6 +1,12 @@
-import { api } from './api.js?v=20261123d';
+import { api } from './api.js?v=20261123l';
 import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123d';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
+
+const VISIBILITY_OPTIONS = [
+  { value: 'admin_only', label: 'Chỉ mình tôi' },
+  { value: 'own_grade', label: 'HS chỉ xem được khối lớp của mình' },
+  { value: 'all_grades', label: 'HS xem được tất cả khối lớp' },
+];
 
 const HTML2CANVAS_PRO_URL = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
 const HTML2CANVAS_FALLBACK_URL = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
@@ -229,13 +235,15 @@ function compressImageToDataUrl(file, maxWidth = 720) {
   });
 }
 
-export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteChange }) {
+export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteChange, onVisibilityModeChanged }) {
   const { showToast, openModal, closeModal } = uiHelpers;
 
   const state = {
     models: [],
     grade: '12', // '10' | '11' | '12'
     mode: 'showcase', // 'showcase' (Trình bày - default) | 'manage' (Chỉnh sửa - admin only)
+    visibilityMode: 'all_grades', // 'admin_only' | 'own_grade' | 'all_grades'
+    studentGrade: '',
     search: '',
     collapsedChapters: new Set(),
     hasInitializedGrade: false,
@@ -247,6 +255,24 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
 
   function isAdmin() {
     return getUser?.()?.role === 'admin';
+  }
+
+  function getStudentGrade() {
+    if (state.studentGrade && ['10', '11', '12'].includes(String(state.studentGrade))) {
+      return String(state.studentGrade);
+    }
+    const cls = String(getUser?.()?.className || '').trim();
+    const m = cls.match(/(10|11|12)/);
+    return m ? m[1] : '';
+  }
+
+  function getAllowedGrades() {
+    if (isAdmin() || state.visibilityMode === 'all_grades') return ['10', '11', '12'];
+    if (state.visibilityMode === 'own_grade') {
+      const g = getStudentGrade();
+      return g ? [g] : [];
+    }
+    return [];
   }
 
   async function init(routeOpts = null) {
@@ -262,18 +288,29 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
     try {
       const res = await api.getModels();
       state.models = Array.isArray(res.models) ? res.models : [];
+      if (res.modelsVisibilityMode) {
+        state.visibilityMode = res.modelsVisibilityMode;
+        onVisibilityModeChanged?.(state.visibilityMode);
+      }
+      if (typeof res.studentGrade === 'string') {
+        state.studentGrade = res.studentGrade;
+      }
       state.renderRev = Date.now();
     } catch (err) {
       state.models = [];
       showToast(err.message || 'Không thể tải danh sách mô hình.', 'error');
     }
 
-    if (autoPickGrade && !state.hasInitializedGrade) {
+    const allowed = getAllowedGrades();
+    if (!isAdmin() && allowed.length > 0 && !allowed.includes(state.grade)) {
+      state.grade = allowed[0];
+      onRouteChange?.(`/mo-hinh/toan-${state.grade}`, { replace: true });
+    } else if (autoPickGrade && !state.hasInitializedGrade && allowed.length > 0) {
       state.hasInitializedGrade = true;
       const visibleModels = state.models.filter((m) => m.visible !== false);
       const currentHas = visibleModels.some((m) => String(m.grade) === state.grade);
       if (!currentHas) {
-        const firstWithModel = ['12', '11', '10'].find((g) => visibleModels.some((m) => String(m.grade) === g));
+        const firstWithModel = [...allowed].reverse().find((g) => visibleModels.some((m) => String(m.grade) === g));
         if (firstWithModel) state.grade = firstWithModel;
       }
     }
@@ -293,12 +330,23 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
     if (!admin) state.mode = 'showcase';
     const inManage = admin && state.mode === 'manage';
     const missingThumbs = admin ? state.models.filter((m) => !m.thumbnail) : [];
+    const allowedGrades = getAllowedGrades();
+    if (allowedGrades.length > 0 && !allowedGrades.includes(state.grade)) {
+      state.grade = allowedGrades[0];
+    }
+
+    const restrictedNotice =
+      !admin && state.visibilityMode === 'admin_only'
+        ? `<div class="card lab-empty-state"><p>Thư viện mô hình hiện đang ở chế độ <strong>Chỉ mình tôi</strong> (chỉ dành cho Giáo viên).</p></div>`
+        : !admin && state.visibilityMode === 'own_grade' && allowedGrades.length === 0
+          ? `<div class="card lab-empty-state"><p>Tài khoản của bạn chưa được xếp lớp nên chưa xác định được khối lớp để xem mô hình.</p></div>`
+          : '';
 
     rootEl.innerHTML = `
       <div class="lab-shell">
         <div class="lab-topbar">
           <div class="lab-grade-tabs" role="tablist">
-            ${['10', '11', '12']
+            ${allowedGrades
               .map((g) => {
                 const cnt = countModelsForGrade(g, !inManage);
                 return `
@@ -353,6 +401,33 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
         </div>
 
         ${
+          inManage
+            ? `
+              <div class="card lab-visibility-card">
+                <div class="lab-visibility-title">Chế độ hiển thị</div>
+                <div class="lab-visibility-options" role="radiogroup" aria-label="Chế độ hiển thị">
+                  ${VISIBILITY_OPTIONS.map((opt) => {
+                    const checked = state.visibilityMode === opt.value;
+                    return `
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked="${checked}"
+                        class="lab-vis-option ${checked ? 'active' : ''}"
+                        data-vis-mode="${opt.value}"
+                      >
+                        <span class="lab-vis-radio" aria-hidden="true"></span>
+                        <span class="lab-vis-label">${escapeHtml(opt.label)}</span>
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${
           !inManage && admin && missingThumbs.length > 0
             ? `
               <div class="lab-autocap-banner">
@@ -369,7 +444,7 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
         }
 
         <div id="labBody">
-          ${inManage ? renderManageView() : renderShowcaseView()}
+          ${restrictedNotice || (inManage ? renderManageView() : renderShowcaseView())}
         </div>
       </div>
     `;
@@ -1260,6 +1335,27 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteCha
     });
 
     if (!inManage) return;
+
+    rootEl.querySelectorAll('[data-vis-mode]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const nextMode = btn.dataset.visMode;
+        if (!nextMode || nextMode === state.visibilityMode) return;
+        const prevMode = state.visibilityMode;
+        state.visibilityMode = nextMode;
+        render();
+        try {
+          const res = await api.saveModelsSettings(nextMode);
+          state.visibilityMode = res.modelsVisibilityMode || nextMode;
+          onVisibilityModeChanged?.(state.visibilityMode);
+          const optLabel = VISIBILITY_OPTIONS.find((o) => o.value === state.visibilityMode)?.label || '';
+          showToast(`Đã cập nhật Chế độ hiển thị: ${optLabel}`, 'success');
+        } catch (err) {
+          state.visibilityMode = prevMode;
+          render();
+          showToast(err.message || 'Không thể lưu Chế độ hiển thị.', 'error');
+        }
+      });
+    });
 
     rootEl.querySelector('#labSearchInput')?.addEventListener('input', (e) => {
       state.search = e.target.value;

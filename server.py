@@ -13,6 +13,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -291,6 +292,26 @@ def save_sessions(sessions: dict) -> None:
     STORE.save_sessions(sessions)
 
 
+VALID_MODEL_VISIBILITY_MODES = ("admin_only", "own_grade", "all_grades")
+
+
+def get_models_visibility_mode(db: dict) -> str:
+    settings = db.get("settings")
+    if isinstance(settings, dict):
+        mode = str(settings.get("modelsVisibilityMode", "")).strip()
+        if mode in VALID_MODEL_VISIBILITY_MODES:
+            return mode
+    return "all_grades"
+
+
+def extract_student_grade(user: dict | None) -> str | None:
+    if not user:
+        return None
+    cls_name = str(user.get("className", "")).strip()
+    m = re.search(r"(10|11|12)", cls_name)
+    return m.group(1) if m else None
+
+
 def public_user(u: dict) -> dict:
     return {k: v for k, v in u.items() if k != "passwordHash"}
 
@@ -559,27 +580,57 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 })
 
             if path == "/api/me":
+                vis_mode = get_models_visibility_mode(db)
                 if not user:
-                    return self.send_json(200, {"user": None})
-                return self.send_json(200, {"user": public_user(user)})
+                    return self.send_json(200, {"user": None, "modelsVisibilityMode": vis_mode})
+                return self.send_json(200, {"user": public_user(user), "modelsVisibilityMode": vis_mode})
 
             if path == "/api/models":
                 qs = parse_qs(parsed.query)
                 summary_only = qs.get("summary", ["0"])[0] == "1"
+                vis_mode = get_models_visibility_mode(db)
+                is_admin_user = bool(user and user.get("role") == "admin")
+                stu_grade = extract_student_grade(user) if not is_admin_user else None
+
+                if not is_admin_user and vis_mode == "admin_only":
+                    return self.send_json(200, {
+                        "models": [],
+                        "modelsVisibilityMode": vis_mode,
+                        "studentGrade": stu_grade,
+                    })
+
                 all_models = STORE.list_models()
-                if not user or user.get("role") != "admin":
+                if not is_admin_user:
                     all_models = [m for m in all_models if m.get("visible", True)]
+                    if vis_mode == "own_grade":
+                        if stu_grade:
+                            all_models = [m for m in all_models if str(m.get("grade")) == stu_grade]
+                        else:
+                            all_models = []
                 if summary_only:
                     all_models = [{k: v for k, v in m.items() if k != "html"} for m in all_models]
-                return self.send_json(200, {"models": all_models})
+                return self.send_json(200, {
+                    "models": all_models,
+                    "modelsVisibilityMode": vis_mode,
+                    "studentGrade": stu_grade,
+                })
 
             if path.startswith("/api/models/"):
                 model_id = path.split("/api/models/", 1)[1].strip("/")
+                vis_mode = get_models_visibility_mode(db)
+                is_admin_user = bool(user and user.get("role") == "admin")
+                if not is_admin_user and vis_mode == "admin_only":
+                    return self.send_json(403, {"error": "Chế độ hiện tại chỉ cho phép Giáo viên xem mô hình."})
                 model = STORE.get_model_by_id(model_id)
                 if not model:
                     return self.send_json(404, {"error": "Không tìm thấy mô hình."})
-                if (not user or user.get("role") != "admin") and not model.get("visible", True):
-                    return self.send_json(404, {"error": "Không tìm thấy mô hình."})
+                if not is_admin_user:
+                    if not model.get("visible", True):
+                        return self.send_json(404, {"error": "Không tìm thấy mô hình."})
+                    if vis_mode == "own_grade":
+                        stu_grade = extract_student_grade(user)
+                        if not stu_grade or str(model.get("grade")) != stu_grade:
+                            return self.send_json(403, {"error": "Bạn chỉ có thể xem mô hình thuộc khối lớp của mình."})
                 return self.send_json(200, {"model": model})
 
             if not user:
@@ -689,7 +740,11 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 sessions = load_sessions()
                 sessions[token] = matched["id"]
                 save_sessions(sessions)
-                return self.send_json(200, {"token": token, "user": public_user(matched)})
+                return self.send_json(200, {
+                    "token": token,
+                    "user": public_user(matched),
+                    "modelsVisibilityMode": get_models_visibility_mode(db),
+                })
 
             user, token = self.get_auth_user(db)
             if path == "/api/logout":
@@ -1114,6 +1169,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["teaching_log"] = body
                 save_db(db, keys=["teaching_log"])
                 return self.send_json(200, {"teachingLog": db["teaching_log"]})
+
+            # Save Interactive Models visibility mode (Admin only)
+            if path == "/api/admin/models-settings":
+                mode = str(body.get("modelsVisibilityMode", "")).strip()
+                if mode not in VALID_MODEL_VISIBILITY_MODES:
+                    return self.send_json(400, {"error": "Chế độ hiển thị không hợp lệ."})
+                if not isinstance(db.get("settings"), dict):
+                    db["settings"] = {}
+                db["settings"]["modelsVisibilityMode"] = mode
+                save_db(db, keys=["settings"])
+                return self.send_json(200, {"modelsVisibilityMode": mode})
 
             # Update Classroom Newsfeed Post (Admin)
             if path.startswith("/api/admin/posts/"):

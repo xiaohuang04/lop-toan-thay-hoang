@@ -3039,6 +3039,88 @@ body.test-lock-active .exam-sidebar {
   flex-wrap: wrap;
 }
 
+/* Chế độ hiển thị (Quản lý mô hình) */
+.lab-visibility-card {
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+}
+
+.lab-visibility-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.lab-visibility-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lab-vis-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 11px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.lab-vis-option:hover {
+  border-color: var(--primary-border);
+  background: var(--surface-subtle);
+}
+
+.lab-vis-option.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.lab-vis-radio {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: #fff;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+
+.lab-vis-option.active .lab-vis-radio {
+  border-color: var(--primary);
+}
+
+.lab-vis-option.active .lab-vis-radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.lab-vis-label {
+  line-height: 1.35;
+}
+
+@media (max-width: 768px) {
+  .lab-visibility-options {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
 @media (max-width: 1020px) {
   .lab-preview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -1,8 +1,8 @@
-import { api, setToken } from './api.js?v=20261123d';
+import { api, setToken } from './api.js?v=20261123l';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
 import { createTeacherController } from './teacher-ui.js?v=20261123d';
 import { createStudentController } from './student-ui.js?v=20261123d';
-import { createHtmlLabController } from './html-lab.js?v=20261123d';
+import { createHtmlLabController } from './html-lab.js?v=20261123l';
 import { createTeachingLogController } from './teaching-log.js?v=20261123j';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
@@ -181,10 +181,16 @@ function syncBrowserUrl(targetPath, { replace = false } = {}) {
   else window.history.pushState({ path: norm }, '', norm);
 }
 
+let modelsVisibilityMode = 'all_grades';
+
 const labCtrl = createHtmlLabController({
   rootEl: document.getElementById('labRoot'),
   uiHelpers,
   getUser: () => currentUser,
+  onVisibilityModeChanged: (mode) => {
+    modelsVisibilityMode = mode || 'all_grades';
+    updateUserHeader();
+  },
   onRouteChange: (subPath, opts) => {
     if (panels.lab?.classList.contains('active')) {
       syncBrowserUrl(subPath, opts);
@@ -235,6 +241,10 @@ function updateDocumentTitle(tabName) {
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
   // Guard Admin-only Sổ báo giảng tab
   if (tabName === 'teaching-log' && currentUser?.role !== 'admin') {
+    tabName = 'exam';
+  }
+  // Guard Mô hình tương tác when visibility is set to Admin-only
+  if (tabName === 'lab' && currentUser?.role !== 'admin' && modelsVisibilityMode === 'admin_only') {
     tabName = 'exam';
   }
 
@@ -336,6 +346,9 @@ function updateUserHeader() {
   }
   if (menuItemStorage) {
     menuItemStorage.classList.toggle('hidden', !isAdmin);
+  }
+  if (tabBtnLab) {
+    tabBtnLab.classList.toggle('hidden', !isAdmin && modelsVisibilityMode === 'admin_only');
   }
   if (tabBtnTeachingLog) {
     tabBtnTeachingLog.classList.toggle('hidden', !isAdmin);
@@ -787,6 +800,7 @@ loginForm.addEventListener('submit', async (e) => {
   try {
     const res = await api.login(u, p);
     setToken(res.token);
+    if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
     showToast(`Đăng nhập thành công! Chào mừng ${res.user.fullName}.`, 'success');
     await enterApp(res.user);
   } catch (err) {
@@ -939,6 +953,7 @@ initFloatingScrollbar();
 async function boot() {
   try {
     const res = await api.me();
+    if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
     if (res.user) {
       await enterApp(res.user);
       return;
