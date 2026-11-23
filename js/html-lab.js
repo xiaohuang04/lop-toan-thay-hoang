@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261122l';
-import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261122l';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261122l';
+import { api } from './api.js?v=20261123a';
+import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123a';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123a';
 
 const HTML2CANVAS_PRO_URL = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
 const HTML2CANVAS_FALLBACK_URL = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
@@ -229,7 +229,7 @@ function compressImageToDataUrl(file, maxWidth = 720) {
   });
 }
 
-export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
+export function createHtmlLabController({ rootEl, uiHelpers, getUser, onRouteChange }) {
   const { showToast, openModal, closeModal } = uiHelpers;
 
   const state = {
@@ -249,10 +249,13 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     return getUser?.()?.role === 'admin';
   }
 
-  async function init() {
-    // Default to showcase view whenever entering the tab
-    state.mode = 'showcase';
-    await refresh(true);
+  async function init(routeOpts = null) {
+    if (routeOpts?.grade && ['10', '11', '12'].includes(String(routeOpts.grade))) {
+      state.grade = String(routeOpts.grade);
+      state.hasInitializedGrade = true;
+    }
+    state.mode = routeOpts?.manage && isAdmin() ? 'manage' : 'showcase';
+    await refresh(!routeOpts?.grade);
   }
 
   async function refresh(autoPickGrade = false) {
@@ -1226,17 +1229,23 @@ export function createHtmlLabController({ rootEl, uiHelpers, getUser }) {
     rootEl.querySelectorAll('[data-lab-grade]').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.grade = btn.dataset.labGrade;
+        state.hasInitializedGrade = true;
+        if (state.mode === 'showcase') {
+          onRouteChange?.(`/mo-hinh/toan-${state.grade}`);
+        }
         render();
       });
     });
 
     rootEl.querySelector('#btnSwitchManage')?.addEventListener('click', () => {
       state.mode = 'manage';
+      onRouteChange?.('/mo-hinh/quan-ly');
       render();
     });
 
     rootEl.querySelector('#btnSwitchShowcase')?.addEventListener('click', () => {
       state.mode = 'showcase';
+      onRouteChange?.(`/mo-hinh/toan-${state.grade}`);
       render();
     });
 

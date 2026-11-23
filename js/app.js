@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261122l';
-import { createExamRunner } from './exam-runner.js?v=20261122l';
-import { createTeacherController } from './teacher-ui.js?v=20261122l';
-import { createStudentController } from './student-ui.js?v=20261122l';
-import { createHtmlLabController } from './html-lab.js?v=20261122l';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261122l';
+import { api, setToken } from './api.js?v=20261123a';
+import { createExamRunner } from './exam-runner.js?v=20261123a';
+import { createTeacherController } from './teacher-ui.js?v=20261123a';
+import { createStudentController } from './student-ui.js?v=20261123a';
+import { createHtmlLabController } from './html-lab.js?v=20261123a';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123a';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -135,13 +135,40 @@ const studentCtrl = createStudentController({
   },
 });
 
+function parseRouteFromLocation() {
+  const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
+  if (raw === '/mo-hinh' || raw.startsWith('/mo-hinh/')) {
+    const rest = raw.slice('/mo-hinh'.length).replace(/^\/+/, '');
+    const gradeMatch = rest.match(/^toan-(10|11|12)$/);
+    return {
+      tab: 'lab',
+      grade: gradeMatch ? gradeMatch[1] : null,
+      manage: rest === 'quan-ly',
+    };
+  }
+  return { tab: 'exam', grade: null, manage: false };
+}
+
+function syncBrowserUrl(targetPath, { replace = false } = {}) {
+  if (!window.history?.pushState) return;
+  const norm = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+  if (window.location.pathname === norm) return;
+  if (replace) window.history.replaceState({ path: norm }, '', norm);
+  else window.history.pushState({ path: norm }, '', norm);
+}
+
 const labCtrl = createHtmlLabController({
   rootEl: document.getElementById('labRoot'),
   uiHelpers,
   getUser: () => currentUser,
+  onRouteChange: (subPath, opts) => {
+    if (panels.lab?.classList.contains('active')) {
+      syncBrowserUrl(subPath, opts);
+    }
+  },
 });
 
-// 2-Tab Navigation
+// 2-Tab Navigation + Clean History API URL Routing (/lop-hoc & /mo-hinh)
 const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
 const tabExamLabel = document.getElementById('tabExamLabel');
@@ -157,7 +184,17 @@ function updateLabTabLock() {
   tabBtnLab.querySelector('.tab-lock-icon')?.remove();
 }
 
-function switchTab(tabName) {
+function updateDocumentTitle(tabName) {
+  if (tabName === 'lab') {
+    document.title = 'Mô hình tương tác — Lớp toán thầy Hoàng';
+  } else if (currentUser?.role === 'admin') {
+    document.title = 'Quản lý lớp học — Lớp toán thầy Hoàng';
+  } else {
+    document.title = 'Lớp học của tôi — Lớp toán thầy Hoàng';
+  }
+}
+
+function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
   tabButtons.forEach((btn) => {
     const active = btn.dataset.tab === tabName;
     btn.classList.toggle('active', active);
@@ -168,8 +205,22 @@ function switchTab(tabName) {
   });
 
   setHeaderStatus('');
+  updateDocumentTitle(tabName);
+
   if (tabName === 'lab') {
-    labCtrl.init();
+    if (updateUrl) {
+      const targetUrl = routeOpts?.manage
+        ? '/mo-hinh/quan-ly'
+        : routeOpts?.grade
+          ? `/mo-hinh/toan-${routeOpts.grade}`
+          : '/mo-hinh';
+      syncBrowserUrl(targetUrl, { replace: replaceUrl });
+    }
+    labCtrl.init(routeOpts);
+  } else {
+    if (updateUrl) {
+      syncBrowserUrl('/lop-hoc', { replace: replaceUrl });
+    }
   }
 }
 
@@ -180,6 +231,12 @@ tabButtons.forEach((btn) => {
 document.getElementById('brandHome').addEventListener('click', () => {
   switchTab('exam');
   activeRoleCtrl?.goHome();
+});
+
+window.addEventListener('popstate', () => {
+  if (!currentUser) return;
+  const route = parseRouteFromLocation();
+  switchTab(route.tab, { updateUrl: false, routeOpts: route });
 });
 
 function closeUserDropdown() {
@@ -609,14 +666,22 @@ async function enterApp(user) {
   setHeaderStatus('');
   authScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
-  switchTab('exam');
 
   if (user.role === 'admin') {
     activeRoleCtrl = teacherCtrl;
   } else {
     activeRoleCtrl = studentCtrl;
   }
-  await activeRoleCtrl.goHome();
+
+  const initialRoute = parseRouteFromLocation();
+  if (initialRoute.tab === 'lab') {
+    switchTab('lab', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    // Preload classroom dashboard quietly so switching back to /lop-hoc is instant
+    activeRoleCtrl.init();
+  } else {
+    switchTab('exam', { updateUrl: true, replaceUrl: true });
+    await activeRoleCtrl.goHome();
+  }
 }
 
 // Login Form

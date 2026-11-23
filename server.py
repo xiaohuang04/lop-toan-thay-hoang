@@ -435,6 +435,21 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         if not path.startswith("/api/"):
             if self.block_private_paths(path):
                 return
+            # Clean SPA routes (/lop-hoc, /mo-hinh, /mo-hinh/toan-11, etc.) -> serve index.html
+            if (
+                path == "/lop-hoc"
+                or path.startswith("/lop-hoc/")
+                or path == "/mo-hinh"
+                or path.startswith("/mo-hinh/")
+            ):
+                idx_bytes = (BASE_DIR / "index.html").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(idx_bytes)))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self.wfile.write(idx_bytes)
+                return
             return super().do_GET()
 
         with LOCK:
