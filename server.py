@@ -312,6 +312,97 @@ def extract_student_grade(user: dict | None) -> str | None:
     return m.group(1) if m else None
 
 
+def build_default_analytics() -> dict:
+    """Student engagement analytics: logins and interactive HTML model clicks."""
+    return {
+        "studentTotals": {},
+        "modelTotals": {},
+        "events": [],
+    }
+
+
+def ensure_analytics(db: dict) -> dict:
+    an = db.get("analytics")
+    if not isinstance(an, dict):
+        an = build_default_analytics()
+        db["analytics"] = an
+        return an
+    if not isinstance(an.get("studentTotals"), dict):
+        an["studentTotals"] = {}
+    if not isinstance(an.get("modelTotals"), dict):
+        an["modelTotals"] = {}
+    if not isinstance(an.get("events"), list):
+        an["events"] = []
+    return an
+
+
+def record_student_login(db: dict, user: dict) -> None:
+    if not user or user.get("role") != "student":
+        return
+    an = ensure_analytics(db)
+    uid = str(user.get("id", ""))
+    if not uid:
+        return
+    ts = now_iso()
+    st = an["studentTotals"].setdefault(
+        uid,
+        {"logins": 0, "modelClicks": 0, "lastLoginAt": "", "lastModelClickAt": "", "models": {}},
+    )
+    st["logins"] = int(st.get("logins", 0) or 0) + 1
+    st["lastLoginAt"] = ts
+    an["events"].append({"type": "login", "studentId": uid, "at": ts})
+    if len(an["events"]) > 2500:
+        an["events"] = an["events"][-2500:]
+    save_db(db, keys=["analytics"])
+
+
+def record_student_model_click(db: dict, user: dict, model: dict) -> None:
+    if not user or user.get("role") != "student" or not model:
+        return
+    an = ensure_analytics(db)
+    uid = str(user.get("id", ""))
+    mid = str(model.get("id", ""))
+    if not uid or not mid:
+        return
+    ts = now_iso()
+    m_name = str(model.get("name", "")).strip()
+    m_grade = str(model.get("grade", "")).strip()
+
+    st = an["studentTotals"].setdefault(
+        uid,
+        {"logins": 0, "modelClicks": 0, "lastLoginAt": "", "lastModelClickAt": "", "models": {}},
+    )
+    if not isinstance(st.get("models"), dict):
+        st["models"] = {}
+    st["modelClicks"] = int(st.get("modelClicks", 0) or 0) + 1
+    st["lastModelClickAt"] = ts
+    st["models"][mid] = int(st["models"].get(mid, 0) or 0) + 1
+
+    mt = an["modelTotals"].setdefault(
+        mid,
+        {"clicks": 0, "lastClickAt": "", "students": {}, "name": m_name, "grade": m_grade},
+    )
+    if not isinstance(mt.get("students"), dict):
+        mt["students"] = {}
+    mt["clicks"] = int(mt.get("clicks", 0) or 0) + 1
+    mt["lastClickAt"] = ts
+    mt["name"] = m_name or mt.get("name", "")
+    mt["grade"] = m_grade or mt.get("grade", "")
+    mt["students"][uid] = int(mt["students"].get(uid, 0) or 0) + 1
+
+    an["events"].append({
+        "type": "model_click",
+        "studentId": uid,
+        "modelId": mid,
+        "modelName": m_name,
+        "grade": m_grade,
+        "at": ts,
+    })
+    if len(an["events"]) > 2500:
+        an["events"] = an["events"][-2500:]
+    save_db(db, keys=["analytics"])
+
+
 def build_default_tuition() -> dict:
     """Default tuition structure supporting class-level effective rate history,
     one-click monthly adjustments, per-student prorated overrides, and payment logs."""
@@ -945,6 +1036,16 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
                     reverse=True,
                 )
+                models_summary = [
+                    {
+                        "id": m.get("id", ""),
+                        "name": m.get("name", ""),
+                        "grade": str(m.get("grade", "")),
+                        "visible": bool(m.get("visible", True)),
+                        "lessonId": m.get("lessonId", ""),
+                    }
+                    for m in STORE.list_models()
+                ]
                 return self.send_json(200, {
                     "user": public_user(user),
                     "storageMode": STORE.mode,
@@ -955,6 +1056,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "submissions": db["submissions"],
                     "posts": posts,
                     "tuition": ensure_tuition(db),
+                    "analytics": ensure_analytics(db),
+                    "modelsSummary": models_summary,
                 })
 
             if path == "/api/student/dashboard":
@@ -1032,6 +1135,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 sessions = load_sessions()
                 sessions[token] = matched["id"]
                 save_sessions(sessions)
+                if matched.get("role") == "student":
+                    record_student_login(db, matched)
                 return self.send_json(
                     200,
                     {
@@ -1052,6 +1157,15 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
             if not user:
                 return self.send_json(401, {"error": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."})
+
+            # Track student click on an interactive HTML model
+            if path == "/api/analytics/model-click":
+                model_id = str(body.get("modelId", "")).strip()
+                if user.get("role") == "student" and model_id:
+                    model = STORE.get_model_by_id(model_id)
+                    if model:
+                        record_student_model_click(db, user, model)
+                return self.send_json(200, {"ok": True})
 
             # Change own password
             if path == "/api/change-password":
@@ -1540,6 +1654,11 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 return self.send_json(401, {"error": "Vui lòng đăng nhập."})
             if user["role"] != "admin":
                 return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền xóa."})
+
+            if path == "/api/admin/analytics":
+                db["analytics"] = build_default_analytics()
+                save_db(db, keys=["analytics"])
+                return self.send_json(200, {"ok": True, "analytics": db["analytics"]})
 
             if path.startswith("/api/admin/exams/"):
                 exam_id = path.split("/api/admin/exams/", 1)[1]

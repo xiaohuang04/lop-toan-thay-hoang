@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261123p';
+import { api, setToken } from './api.js?v=20261124a';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261123x';
+import { createTeacherController } from './teacher-ui.js?v=20261124a';
 import { createStudentController } from './student-ui.js?v=20261123x';
-import { createHtmlLabController } from './html-lab.js?v=20261123s';
-import { createTeachingLogController } from './teaching-log.js?v=20261123o';
+import { createHtmlLabController } from './html-lab.js?v=20261124a';
+import { createTeachingLogController } from './teaching-log.js?v=20261124a';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');
@@ -56,6 +56,33 @@ function showToast(message, type = 'info') {
 }
 
 let modalDismissible = true;
+let modalLockedScrollY = null;
+
+function lockBackgroundScroll() {
+  if (modalLockedScrollY !== null) return;
+  modalLockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  document.documentElement.classList.add('modal-open');
+  document.body.classList.add('modal-open');
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${modalLockedScrollY}px`;
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
+}
+
+function unlockBackgroundScroll() {
+  if (modalLockedScrollY === null) return;
+  const restoreY = modalLockedScrollY;
+  modalLockedScrollY = null;
+  document.documentElement.classList.remove('modal-open');
+  document.body.classList.remove('modal-open');
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+  window.scrollTo({ top: restoreY, left: 0, behavior: 'instant' });
+}
 
 function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false, dismissible = true, onMount }) {
   modalDismissible = dismissible;
@@ -65,7 +92,9 @@ function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false,
   modalCard.classList.toggle('modal-wide', Boolean(wide) && !xl);
   modalCard.classList.toggle('modal-xl', Boolean(xl));
   modalCloseBtn.classList.toggle('hidden', !dismissible);
+  modalBody.scrollTop = 0;
   modalBackdrop.classList.remove('hidden');
+  lockBackgroundScroll();
   if (typeof onMount === 'function') onMount(modalCard);
 }
 
@@ -74,7 +103,19 @@ function closeModal() {
   modalCard.classList.remove('modal-wide', 'modal-xl');
   modalCloseBtn.classList.remove('hidden');
   modalBackdrop.classList.add('hidden');
+  unlockBackgroundScroll();
 }
+
+// Block touch-scrolling directly on the blurred backdrop (iOS Safari) while allowing modal-body to scroll
+modalBackdrop.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!modalBody.contains(e.target)) {
+      e.preventDefault();
+    }
+  },
+  { passive: false }
+);
 
 modalCloseBtn.addEventListener('click', () => {
   if (modalDismissible) closeModal();

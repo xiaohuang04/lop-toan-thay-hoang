@@ -134,7 +134,7 @@ class StorageBackend:
         # Only fetch core metadata keys on boot — never load heavy `file:<id>` blobs into boot RAM
         rows = self._sb_request(
             "GET",
-            "app_store?key=in.(users,exams,assignments,submissions,posts,files,sessions,teaching_log,settings,tuition)&select=key,value",
+            "app_store?key=in.(users,exams,assignments,submissions,posts,files,sessions,teaching_log,settings,tuition,analytics)&select=key,value",
         )
         kv = {r["key"]: r["value"] for r in (rows or []) if isinstance(r, dict)}
 
@@ -149,6 +149,7 @@ class StorageBackend:
                 "teaching_log": kv.get("teaching_log"),
                 "settings": kv.get("settings") if isinstance(kv.get("settings"), dict) else {},
                 "tuition": kv.get("tuition") if isinstance(kv.get("tuition"), dict) else None,
+                "analytics": kv.get("analytics") if isinstance(kv.get("analytics"), dict) else None,
             }
             self._sessions_cache = kv.get("sessions", {}) if isinstance(kv.get("sessions"), dict) else {}
         else:
@@ -164,6 +165,7 @@ class StorageBackend:
                 "teaching_log": seeded.get("teaching_log"),
                 "settings": seeded.get("settings", {}),
                 "tuition": seeded.get("tuition"),
+                "analytics": seeded.get("analytics"),
             }
             self._sessions_cache = {}
             self._sb_request(
@@ -179,6 +181,7 @@ class StorageBackend:
                     {"key": "teaching_log", "value": db["teaching_log"] or {}},
                     {"key": "settings", "value": db["settings"] or {}},
                     {"key": "tuition", "value": db["tuition"] or {}},
+                    {"key": "analytics", "value": db["analytics"] or {}},
                     {"key": "sessions", "value": {}},
                 ],
                 extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
@@ -206,6 +209,8 @@ class StorageBackend:
                     db["settings"] = {}
                 if not isinstance(db.get("tuition"), dict):
                     db["tuition"] = None
+                if not isinstance(db.get("analytics"), dict):
+                    db["analytics"] = None
                 self._db_cache = db
                 return db
         db = self.seed_factory()
@@ -214,6 +219,7 @@ class StorageBackend:
         db.setdefault("teaching_log", None)
         db.setdefault("settings", {})
         db.setdefault("tuition", None)
+        db.setdefault("analytics", None)
         self._atomic_write_json(self.db_file, db)
         self._db_cache = db
         return db
@@ -230,7 +236,7 @@ class StorageBackend:
             payload = [
                 {
                     "key": k,
-                    "value": db.get(k) if db.get(k) is not None else ({} if k in ("teaching_log", "settings", "tuition") else []),
+                    "value": db.get(k) if db.get(k) is not None else ({} if k in ("teaching_log", "settings", "tuition", "analytics") else []),
                 }
                 for k in target_keys
             ]

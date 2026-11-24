@@ -72,6 +72,20 @@ export const api = {
   // Admin Tuition Management (Quản lý học phí)
   saveTuition: (tuition) => request('/api/admin/tuition', { method: 'PUT', body: tuition }),
 
+  // Student Access & Model-Click Analytics
+  resetAnalytics: () => request('/api/admin/analytics', { method: 'DELETE' }),
+  trackModelClick: (modelId) => {
+    const token = getToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch('/api/analytics/model-click', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ modelId }),
+      keepalive: true,
+    }).catch(() => {});
+  },
+
   // Student
   studentDashboard: () => request('/api/student/dashboard'),
   submitExam: (payload) => request('/api/student/submissions', { method: 'POST', body: payload }),

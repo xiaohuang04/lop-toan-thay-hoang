@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261123p';
+import { api } from './api.js?v=20261124a';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
@@ -30,6 +30,10 @@ import {
   renderTuitionAdminSection,
   bindTuitionAdminEvents,
 } from './tuition-admin.js?v=20261123x';
+import {
+  renderAnalyticsAdminSection,
+  bindAnalyticsAdminEvents,
+} from './analytics-admin.js?v=20261124a';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -75,7 +79,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
 
   const state = {
-    subTab: 'feed', // 'feed' | 'exams' | 'assignments' | 'students' | 'tuition' | 'submissions'
+    subTab: 'feed', // 'feed' | 'exams' | 'tuition' | 'assignments' | 'analytics' | 'students'
     data: {
       user: null,
       exams: [],
@@ -84,6 +88,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       submissions: [],
       posts: [],
       tuition: null,
+      analytics: null,
+      modelsSummary: [],
     },
     editingExam: null, // null | cloned exam draft
     editorPartTab: 'part1', // 'part1' | 'part2' | 'part3'
@@ -94,6 +100,11 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     tuitionMonth: getCurrentMonthKey(),
     tuitionClass: 'all',
     tuitionStatus: 'all',
+    analyticsRange: 'all',
+    analyticsView: 'students',
+    analyticsClass: 'all',
+    analyticsGrade: 'all',
+    analyticsSearch: '',
     inRunner: false,
   };
 
@@ -108,6 +119,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         submissions: res.submissions || [],
         posts: res.posts || [],
         tuition: res.tuition || null,
+        analytics: res.analytics || null,
+        modelsSummary: res.modelsSummary || [],
       };
       if (!state.inRunner) render();
     } catch (err) {
@@ -160,7 +173,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       return;
     }
 
-    const { exams, students, assignments, submissions, posts, tuition, storageMode, storageError } = state.data;
+    const { exams, students, assignments, submissions, posts, tuition, analytics, modelsSummary, storageMode, storageError } = state.data;
     const isCloud = storageMode === 'supabase';
     const unpaidCurCount = countMonthUnpaid(students, tuition);
 
@@ -196,6 +209,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <button class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}" data-subtab="assignments">
           Bài tập <span class="badge badge-neutral">${assignments.length}</span>
         </button>
+        <button class="subtab-btn ${state.subTab === 'analytics' ? 'active' : ''}" data-subtab="analytics">
+          Thống kê
+        </button>
         <button class="subtab-btn ${state.subTab === 'students' ? 'active' : ''}" data-subtab="students">
           Tài khoản học sinh <span class="badge badge-neutral">${students.length}</span>
         </button>
@@ -206,6 +222,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         ${state.subTab === 'exams' ? renderExamsSection() : ''}
         ${state.subTab === 'tuition' ? renderTuitionAdminSection({ students, classes: getKnownClasses(), tuition, state }) : ''}
         ${state.subTab === 'assignments' ? renderMergedHomeworkSection() : ''}
+        ${state.subTab === 'analytics' ? renderAnalyticsAdminSection({ students, classes: getKnownClasses(), modelsSummary, analytics, state }) : ''}
         ${state.subTab === 'students' ? renderStudentsSection() : ''}
       </div>
     `;
@@ -1163,8 +1180,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         <button class="btn btn-primary" id="btnNewStudent">+ Tạo tài khoản học sinh</button>
       </div>
 
-      <div class="card" style="overflow-x:auto;">
-        <table class="data-table">
+      <div class="card stu-acct-card" style="overflow-x:auto;">
+        <table class="data-table stu-acct-table">
           <thead>
             <tr>
               <th>Tên đăng nhập</th>
@@ -1181,11 +1198,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
               students.length === 0
                 ? `<tr><td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">Chưa có học sinh nào.</td></tr>`
                 : students
-                    .map(
-                      (s) => `
+                    .map((s) => {
+                      const hasExtraContact = Boolean((s.email || '').trim() || (s.phone || '').trim());
+                      const hasCode = Boolean((s.studentCode || '').trim());
+                      return `
                   <tr>
-                    <td><code class="username-pill">@${escapeHtml(s.username)}</code></td>
-                    <td>
+                    <td class="stu-col-user"><code class="username-pill">@${escapeHtml(s.username)}</code></td>
+                    <td class="stu-col-name">
                       <strong>${escapeHtml(s.fullName)}</strong>
                       ${
                         s.startDate || s.createdAt
@@ -1193,20 +1212,20 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                           : ''
                       }
                     </td>
-                    <td><span class="badge badge-p1">${escapeHtml(s.className || '—')}</span></td>
-                    <td>${escapeHtml(s.studentCode || '—')}</td>
-                    <td style="font-size:0.82rem; color:var(--text-secondary);">
-                      ${escapeHtml(s.email || 'Chưa có email')}<br/>
-                      <span>${escapeHtml(s.phone || '')}</span>
+                    <td class="stu-col-class"><span class="badge badge-p1">${escapeHtml(s.className || '—')}</span></td>
+                    <td class="stu-col-code ${hasCode ? '' : 'is-empty-cell'}">${escapeHtml(s.studentCode || '—')}</td>
+                    <td class="stu-col-contact ${hasExtraContact ? '' : 'is-empty-cell'}" style="font-size:0.82rem; color:var(--text-secondary);">
+                      ${s.email ? `<span>${escapeHtml(s.email)}</span>` : `<span class="stu-no-email-lbl">Chưa có email</span>`}
+                      ${s.phone ? `<br/><span>${escapeHtml(s.phone)}</span>` : ''}
                     </td>
-                    <td><span class="badge badge-neutral">${subCounts.get(s.id) || 0} bài</span></td>
-                    <td style="text-align:right; white-space:nowrap;">
+                    <td class="stu-col-subs"><span class="badge badge-neutral">${subCounts.get(s.id) || 0} bài</span></td>
+                    <td class="stu-col-act" style="text-align:right; white-space:nowrap;">
                       <button class="btn btn-secondary btn-sm" data-edit-stu="${s.id}">Sửa / Đổi MK</button>
                       <button class="btn btn-danger-outline btn-sm" data-del-stu="${s.id}">Xóa</button>
                     </td>
                   </tr>
-                `
-                    )
+                `;
+                    })
                     .join('')
             }
           </tbody>
@@ -1679,6 +1698,33 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             render();
           } catch (err) {
             showToast(err.message || 'Không thể lưu dữ liệu học phí.', 'error');
+          }
+        },
+        onRender: render,
+      });
+    }
+
+    // Analytics tab events
+    if (state.subTab === 'analytics') {
+      bindAnalyticsAdminEvents({
+        rootEl,
+        students: state.data.students,
+        modelsSummary: state.data.modelsSummary,
+        analytics: state.data.analytics,
+        state,
+        uiHelpers,
+        onRefresh: async () => {
+          await refresh();
+          showToast('Đã cập nhật dữ liệu thống kê mới nhất!', 'info');
+        },
+        onResetAnalytics: async () => {
+          try {
+            const res = await api.resetAnalytics();
+            state.data.analytics = res.analytics;
+            showToast('Đã đặt lại toàn bộ số liệu thống kê về 0.', 'success');
+            render();
+          } catch (err) {
+            showToast(err.message || 'Không thể đặt lại thống kê.', 'error');
           }
         },
         onRender: render,

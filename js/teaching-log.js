@@ -882,9 +882,11 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     const todayIso = toIsoDateLocal(new Date());
     const swapsList = sem.swaps || [];
     const holidaysList = sem.holidays || [];
+    const midtermsList = sem.saturdayMidterms || [];
+    const totalModsCount = holidaysList.length + swapsList.length + midtermsList.length;
 
     return `
-      <!-- Week Selector & 3 Tool Buttons: Nghỉ lễ | Hoán đổi | Kiểm tra giữa kì -->
+      <!-- Full-width Week Bar + Single Gear Icon Button -->
       <div class="tl-week-bar">
         <div class="tl-mobile-week-picker">
           <button
@@ -932,47 +934,21 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
             })
             .join('')}
         </div>
-        <div class="tl-week-actions">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnOpenHolidayModal">Nghỉ lễ</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btnOpenSwapModal">Hoán đổi</button>
-          <button type="button" class="btn btn-primary btn-sm" id="btnOpenSatMidtermModal">Kiểm tra giữa kì</button>
-        </div>
-      </div>
 
-      ${
-        holidaysList.length > 0 || swapsList.length > 0
-          ? `
-            <div class="tl-active-mods">
-              ${holidaysList
-                .map((h, idx) => {
-                  const lbl = h.name || h.note || 'Nghỉ lễ';
-                  const rangeStr = h.startDate
-                    ? h.endDate && h.endDate !== h.startDate
-                      ? `${formatDateVNAdmin(h.startDate)} → ${formatDateVNAdmin(h.endDate)}`
-                      : formatDateVNAdmin(h.startDate)
-                    : formatDateVNAdmin(h.date);
-                  return `
-                    <span class="badge badge-warning" style="gap:6px;">
-                      Nghỉ lễ: ${escapeHtml(lbl)} (${rangeStr})
-                      <button type="button" class="tl-badge-x" data-del-holiday-idx="${idx}" title="Xóa ngày nghỉ này">×</button>
-                    </span>
-                  `;
-                })
-                .join('')}
-              ${swapsList
-                .map(
-                  (sw) => `
-                <span class="badge badge-p1" style="gap:6px;">
-                  Hoán đổi: ${formatDateVNAdmin(sw.dateA)} ↔ ${formatDateVNAdmin(sw.dateB)}${sw.note ? ` (${escapeHtml(sw.note)})` : ''}
-                  <button type="button" class="tl-badge-x" data-del-swap="${escapeAttr(sw.id)}" title="Hủy hoán đổi">×</button>
-                </span>
-              `
-                )
-                .join('')}
-            </div>
-          `
-          : ''
-      }
+        <button
+          type="button"
+          class="tl-gear-btn ${totalModsCount > 0 ? 'has-mods' : ''}"
+          id="btnOpenScheduleGearModal"
+          aria-label="Cài đặt lịch dạy, nghỉ lễ, hoán đổi và kiểm tra giữa kì"
+          title="Điều chỉnh lịch dạy (Nghỉ lễ, Hoán đổi, Kiểm tra giữa kì)"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          ${totalModsCount > 0 ? `<span class="tl-gear-badge">${totalModsCount}</span>` : ''}
+        </button>
+      </div>
 
       <!-- Main Weekly Grid Host (swapped in-place on week change for zero jitter!) -->
       <div id="tlWeekGridHost">
@@ -1837,6 +1813,133 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     });
   }
 
+  function openScheduleGearModal(sem, schedule) {
+    const holidaysList = sem.holidays || [];
+    const swapsList = sem.swaps || [];
+    const midtermsList = sem.saturdayMidterms || [];
+    const totalMods = holidaysList.length + swapsList.length + midtermsList.length;
+
+    openModal({
+      title: 'Điều chỉnh lịch dạy & TKB',
+      bodyHtml: `
+        <div class="tl-gear-actions-grid">
+          <button type="button" class="btn btn-secondary" id="gearBtnHoliday">Nghỉ lễ</button>
+          <button type="button" class="btn btn-secondary" id="gearBtnSwap">Hoán đổi</button>
+          <button type="button" class="btn btn-primary" id="gearBtnMidterm">Kiểm tra giữa kì</button>
+        </div>
+
+        <div class="tl-gear-mods-sec">
+          <div class="tl-gear-mods-head">
+            <strong>Thay đổi TKB đang áp dụng</strong>
+            <span class="badge badge-neutral">${totalMods}</span>
+          </div>
+          ${
+            totalMods === 0
+              ? `<div class="tl-gear-empty">Chưa có ngày nghỉ lễ, hoán đổi ngày dạy hay kiểm tra giữa kì nào trong học kì này.</div>`
+              : `
+                <div class="tl-gear-mods-list">
+                  ${holidaysList
+                    .map((h, idx) => {
+                      const lbl = h.name || h.note || 'Nghỉ lễ';
+                      const rangeStr = h.startDate
+                        ? h.endDate && h.endDate !== h.startDate
+                          ? `${formatDateVNAdmin(h.startDate)} → ${formatDateVNAdmin(h.endDate)}`
+                          : formatDateVNAdmin(h.startDate)
+                        : formatDateVNAdmin(h.date);
+                      return `
+                        <div class="tl-gear-mod-item">
+                          <div class="tl-gear-mod-info">
+                            <span class="badge badge-warning">Nghỉ lễ</span>
+                            <div>
+                              <div class="tl-gear-mod-title">${escapeHtml(lbl)}</div>
+                              <div class="tl-gear-mod-sub">${escapeHtml(rangeStr)}</div>
+                            </div>
+                          </div>
+                          <button type="button" class="btn btn-danger-outline btn-sm" data-gear-del-holiday="${idx}">Xóa</button>
+                        </div>
+                      `;
+                    })
+                    .join('')}
+                  ${swapsList
+                    .map(
+                      (sw) => `
+                        <div class="tl-gear-mod-item">
+                          <div class="tl-gear-mod-info">
+                            <span class="badge badge-p1">Hoán đổi</span>
+                            <div>
+                              <div class="tl-gear-mod-title">${formatDateVNAdmin(sw.dateA)} ↔ ${formatDateVNAdmin(sw.dateB)}</div>
+                              ${sw.note ? `<div class="tl-gear-mod-sub">${escapeHtml(sw.note)}</div>` : ''}
+                            </div>
+                          </div>
+                          <button type="button" class="btn btn-danger-outline btn-sm" data-gear-del-swap="${escapeAttr(sw.id)}">Xóa</button>
+                        </div>
+                      `
+                    )
+                    .join('')}
+                  ${midtermsList
+                    .map(
+                      (mt) => `
+                        <div class="tl-gear-mod-item">
+                          <div class="tl-gear-mod-info">
+                            <span class="badge badge-p2">KT giữa kì</span>
+                            <div>
+                              <div class="tl-gear-mod-title">Khối ${escapeHtml(mt.grade)} — ${formatDateVNAdmin(mt.date)}</div>
+                              <div class="tl-gear-mod-sub">Tiết ${(mt.periods || []).join(', ')}${mt.term ? ` • Học kì ${mt.term === 2 ? 'II' : 'I'}` : ''}</div>
+                            </div>
+                          </div>
+                          <button type="button" class="btn btn-danger-outline btn-sm" data-gear-del-midterm="${escapeAttr(mt.id)}">Xóa</button>
+                        </div>
+                      `
+                    )
+                    .join('')}
+                </div>
+              `
+          }
+        </div>
+      `,
+      footerHtml: `<button type="button" class="btn btn-primary" id="mCloseGear">Đóng</button>`,
+      onMount: (m) => {
+        m.querySelector('#mCloseGear').addEventListener('click', closeModal);
+        m.querySelector('#gearBtnHoliday').addEventListener('click', () => {
+          openHolidayModal(sem, schedule);
+        });
+        m.querySelector('#gearBtnSwap').addEventListener('click', () => {
+          openSwapDaysModal(sem, schedule);
+        });
+        m.querySelector('#gearBtnMidterm').addEventListener('click', () => {
+          openSaturdayMidtermModal(sem, schedule);
+        });
+
+        m.querySelectorAll('[data-gear-del-holiday]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const idx = Number(btn.dataset.gearDelHoliday);
+            sem.holidays.splice(idx, 1);
+            await persist('Đã xóa đợt nghỉ lễ.');
+            openScheduleGearModal(getActiveSemester(), buildSemesterSchedule(getActiveSemester()));
+          });
+        });
+
+        m.querySelectorAll('[data-gear-del-swap]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.gearDelSwap;
+            sem.swaps = (sem.swaps || []).filter((x) => x.id !== id);
+            await persist('Đã hủy hoán đổi ngày.');
+            openScheduleGearModal(getActiveSemester(), buildSemesterSchedule(getActiveSemester()));
+          });
+        });
+
+        m.querySelectorAll('[data-gear-del-midterm]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.gearDelMidterm;
+            sem.saturdayMidterms = (sem.saturdayMidterms || []).filter((x) => x.id !== id);
+            await persist('Đã xóa lịch kiểm tra giữa kì.');
+            openScheduleGearModal(getActiveSemester(), buildSemesterSchedule(getActiveSemester()));
+          });
+        });
+      },
+    });
+  }
+
   function openSaturdayMidtermModal(sem, schedule) {
     const saturdays = schedule.allDays.filter((d) => d.dayOfWeek === 6);
     const curWeekSat = schedule.weeks[state.selectedWeekIdx]?.days?.[5] || saturdays[0];
@@ -2514,30 +2617,8 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       });
     });
 
-    rootEl.querySelector('#btnOpenHolidayModal')?.addEventListener('click', () => {
-      openHolidayModal(sem, schedule);
-    });
-    rootEl.querySelector('#btnOpenSwapModal')?.addEventListener('click', () => {
-      openSwapDaysModal(sem, schedule);
-    });
-    rootEl.querySelector('#btnOpenSatMidtermModal')?.addEventListener('click', () => {
-      openSaturdayMidtermModal(sem, schedule);
-    });
-
-    rootEl.querySelectorAll('[data-del-holiday-idx]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const idx = Number(btn.dataset.delHolidayIdx);
-        sem.holidays.splice(idx, 1);
-        await persist('Đã xóa đợt nghỉ lễ.');
-      });
-    });
-
-    rootEl.querySelectorAll('[data-del-swap]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const id = btn.dataset.delSwap;
-        sem.swaps = (sem.swaps || []).filter((x) => x.id !== id);
-        await persist('Đã hủy hoán đổi ngày.');
-      });
+    rootEl.querySelector('#btnOpenScheduleGearModal')?.addEventListener('click', () => {
+      openScheduleGearModal(sem, schedule);
     });
 
     // === SUB-TAB 2: THỰC TẾ ===

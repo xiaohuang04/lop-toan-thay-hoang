@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261123l';
+import { api } from './api.js?v=20261124a';
 import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123d';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 
@@ -660,6 +660,7 @@ export function createHtmlLabController({
                 <a
                   class="model-preview-card"
                   href="/model/${encodeURIComponent(m.id)}"
+                  data-open-model-id="${escapeAttr(m.id)}"
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Mở toàn màn hình trong tab mới"
@@ -1397,6 +1398,14 @@ export function createHtmlLabController({
     rootEl.querySelector('#btnBatchCaptureThumbs')?.addEventListener('click', () => {
       const missing = state.models.filter((m) => !m.thumbnail);
       runBatchAutoCapture(missing.length > 0 ? missing : [...state.models]);
+    });
+
+    rootEl.querySelectorAll('[data-open-model-id]').forEach((card) => {
+      card.addEventListener('click', () => {
+        if (!isAdmin() && card.dataset.openModelId) {
+          api.trackModelClick(card.dataset.openModelId);
+        }
+      });
     });
 
     if (!inManage) return;
