@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261124e';
+import { api } from './api.js?v=20261124z2';
 import {
   escapeHtml,
   escapeAttr,
@@ -7,7 +7,7 @@ import {
   formatDateTimeVN,
   getDeadlineStatus,
 } from './exam-engine.js?v=20261123d';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261123d';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261124z4';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -510,7 +510,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
 
     const feedListEl = rootEl.querySelector('#studentFeedList');
     if (feedListEl) {
-      bindFeedEvents(feedListEl, { uiHelpers });
+      bindFeedEvents(feedListEl, { uiHelpers, posts: state.data.posts || [], isAdmin: false });
     }
 
     rootEl.querySelector('#inpStuFeedSearch')?.addEventListener('input', (e) => {
@@ -525,7 +525,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         emptyTitle: 'Không tìm thấy bài viết phù hợp',
         emptyText: 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.',
       });
-      bindFeedEvents(listEl, { uiHelpers });
+      bindFeedEvents(listEl, { uiHelpers, posts, isAdmin: false });
       renderMath(listEl);
     });
   }

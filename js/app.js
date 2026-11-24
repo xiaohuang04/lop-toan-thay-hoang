@@ -1,11 +1,13 @@
-import { api, setToken } from './api.js?v=20261124m';
+import { api, setToken } from './api.js?v=20261124z2';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261124s';
-import { createStudentController } from './student-ui.js?v=20261124s';
-import { createHtmlLabController } from './html-lab.js?v=20261124e';
+import { createTeacherController } from './teacher-ui.js?v=20261124z4';
+import { createStudentController } from './student-ui.js?v=20261124z4';
+import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261124h';
-import { createGradebookController } from './gradebook.js?v=20261124x';
+import { createGradebookController } from './gradebook.js?v=20261124z';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
+import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -91,6 +93,8 @@ function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false,
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
   modalFooter.innerHTML = footerHtml;
+  modalFooter.classList.remove('hidden');
+  modalCard.classList.remove('modal-cropper-only');
   modalCard.classList.toggle('modal-wide', Boolean(wide) && !xl);
   modalCard.classList.toggle('modal-xl', Boolean(xl));
   modalCloseBtn.classList.toggle('hidden', !dismissible);
@@ -102,7 +106,8 @@ function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false,
 
 function closeModal() {
   modalDismissible = true;
-  modalCard.classList.remove('modal-wide', 'modal-xl');
+  modalCard.classList.remove('modal-wide', 'modal-xl', 'modal-cropper-only');
+  modalFooter.classList.remove('hidden');
   modalCloseBtn.classList.remove('hidden');
   modalBackdrop.classList.add('hidden');
   unlockBackgroundScroll();
@@ -225,6 +230,9 @@ function parseRouteFromLocation() {
       manage: false,
     };
   }
+  if (raw === '/game-tuong-tac' || raw.startsWith('/game-tuong-tac/')) {
+    return { tab: 'live-game', grade: null, manage: false };
+  }
   if (raw === '/mo-hinh' || raw.startsWith('/mo-hinh/')) {
     const rest = raw.slice('/mo-hinh'.length).replace(/^\/+/, '');
     const gradeMatch = rest.match(/^toan-(10|11|12)$/);
@@ -295,13 +303,33 @@ const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
 const tabBtnTeachingLog = document.getElementById('tabBtnTeachingLog');
 const tabBtnGradebook = document.getElementById('tabBtnGradebook');
+const tabBtnLiveGame = document.getElementById('tabBtnLiveGame');
 const tabExamLabel = document.getElementById('tabExamLabel');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
   'teaching-log': document.getElementById('panel-teaching-log'),
   gradebook: document.getElementById('panel-gradebook'),
+  'live-game': document.getElementById('panel-live-game'),
 };
+
+function ensureLiveGameMounted() {
+  const hostEl = document.getElementById('liveGameRoot');
+  if (!hostEl || hostEl.querySelector('iframe')) return;
+  hostEl.innerHTML = `
+    <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+      <a href="/live-game/host.html" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+        Mở toàn màn hình trình chiếu ↗
+      </a>
+    </div>
+    <iframe
+      src="/live-game/host.html?embed=1"
+      title="Game Tương Tác Lớp Học"
+      style="width:100%; height:calc(100vh - 134px); min-height:640px; border:1px solid var(--border); border-radius:16px; background:var(--bg); display:block;"
+      allow="fullscreen"
+    ></iframe>
+  `;
+}
 
 function updateLabTabLock() {
   if (!tabBtnLab) return;
@@ -311,7 +339,9 @@ function updateLabTabLock() {
 }
 
 function updateDocumentTitle(tabName) {
-  if (tabName === 'gradebook') {
+  if (tabName === 'live-game') {
+    document.title = 'Game tương tác — Lớp toán thầy Hoàng';
+  } else if (tabName === 'gradebook') {
     document.title = 'Sổ điểm — Lớp toán thầy Hoàng';
   } else if (tabName === 'teaching-log') {
     document.title = 'Sổ báo giảng — Lớp toán thầy Hoàng';
@@ -325,8 +355,8 @@ function updateDocumentTitle(tabName) {
 }
 
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
-  // Guard Admin-only Sổ báo giảng & Sổ điểm tabs
-  if ((tabName === 'teaching-log' || tabName === 'gradebook') && currentUser?.role !== 'admin') {
+  // Guard Admin-only Sổ báo giảng, Sổ điểm & Game tương tác tabs
+  if ((tabName === 'teaching-log' || tabName === 'gradebook' || tabName === 'live-game') && currentUser?.role !== 'admin') {
     tabName = 'exam';
   }
   // Guard Mô hình tương tác when visibility is set to Admin-only
@@ -346,7 +376,12 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
   setHeaderStatus('');
   updateDocumentTitle(tabName);
 
-  if (tabName === 'gradebook') {
+  if (tabName === 'live-game') {
+    if (updateUrl) {
+      syncBrowserUrl('/game-tuong-tac', { replace: replaceUrl });
+    }
+    ensureLiveGameMounted();
+  } else if (tabName === 'gradebook') {
     if (updateUrl) {
       if (routeOpts?.view === 'stats') {
         const qs = new URLSearchParams({
@@ -405,19 +440,52 @@ window.addEventListener('popstate', () => {
   switchTab(route.tab, { updateUrl: false, routeOpts: route });
 });
 
-function closeUserDropdown() {
+const userAvatarInitials = document.getElementById('userAvatarInitials');
+const userAvatarImg = document.getElementById('userAvatarImg');
+const userSubMeta = document.getElementById('userSubMeta');
+
+function getVisibleUserMenuItems() {
+  if (!userDropdown) return [];
+  return Array.from(userDropdown.querySelectorAll('.u408-it:not(.hidden)'));
+}
+
+function syncUserMenuStagger() {
   if (!userDropdown) return;
-  userDropdown.classList.add('hidden');
+  let idx = 0;
+  Array.from(userDropdown.children).forEach((el) => {
+    if (el.classList.contains('hidden')) return;
+    el.style.setProperty('--i', String(idx));
+    idx += 1;
+  });
+}
+
+function isUserDropdownOpen() {
+  return Boolean(userMenuWrap?.classList.contains('is-open'));
+}
+
+function closeUserDropdown(returnFocus = false) {
+  if (!userMenuWrap || !isUserDropdownOpen()) return;
+  userMenuWrap.classList.remove('is-open', 'open');
   userMenuTrigger?.setAttribute('aria-expanded', 'false');
-  userMenuWrap?.classList.remove('open');
+  if (returnFocus) userMenuTrigger?.focus({ preventScroll: true });
+}
+
+function openUserDropdown(focusAt = null) {
+  if (!userMenuWrap) return;
+  syncUserMenuStagger();
+  userMenuWrap.classList.add('is-open', 'open');
+  userMenuTrigger?.setAttribute('aria-expanded', 'true');
+  if (focusAt !== null) {
+    const items = getVisibleUserMenuItems();
+    if (items.length > 0) {
+      items[(focusAt + items.length) % items.length].focus({ preventScroll: true });
+    }
+  }
 }
 
 function toggleUserDropdown() {
-  if (!userDropdown) return;
-  const willOpen = userDropdown.classList.contains('hidden');
-  userDropdown.classList.toggle('hidden', !willOpen);
-  userMenuTrigger?.setAttribute('aria-expanded', String(willOpen));
-  userMenuWrap?.classList.toggle('open', willOpen);
+  if (isUserDropdownOpen()) closeUserDropdown(false);
+  else openUserDropdown(null);
 }
 
 userMenuTrigger?.addEventListener('click', (e) => {
@@ -425,28 +493,112 @@ userMenuTrigger?.addEventListener('click', (e) => {
   toggleUserDropdown();
 });
 
-document.addEventListener('click', (e) => {
-  if (userMenuWrap && !userMenuWrap.contains(e.target)) {
-    closeUserDropdown();
+userMenuTrigger?.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    openUserDropdown(e.key === 'ArrowDown' ? 0 : -1);
+  } else if (e.key === 'Escape' && isUserDropdownOpen()) {
+    e.stopPropagation();
+    closeUserDropdown(false);
   }
 });
 
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeUserDropdown();
+userDropdown?.addEventListener('keydown', (e) => {
+  const items = getVisibleUserMenuItems();
+  if (!items.length) return;
+  const curIdx = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    items[(curIdx + 1 + items.length) % items.length].focus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    items[(curIdx - 1 + items.length) % items.length].focus();
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    items[0].focus();
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    items[items.length - 1].focus();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeUserDropdown(true);
+  } else if (e.key === 'Tab') {
+    closeUserDropdown(false);
+  }
 });
+
+document.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (isUserDropdownOpen() && userMenuWrap && !userMenuWrap.contains(e.target)) {
+      closeUserDropdown(false);
+    }
+  },
+  true
+);
+
+function computeAvatarInitials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'U';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+}
+
+const PRESET_AVATAR_VER = '20261124f';
+
+function avatarDisplaySrc(url) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  if (s.startsWith('/assets/avatars/') && !s.includes('?')) {
+    return `${s}?v=${PRESET_AVATAR_VER}`;
+  }
+  return s;
+}
 
 function updateUserHeader() {
   if (!currentUser) return;
   const isAdmin = currentUser.role === 'admin';
+  const displayName = currentUser.fullName || currentUser.username;
   userRoleBadge.textContent = isAdmin ? 'Giáo viên' : 'Học sinh';
   userRoleBadge.className = `badge ${isAdmin ? 'badge-p2' : 'badge-p1'}`;
-  userNameText.textContent = currentUser.fullName || currentUser.username;
+  userNameText.textContent = displayName;
+  if (userAvatarInitials) {
+    userAvatarInitials.textContent = computeAvatarInitials(displayName);
+  }
+  const avUrl = String(currentUser.avatarUrl || '').trim();
+  if (userAvatarImg && userAvatarInitials) {
+    if (avUrl) {
+      userAvatarImg.src = avatarDisplaySrc(avUrl);
+      userAvatarImg.classList.remove('hidden');
+      userAvatarInitials.classList.add('hidden');
+    } else {
+      userAvatarImg.removeAttribute('src');
+      userAvatarImg.classList.add('hidden');
+      userAvatarInitials.classList.remove('hidden');
+    }
+  }
+  if (userMenuTrigger) {
+    userMenuTrigger.classList.toggle('is-admin', isAdmin);
+    userMenuTrigger.title = `${displayName} (${isAdmin ? 'Giáo viên' : 'Học sinh'})`;
+  }
+  if (userSubMeta) {
+    userSubMeta.textContent = isAdmin
+      ? `@${currentUser.username}`
+      : currentUser.className
+        ? `Lớp ${currentUser.className} • @${currentUser.username}`
+        : `@${currentUser.username}`;
+  }
   if (tabExamLabel) {
     tabExamLabel.textContent = isAdmin ? 'Quản lý lớp học' : 'Lớp học của tôi';
   }
   if (menuItemStorage) {
     menuItemStorage.classList.toggle('hidden', !isAdmin);
   }
+  syncUserMenuStagger();
   if (tabBtnLab) {
     tabBtnLab.classList.toggle('hidden', !isAdmin && modelsVisibilityMode === 'admin_only');
   }
@@ -455,6 +607,9 @@ function updateUserHeader() {
   }
   if (tabBtnGradebook) {
     tabBtnGradebook.classList.toggle('hidden', !isAdmin);
+  }
+  if (tabBtnLiveGame) {
+    tabBtnLiveGame.classList.toggle('hidden', !isAdmin);
   }
   if (btnLocalQuickSwitch) {
     const allowQuick = isLocalhostClient() && isLocalDevSession;
@@ -687,49 +842,139 @@ menuItemStorage?.addEventListener('click', () => {
   openStorageManagerModal();
 });
 
+const PRESET_ANIMAL_AVATARS = [
+  { id: 'cat', label: 'Mèo cam', url: '/assets/avatars/cat.svg' },
+  { id: 'shiba', label: 'Cún Shiba', url: '/assets/avatars/shiba.svg' },
+  { id: 'bunny', label: 'Thỏ trắng', url: '/assets/avatars/bunny.svg' },
+  { id: 'panda', label: 'Gấu trúc', url: '/assets/avatars/panda.svg' },
+  { id: 'fox', label: 'Cáo nhỏ', url: '/assets/avatars/fox.svg' },
+  { id: 'koala', label: 'Koala', url: '/assets/avatars/koala.svg' },
+  { id: 'penguin', label: 'Cánh cụt', url: '/assets/avatars/penguin.svg' },
+  { id: 'capybara', label: 'Capybara', url: '/assets/avatars/capybara.svg' },
+  { id: 'hamster', label: 'Hamster', url: '/assets/avatars/hamster.svg' },
+  { id: 'owl', label: 'Cú mèo', url: '/assets/avatars/owl.svg' },
+];
+
+function isPresetAvatarUrl(url) {
+  return PRESET_ANIMAL_AVATARS.some((a) => a.url === url);
+}
+
 menuItemProfile?.addEventListener('click', () => {
   closeUserDropdown();
   if (!currentUser) return;
   const u = currentUser;
   const isStudent = u.role === 'student';
+  let draftAvatarUrl = String(u.avatarUrl || '').trim();
+  let lastPickedAvatarFile = null;
+  let activeCropper = null;
+  const initials = computeAvatarInitials(u.fullName || u.username);
+  const initIsPreset = isPresetAvatarUrl(draftAvatarUrl);
 
   openModal({
     title: 'Hồ sơ cá nhân',
+    wide: true,
     bodyHtml: `
       <form id="formGlobalProfile">
-        <div class="form-row-2">
-          <div class="form-group">
-            <label>Tên đăng nhập</label>
-            <input class="input-control" value="${escapeAttr(u.username)}" disabled />
+        <div id="gProfAvatarDefaultRow">
+          <div class="prof-avatar-box">
+            <div class="prof-avatar-preview-col">
+              <div class="prof-avatar-circle ${isStudent ? '' : 'is-admin'}" id="gProfAvPreview">
+                ${
+                  draftAvatarUrl
+                    ? `<img src="${escapeAttr(avatarDisplaySrc(draftAvatarUrl))}" alt="Ảnh đại diện" />`
+                    : `<span>${escapeHtml(initials)}</span>`
+                }
+              </div>
+              <div id="gProfAvMeta" class="prof-avatar-meta">
+                ${
+                  initIsPreset
+                    ? `Avatar: ${escapeHtml(PRESET_ANIMAL_AVATARS.find((a) => a.url === draftAvatarUrl)?.label || 'Có sẵn')}`
+                    : draftAvatarUrl
+                      ? 'Ảnh đại diện hiện tại'
+                      : 'Chưa đặt ảnh đại diện'
+                }
+              </div>
+              <div class="prof-avatar-btns">
+                <button type="button" class="btn btn-secondary btn-sm ${draftAvatarUrl && !initIsPreset ? '' : 'hidden'}" id="btnCropGProfAv">
+                  Căn chỉnh ảnh
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm ${draftAvatarUrl ? '' : 'hidden'}" id="btnClearGProfAv">
+                  Gỡ ảnh
+                </button>
+              </div>
+            </div>
+            <div class="prof-avatar-drop-col">
+              <div id="gProfAvatarDrop"></div>
+            </div>
           </div>
-          <div class="form-group">
-            <label>${isStudent ? 'Số báo danh / Mã HS' : 'Mã giáo viên'}</label>
-            <input id="gProfCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="${isStudent ? 'Chưa có' : 'VD: GV001'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
+
+          <div class="prof-preset-box">
+            <div class="prof-preset-head">
+              <strong>Hoặc chọn nhanh avatar con vật dễ thương</strong>
+              <span>10 mẫu có sẵn</span>
+            </div>
+            <div class="prof-preset-grid" id="gProfPresetGrid" role="radiogroup" aria-label="Chọn ảnh đại diện con vật có sẵn">
+              ${PRESET_ANIMAL_AVATARS.map((av) => {
+                const active = draftAvatarUrl === av.url;
+                return `
+                  <button
+                    type="button"
+                    class="prof-preset-item ${active ? 'is-active' : ''}"
+                    data-preset-av="${escapeAttr(av.url)}"
+                    data-preset-label="${escapeAttr(av.label)}"
+                    role="radio"
+                    aria-checked="${active ? 'true' : 'false'}"
+                    title="${escapeAttr(av.label)}"
+                  >
+                    <span class="prof-preset-img-wrap">
+                      <img src="${escapeAttr(avatarDisplaySrc(av.url))}" alt="${escapeAttr(av.label)}" loading="lazy" />
+                      <span class="prof-preset-check" aria-hidden="true">✓</span>
+                    </span>
+                    <span class="prof-preset-lbl">${escapeHtml(av.label)}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
           </div>
         </div>
-        <div class="form-row-2">
-          <div class="form-group">
-            <label>Họ và tên *</label>
-            <input id="gProfFullName" class="input-control" value="${escapeAttr(u.fullName || '')}" required />
+
+        <div id="gProfAvatarCropperHost" class="prof-cropper-host hidden"></div>
+
+        <div id="gProfFieldsWrap">
+          <div class="form-row-2">
+            <div class="form-group">
+              <label>Tên đăng nhập</label>
+              <input class="input-control" value="${escapeAttr(u.username)}" disabled />
+            </div>
+            <div class="form-group">
+              <label>${isStudent ? 'Số báo danh / Mã HS' : 'Mã giáo viên'}</label>
+              <input id="gProfCode" class="input-control" value="${escapeAttr(u.studentCode || '')}" placeholder="${isStudent ? 'Chưa có' : 'VD: GV001'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
+            </div>
           </div>
-          <div class="form-group">
-            <label>${isStudent ? 'Lớp' : 'Tổ chuyên môn / Đơn vị'}</label>
-            <input id="gProfClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="${isStudent ? 'Chưa xếp lớp' : 'VD: Tổ Toán'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
+          <div class="form-row-2">
+            <div class="form-group">
+              <label>Họ và tên *</label>
+              <input id="gProfFullName" class="input-control" value="${escapeAttr(u.fullName || '')}" required />
+            </div>
+            <div class="form-group">
+              <label>${isStudent ? 'Lớp' : 'Tổ chuyên môn / Đơn vị'}</label>
+              <input id="gProfClass" class="input-control" value="${escapeAttr(u.className || '')}" placeholder="${isStudent ? 'Chưa xếp lớp' : 'VD: Tổ Toán'}" ${isStudent ? 'disabled title="Chỉ giáo viên mới có quyền chỉnh sửa"' : ''} />
+            </div>
           </div>
-        </div>
-        <div class="form-row-2">
-          <div class="form-group">
-            <label>Ngày sinh (dd/mm/yyyy)</label>
-            <input id="gProfDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(u.dob || ''))}" />
+          <div class="form-row-2">
+            <div class="form-group">
+              <label>Ngày sinh (dd/mm/yyyy)</label>
+              <input id="gProfDob" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(formatDateOnlyVN(u.dob || ''))}" />
+            </div>
+            <div class="form-group">
+              <label>Số điện thoại</label>
+              <input id="gProfPhone" class="input-control" value="${escapeAttr(u.phone || '')}" placeholder="09xxxxxxxx" />
+            </div>
           </div>
-          <div class="form-group">
-            <label>Số điện thoại</label>
-            <input id="gProfPhone" class="input-control" value="${escapeAttr(u.phone || '')}" placeholder="09xxxxxxxx" />
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Email</label>
+            <input id="gProfEmail" type="email" class="input-control" value="${escapeAttr(u.email || '')}" placeholder="email@school.vn" />
           </div>
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label>Email</label>
-          <input id="gProfEmail" type="email" class="input-control" value="${escapeAttr(u.email || '')}" placeholder="email@school.vn" />
         </div>
       </form>
     `,
@@ -738,8 +983,141 @@ menuItemProfile?.addEventListener('click', () => {
       <button class="btn btn-primary" id="mSaveGProf">Lưu thông tin</button>
     `,
     onMount: (m) => {
-      m.querySelector('#mCancelGProf').addEventListener('click', closeModal);
+      const defaultRow = m.querySelector('#gProfAvatarDefaultRow');
+      const fieldsWrap = m.querySelector('#gProfFieldsWrap');
+      const cropperHost = m.querySelector('#gProfAvatarCropperHost');
+      const avPreviewEl = m.querySelector('#gProfAvPreview');
+      const avMetaEl = m.querySelector('#gProfAvMeta');
+      const cropAvBtn = m.querySelector('#btnCropGProfAv');
+      const clearAvBtn = m.querySelector('#btnClearGProfAv');
+
+      function closeCropperView() {
+        if (activeCropper) {
+          activeCropper.cleanup();
+          activeCropper = null;
+        }
+        if (cropperHost) {
+          cropperHost.innerHTML = '';
+          cropperHost.classList.add('hidden');
+        }
+        modalCard.classList.remove('modal-cropper-only');
+        defaultRow?.classList.remove('hidden');
+        fieldsWrap?.classList.remove('hidden');
+        modalFooter.classList.remove('hidden');
+      }
+
+      function openCropperView(source) {
+        if (!cropperHost) return;
+        if (activeCropper) {
+          activeCropper.cleanup();
+          activeCropper = null;
+        }
+        defaultRow?.classList.add('hidden');
+        fieldsWrap?.classList.add('hidden');
+        modalFooter.classList.add('hidden');
+        modalCard.classList.add('modal-cropper-only');
+        cropperHost.classList.remove('hidden');
+        modalBody.scrollTop = 0;
+        const curName = m.querySelector('#gProfFullName')?.value?.trim() || u.fullName || u.username;
+        activeCropper = mountAvatarCropper(cropperHost, {
+          source,
+          initialPreviewUrl: draftAvatarUrl,
+          initials: computeAvatarInitials(curName),
+          isAdmin: !isStudent,
+          onApply: (croppedDataUrl) => {
+            if (croppedDataUrl) {
+              draftAvatarUrl = croppedDataUrl;
+              syncAvatarPreview();
+            }
+            closeCropperView();
+          },
+          onCancel: () => {
+            closeCropperView();
+          },
+          onError: (err) => {
+            showToast(err?.message || 'Không thể xử lý ảnh đại diện.', 'error');
+            closeCropperView();
+          },
+        });
+      }
+
+      function syncAvatarPreview(metaNote = '') {
+        const matchedPreset = PRESET_ANIMAL_AVATARS.find((a) => a.url === draftAvatarUrl) || null;
+        m.querySelectorAll('[data-preset-av]').forEach((btn) => {
+          const isSel = btn.dataset.presetAv === draftAvatarUrl;
+          btn.classList.toggle('is-active', isSel);
+          btn.setAttribute('aria-checked', String(isSel));
+        });
+
+        if (draftAvatarUrl) {
+          avPreviewEl.innerHTML = `<img src="${escapeAttr(avatarDisplaySrc(draftAvatarUrl))}" alt="Ảnh đại diện" />`;
+          cropAvBtn?.classList.toggle('hidden', Boolean(matchedPreset));
+          clearAvBtn?.classList.remove('hidden');
+          if (matchedPreset) {
+            avMetaEl.textContent = metaNote || `Đã chọn: ${matchedPreset.label}`;
+          } else {
+            const kb = Math.max(1, Math.round((draftAvatarUrl.length * 0.75) / 1024));
+            avMetaEl.textContent = metaNote || `Đã cắt tròn & nén (~${kb} KB)`;
+          }
+        } else {
+          const curName = m.querySelector('#gProfFullName')?.value?.trim() || u.fullName || u.username;
+          avPreviewEl.innerHTML = `<span>${escapeHtml(computeAvatarInitials(curName))}</span>`;
+          cropAvBtn?.classList.add('hidden');
+          clearAvBtn?.classList.add('hidden');
+          avMetaEl.textContent = 'Đang dùng chữ cái viết tắt';
+        }
+      }
+
+      m.querySelectorAll('[data-preset-av]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          draftAvatarUrl = btn.dataset.presetAv || '';
+          lastPickedAvatarFile = null;
+          syncAvatarPreview();
+        });
+      });
+
+      mountAnimatedDropzone(m.querySelector('#gProfAvatarDrop'), {
+        inputId: 'inpGProfAvatar',
+        accept: 'image/*',
+        compact: true,
+        idleTitle: 'Kéo thả ảnh đại diện vào đây',
+        dragTitle: 'Thả ảnh để mở khung căn chỉnh tròn',
+        subNote: 'ảnh nặng tùy ý · căn chỉnh & nén gọn',
+        maxBytes: null,
+        onProcess: async (file) => {
+          if (file.type && !file.type.startsWith('image/')) {
+            throw new Error('Vui lòng chọn tệp hình ảnh (JPG, PNG, WebP...).');
+          }
+          return file;
+        },
+        onComplete: (file) => {
+          lastPickedAvatarFile = file;
+          openCropperView(file);
+        },
+        onError: (err) => showToast(err?.message || 'Không thể xử lý ảnh đại diện.', 'error'),
+      });
+
+      cropAvBtn?.addEventListener('click', () => {
+        const src = lastPickedAvatarFile || draftAvatarUrl;
+        if (src) openCropperView(src);
+      });
+
+      clearAvBtn?.addEventListener('click', () => {
+        draftAvatarUrl = '';
+        lastPickedAvatarFile = null;
+        syncAvatarPreview();
+      });
+
+      m.querySelector('#mCancelGProf').addEventListener('click', () => {
+        closeCropperView();
+        closeModal();
+      });
       const saveProf = async () => {
+        if (activeCropper) {
+          const autoCropped = activeCropper.exportCroppedDataUrl(160);
+          if (autoCropped) draftAvatarUrl = autoCropped;
+          closeCropperView();
+        }
         const fullName = m.querySelector('#gProfFullName').value.trim();
         if (!fullName) {
           showToast('Họ và tên không được để trống.', 'error');
@@ -758,6 +1136,7 @@ menuItemProfile?.addEventListener('click', () => {
             dob: dobIso,
             phone: m.querySelector('#gProfPhone').value.trim(),
             email: m.querySelector('#gProfEmail').value.trim(),
+            avatarUrl: draftAvatarUrl,
           };
           if (!isStudent) {
             payload.className = m.querySelector('#gProfClass').value.trim();
@@ -891,6 +1270,8 @@ function showAuthScreen() {
   if (tlRootEl) tlRootEl.innerHTML = '';
   const gbRootEl = document.getElementById('gradebookRoot');
   if (gbRootEl) gbRootEl.innerHTML = '';
+  const lgRootEl = document.getElementById('liveGameRoot');
+  if (lgRootEl) lgRootEl.innerHTML = '';
   currentUser = null;
   activeRoleCtrl = null;
   appShell.classList.add('hidden');
@@ -919,7 +1300,10 @@ async function enterApp(user) {
   }
 
   const initialRoute = parseRouteFromLocation();
-  if (initialRoute.tab === 'gradebook' && user.role === 'admin') {
+  if (initialRoute.tab === 'live-game' && user.role === 'admin') {
+    switchTab('live-game', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    activeRoleCtrl.init();
+  } else if (initialRoute.tab === 'gradebook' && user.role === 'admin') {
     switchTab('gradebook', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
     activeRoleCtrl.init();
   } else if (initialRoute.tab === 'teaching-log' && user.role === 'admin') {

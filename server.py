@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from curriculum_data import build_builtin_curriculum_plans
+from live_game_engine import LiveGameEngine
 from parsers import parse_docx_bytes, parse_extest_latex, parse_structured_exam_text
 from storage import StorageBackend
 
@@ -33,6 +34,11 @@ DATA_DIR = BASE_DIR / "data"
 SEED_EXAMS_FILE = DATA_DIR / "seed_exams.json"
 
 LOCK = threading.Lock()
+LIVE_GAME = LiveGameEngine(
+    data_dir=DATA_DIR,
+    static_dir=BASE_DIR / "live-game",
+    standalone=False,
+)
 
 
 def now_iso() -> str:
@@ -692,6 +698,62 @@ def public_user(u: dict) -> dict:
     return {k: v for k, v in u.items() if k != "passwordHash"}
 
 
+def format_post_for_user(post: dict, viewer: dict | None, users_by_id: dict) -> dict:
+    """Serialize a newsfeed post with like counts & viewer's liked state.
+    Privacy rule: ONLY admin receives the list of who liked the post (likedBy);
+    students strictly receive likeCount and likedByMe only."""
+    raw_likes = post.get("likes") if isinstance(post.get("likes"), list) else []
+    seen: set[str] = set()
+    clean_likes: list[dict] = []
+    for item in raw_likes:
+        if isinstance(item, str):
+            uid = item.strip()
+            at = ""
+        elif isinstance(item, dict):
+            uid = str(item.get("userId", "")).strip()
+            at = str(item.get("at", "")).strip()
+        else:
+            continue
+        if not uid or uid in seen:
+            continue
+        seen.add(uid)
+        clean_likes.append({"userId": uid, "at": at})
+
+    viewer_id = str(viewer.get("id", "")) if isinstance(viewer, dict) else ""
+    is_admin = isinstance(viewer, dict) and viewer.get("role") == "admin"
+
+    out = {k: v for k, v in post.items() if k not in ("likes", "likedBy")}
+    out["likeCount"] = len(clean_likes)
+    out["likedByMe"] = bool(viewer_id and viewer_id in seen)
+
+    if is_admin:
+        liked_by = []
+        for entry in reversed(clean_likes):
+            u = users_by_id.get(entry["userId"])
+            if u:
+                liked_by.append({
+                    "userId": u["id"],
+                    "fullName": u.get("fullName") or u.get("username") or "Người dùng",
+                    "username": u.get("username", ""),
+                    "className": u.get("className", ""),
+                    "role": u.get("role", "student"),
+                    "avatarUrl": u.get("avatarUrl", ""),
+                    "at": entry["at"],
+                })
+            else:
+                liked_by.append({
+                    "userId": entry["userId"],
+                    "fullName": "Tài khoản đã xóa",
+                    "username": "",
+                    "className": "",
+                    "role": "student",
+                    "avatarUrl": "",
+                    "at": entry["at"],
+                })
+        out["likedBy"] = liked_by
+    return out
+
+
 def is_past_due(due_at_str: str | None) -> bool:
     if not due_at_str:
         return False
@@ -829,6 +891,9 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if LIVE_GAME.handle_http(self, "GET", parsed):
+            return
 
         # Serve synchronized brand favicon for both /favicon.ico and /favicon.svg
         if path == "/favicon.ico":
@@ -995,6 +1060,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 or path.startswith("/so-bao-giang/")
                 or path == "/so-diem"
                 or path.startswith("/so-diem/")
+                or path == "/game-tuong-tac"
+                or path.startswith("/game-tuong-tac/")
             ):
                 idx_bytes = (BASE_DIR / "index.html").read_bytes()
                 self.send_response(200)
@@ -1106,11 +1173,15 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 if user["role"] != "admin":
                     return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền truy cập."})
                 students = [public_user(u) for u in db["users"] if u["role"] == "student"]
-                posts = sorted(
-                    db.get("posts", []),
-                    key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
-                    reverse=True,
-                )
+                users_by_id = {u["id"]: u for u in db["users"]}
+                posts = [
+                    format_post_for_user(p, user, users_by_id)
+                    for p in sorted(
+                        db.get("posts", []),
+                        key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
+                        reverse=True,
+                    )
+                ]
                 models_summary = [
                     {
                         "id": m.get("id", ""),
@@ -1163,16 +1234,20 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     })
 
                 stu_class = str(user.get("className", "")).strip().lower()
+                users_by_id = {u["id"]: u for u in db["users"]}
                 visible_posts = [
-                    p
-                    for p in db.get("posts", [])
-                    if p.get("targetAll", True)
-                    or any(str(c).strip().lower() == stu_class for c in p.get("targetClasses", []))
+                    format_post_for_user(p, user, users_by_id)
+                    for p in sorted(
+                        (
+                            p
+                            for p in db.get("posts", [])
+                            if p.get("targetAll", True)
+                            or any(str(c).strip().lower() == stu_class for c in p.get("targetClasses", []))
+                        ),
+                        key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
+                        reverse=True,
+                    )
                 ]
-                visible_posts.sort(
-                    key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt", "")),
-                    reverse=True,
-                )
 
                 return self.send_json(200, {
                     "user": public_user(user),
@@ -1188,6 +1263,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if LIVE_GAME.handle_http(self, "POST", parsed):
+            return
         if not path.startswith("/api/"):
             return self.send_error(404)
 
@@ -1321,6 +1398,40 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["submissions"].insert(0, sub)
                 save_db(db)
                 return self.send_json(201, {"submission": sub})
+
+            # Toggle Like on a Classroom Newsfeed Post (Admin or eligible Student)
+            if path.startswith("/api/posts/") and path.endswith("/like"):
+                post_id = path[len("/api/posts/"):-len("/like")].strip("/")
+                post = next((p for p in db.get("posts", []) if p["id"] == post_id), None)
+                if not post:
+                    return self.send_json(404, {"error": "Không tìm thấy bài viết."})
+                if user.get("role") != "admin":
+                    stu_class = str(user.get("className", "")).strip().lower()
+                    allowed = post.get("targetAll", True) or any(
+                        str(c).strip().lower() == stu_class for c in post.get("targetClasses", [])
+                    )
+                    if not allowed:
+                        return self.send_json(403, {"error": "Bạn không có quyền tương tác với bài viết này."})
+                raw_likes = post.get("likes")
+                if not isinstance(raw_likes, list):
+                    raw_likes = []
+                uid = user["id"]
+                existing_idx = next(
+                    (
+                        i
+                        for i, x in enumerate(raw_likes)
+                        if (x == uid) or (isinstance(x, dict) and x.get("userId") == uid)
+                    ),
+                    -1,
+                )
+                if existing_idx >= 0:
+                    raw_likes.pop(existing_idx)
+                else:
+                    raw_likes.append({"userId": uid, "at": now_iso()})
+                post["likes"] = raw_likes
+                save_db(db, keys=["posts"])
+                users_by_id = {u["id"]: u for u in db["users"]}
+                return self.send_json(200, {"post": format_post_for_user(post, user, users_by_id)})
 
             # Admin-only POST routes
             if user["role"] != "admin":
@@ -1556,6 +1667,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def do_PUT(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if LIVE_GAME.handle_http(self, "PUT", parsed):
+            return
         if not path.startswith("/api/"):
             return self.send_error(404)
 
@@ -1583,6 +1696,21 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 user["email"] = str(body.get("email", user.get("email", ""))).strip()
                 user["phone"] = str(body.get("phone", user.get("phone", ""))).strip()
                 user["dob"] = str(body.get("dob", user.get("dob", ""))).strip()
+                if "avatarUrl" in body:
+                    raw_av = str(body.get("avatarUrl") or "").strip()
+                    if raw_av == "":
+                        user["avatarUrl"] = ""
+                    elif re.match(r"^/assets/avatars/[a-z0-9_-]+\.(svg|png|jpg|jpeg|webp)$", raw_av):
+                        preset_path = (BASE_DIR / raw_av.lstrip("/")).resolve()
+                        avatars_root = (BASE_DIR / "assets" / "avatars").resolve()
+                        if preset_path.parent == avatars_root and preset_path.is_file():
+                            user["avatarUrl"] = raw_av
+                        else:
+                            return self.send_json(400, {"error": "Ảnh đại diện có sẵn không tồn tại."})
+                    elif re.match(r"^data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$", raw_av) and len(raw_av) <= 85000:
+                        user["avatarUrl"] = raw_av
+                    else:
+                        return self.send_json(400, {"error": "Ảnh đại diện không hợp lệ hoặc vượt quá giới hạn sau khi nén."})
                 # Also refresh display name on past submissions for consistency
                 for s in db["submissions"]:
                     if s["studentId"] == user["id"]:
@@ -1757,6 +1885,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if LIVE_GAME.handle_http(self, "DELETE", parsed):
+            return
         if not path.startswith("/api/"):
             return self.send_error(404)
 
@@ -1832,6 +1962,7 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else default_port
     init_db()
     server = ThreadingHTTPServer(("0.0.0.0", port), EduLabHandler)
+    server.daemon_threads = True
     print(f"Lớp toán thầy Hoàng Server running at http://localhost:{port} (storage: {STORE.mode})")
     sys.stdout.flush()
     try:

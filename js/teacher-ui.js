@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261124a';
+import { api } from './api.js?v=20261124z2';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
@@ -21,7 +21,7 @@ import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
-} from './classroom-feed.js?v=20261123d';
+} from './classroom-feed.js?v=20261124z4';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -34,6 +34,7 @@ import {
   renderAnalyticsAdminSection,
   bindAnalyticsAdminEvents,
 } from './analytics-admin.js?v=20261124a';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -1478,6 +1479,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       if (!container) return;
       bindFeedEvents(container, {
         uiHelpers,
+        posts: state.data.posts || [],
+        isAdmin: true,
         onTogglePin: async (postId) => {
           const post = (state.data.posts || []).find((p) => p.id === postId);
           if (!post) return;
@@ -1799,9 +1802,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           <code>\\shortans</code>, <code>\\True</code>, <code>\\loigiai</code>, <code>\\heva</code>, <code>\\hoac</code>,
           tự làm sạch <code>\\par</code> / <code>\\immini</code> / <code>\\setlength</code> và <strong>tự động biên dịch hình vẽ TikZ sang ảnh SVG sắc nét</strong>.
         </div>
+        <div id="texDropzone" style="margin-bottom:10px;"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnPickTexFile">Chọn file .tex</button>
-          <input type="file" id="inpTexFile" accept=".tex,.txt" hidden />
           <button type="button" class="btn btn-secondary btn-sm" id="btnInsertSampleTex">Chèn mã mẫu ex_test</button>
           <button type="button" class="btn btn-ghost btn-sm" id="btnDownloadSampleTex">Tải file mẫu .tex</button>
           <button type="button" class="btn btn-primary btn-sm" id="btnRunParseTex" style="margin-left:auto;">
@@ -1816,22 +1818,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           Hỗ trợ file <strong>Word (.docx)</strong> chứa công thức <strong>Microsoft Equation (OMML → tự chuyển LaTeX)</strong>
           và <strong>MathType</strong>. Tự nhận diện đáp án đúng qua chữ <u>gạch chân</u>, tô màu đỏ hoặc bảng đáp án cuối đề.
         </div>
-        <div class="dropzone" id="docxDropzone">
-          <input type="file" id="inpDocxFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
-          <div class="dropzone-title">Kéo thả hoặc nhấn chọn file Word (.docx)</div>
-          <div class="dropzone-sub">Mẹo cho MathType: Nếu dùng MathType dạng ảnh WMF, hãy bấm "Toggle TeX" trong Word trước để công thức sắc nét 100%.</div>
-        </div>
+        <div id="docxDropzone"></div>
       </div>
 
       <div id="impPanelPdf" class="${mode === 'pdf' ? '' : 'hidden'}">
         <div class="import-tip">
           Hỗ trợ nạp file <strong>PDF (.pdf)</strong> có lớp văn bản (đề xuất từ LaTeX hoặc Word). Hệ thống trích xuất tự động 3 phần và cho phép thầy rà soát lại công thức trong Trình tinh chỉnh.
         </div>
-        <div class="dropzone" id="pdfDropzone">
-          <input type="file" id="inpPdfFile" accept=".pdf,application/pdf" hidden />
-          <div class="dropzone-title">Kéo thả hoặc nhấn chọn file PDF (.pdf)</div>
-          <div class="dropzone-sub">Tự nhận diện cấu trúc PHẦN I / PHẦN II / PHẦN III và đánh số Câu 1., Câu 2., ...</div>
-        </div>
+        <div id="pdfDropzone"></div>
       </div>
 
       <div id="impStatusMsg" class="hidden" style="margin-top:12px;"></div>
@@ -2005,14 +1999,24 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           }
         }
 
-        m.querySelector('#btnPickTexFile').addEventListener('click', () => texFileInp.click());
-        texFileInp.addEventListener('change', async () => {
-          const f = texFileInp.files?.[0];
-          if (!f) return;
-          lastTexFilename = f.name;
-          texArea.value = await f.text();
-          texFileInp.value = '';
-          await parseTexNow();
+        mountAnimatedDropzone(m.querySelector('#texDropzone'), {
+          inputId: 'inpTexFile',
+          accept: '.tex,.txt',
+          compact: true,
+          idleTitle: 'Kéo thả file LaTeX (.tex) vào đây',
+          dragTitle: 'Thả file .tex để phân tích ngay',
+          subNote: '.tex / .txt',
+          maxBytes: 10 * 1024 * 1024,
+          onProcess: async (file) => {
+            const text = await file.text();
+            return { text, name: file.name };
+          },
+          onComplete: async ({ text, name }) => {
+            lastTexFilename = name;
+            texArea.value = text;
+            await parseTexNow();
+          },
+          onError: (err) => setStatus(escapeHtml(err?.message || 'Không thể đọc file .tex.'), 'error'),
         });
 
         m.querySelector('#btnInsertSampleTex').addEventListener('click', async () => {
@@ -2034,74 +2038,58 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         m.querySelector('#btnRunParseTex').addEventListener('click', parseTexNow);
 
         // === MODE 2: WORD (.docx) ===
-        const docxDrop = m.querySelector('#docxDropzone');
-        const docxInp = m.querySelector('#inpDocxFile');
-        async function handleDocxFile(file) {
-          if (!file.name.toLowerCase().endsWith('.docx')) {
-            setStatus('Hệ thống hỗ trợ file Word định dạng <code>.docx</code> (nếu đang là .doc cũ, hãy Lưu dưới dạng .docx trong Word).', 'error');
-            return;
-          }
-          setStatus(`Đang đọc file Word <strong>${escapeHtml(file.name)}</strong> và chuyển đổi công thức...`, 'info');
-          try {
+        mountAnimatedDropzone(m.querySelector('#docxDropzone'), {
+          inputId: 'inpDocxFile',
+          accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          idleTitle: 'Kéo thả file Word (.docx) vào đây',
+          dragTitle: 'Thả file Word để nạp đề',
+          hintText: 'Mẹo MathType: Bấm "Toggle TeX" trong Word trước để công thức sắc nét 100%.',
+          onProcess: async (file) => {
+            if (!file.name.toLowerCase().endsWith('.docx')) {
+              throw new Error('Hệ thống hỗ trợ file Word định dạng .docx (hãy Lưu dưới dạng .docx trong Word).');
+            }
+            statusEl.classList.add('hidden');
             const base64Data = await fileToBase64(file);
             const res = await api.parseExam({ format: 'docx', base64Data, filename: file.name });
             await resolvePendingTikzPdfs(res);
+            return res;
+          },
+          onComplete: (res) => {
             statusEl.classList.add('hidden');
             showParsedPreview(res);
-          } catch (err) {
-            setStatus(escapeHtml(err.message), 'error');
-          }
-        }
-        docxDrop.addEventListener('click', () => docxInp.click());
-        docxDrop.addEventListener('dragover', (e) => { e.preventDefault(); docxDrop.classList.add('drag-over'); });
-        docxDrop.addEventListener('dragleave', () => docxDrop.classList.remove('drag-over'));
-        docxDrop.addEventListener('drop', (e) => {
-          e.preventDefault();
-          docxDrop.classList.remove('drag-over');
-          const f = e.dataTransfer?.files?.[0];
-          if (f) handleDocxFile(f);
-        });
-        docxInp.addEventListener('change', () => {
-          const f = docxInp.files?.[0];
-          if (f) handleDocxFile(f);
-          docxInp.value = '';
+          },
+          onError: (err) => {
+            setStatus(escapeHtml(err?.message || 'Không thể đọc file Word.'), 'error');
+          },
         });
 
         // === MODE 3: PDF (.pdf) ===
-        const pdfDrop = m.querySelector('#pdfDropzone');
-        const pdfInp = m.querySelector('#inpPdfFile');
-        async function handlePdfFile(file) {
-          if (!file.name.toLowerCase().endsWith('.pdf')) {
-            setStatus('Vui lòng chọn file định dạng <code>.pdf</code>.', 'error');
-            return;
-          }
-          setStatus(`Đang trích xuất nội dung từ PDF <strong>${escapeHtml(file.name)}</strong>...`, 'info');
-          try {
+        mountAnimatedDropzone(m.querySelector('#pdfDropzone'), {
+          inputId: 'inpPdfFile',
+          accept: '.pdf,application/pdf',
+          idleTitle: 'Kéo thả file PDF (.pdf) vào đây',
+          dragTitle: 'Thả file PDF để nạp đề',
+          hintText: 'Tự nhận diện PHẦN I / PHẦN II / PHẦN III và đánh số Câu 1., Câu 2., ...',
+          onProcess: async (file) => {
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+              throw new Error('Vui lòng chọn file định dạng .pdf.');
+            }
+            statusEl.classList.add('hidden');
             const extractedText = await extractTextFromPdfFile(file);
             if (!extractedText.trim()) {
               throw new Error('File PDF không có lớp văn bản (có thể là ảnh scan). Vui lòng dùng mã LaTeX ex_test hoặc file Word .docx.');
             }
             const res = await api.parseExam({ format: 'pdf_text', content: extractedText, filename: file.name });
             await resolvePendingTikzPdfs(res);
+            return res;
+          },
+          onComplete: (res) => {
             statusEl.classList.add('hidden');
             showParsedPreview(res);
-          } catch (err) {
-            setStatus(escapeHtml(err.message), 'error');
-          }
-        }
-        pdfDrop.addEventListener('click', () => pdfInp.click());
-        pdfDrop.addEventListener('dragover', (e) => { e.preventDefault(); pdfDrop.classList.add('drag-over'); });
-        pdfDrop.addEventListener('dragleave', () => pdfDrop.classList.remove('drag-over'));
-        pdfDrop.addEventListener('drop', (e) => {
-          e.preventDefault();
-          pdfDrop.classList.remove('drag-over');
-          const f = e.dataTransfer?.files?.[0];
-          if (f) handlePdfFile(f);
-        });
-        pdfInp.addEventListener('change', () => {
-          const f = pdfInp.files?.[0];
-          if (f) handlePdfFile(f);
-          pdfInp.value = '';
+          },
+          onError: (err) => {
+            setStatus(escapeHtml(err?.message || 'Không thể đọc file PDF.'), 'error');
+          },
         });
 
         // === FOOTER ACTIONS ===

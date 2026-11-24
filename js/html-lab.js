@@ -1,6 +1,7 @@
 import { api } from './api.js?v=20261124e';
 import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123d';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
 
 const VISIBILITY_OPTIONS = [
   { value: 'admin_only', label: 'Chỉ mình tôi' },
@@ -996,37 +997,19 @@ export function createHtmlLabController({
         <div class="form-row-2">
           <div class="form-group">
             <label>${existing ? 'Thay file mô hình .html (tùy chọn)' : 'Chọn file mô hình (.html) *'}</label>
-            <div class="dropzone" id="mdlHtmlDrop" style="padding:14px;">
-              <input type="file" id="mdlHtmlInput" accept=".html,.htm,text/html" hidden />
-              <div class="dropzone-title" id="mdlHtmlLabel" style="font-size:0.84rem;">
-                ${selectedFileName ? `Đã chọn: ${escapeHtml(selectedFileName)}` : 'Kéo thả hoặc nhấn chọn file .html'}
-              </div>
-            </div>
+            <div id="mdlHtmlDrop"></div>
           </div>
 
           <div class="form-group">
-            <label>Ảnh xem trước (tùy chọn — bỏ trống tự lấy ảnh từ HTML)</label>
-            <div class="dropzone" id="mdlThumbDrop" style="padding:14px;">
-              <input type="file" id="mdlThumbInput" accept="image/*" hidden />
-              <div id="mdlThumbPreviewWrap">
-                ${
-                  selectedThumbnail
-                    ? `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`
-                    : `<div class="dropzone-title" style="font-size:0.84rem;">Nhấn chọn ảnh .png / .jpg (tùy chọn)</div>`
-                }
-              </div>
-            </div>
+            <label>Ảnh xem trước (tùy chọn)</label>
+            <div id="mdlThumbDrop"></div>
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
               ${
                 existing
                   ? `<button type="button" class="btn btn-secondary btn-sm" id="btnAutoCapSingle">Tự chụp ảnh từ HTML</button>`
                   : ''
               }
-              ${
-                selectedThumbnail
-                  ? `<button type="button" class="btn btn-ghost btn-sm" id="btnClearThumb">Xóa ảnh đại diện</button>`
-                  : ''
-              }
+              <button type="button" class="btn btn-ghost btn-sm ${selectedThumbnail ? '' : 'hidden'}" id="btnClearThumb">Xóa ảnh xem trước</button>
             </div>
           </div>
         </div>
@@ -1050,67 +1033,61 @@ export function createHtmlLabController({
         const gradeSel = m.querySelector('#mdlGrade');
         const lessonSel = m.querySelector('#mdlLesson');
         const nameInp = m.querySelector('#mdlName');
-        const htmlDrop = m.querySelector('#mdlHtmlDrop');
-        const htmlInp = m.querySelector('#mdlHtmlInput');
-        const htmlLbl = m.querySelector('#mdlHtmlLabel');
-        const thumbDrop = m.querySelector('#mdlThumbDrop');
-        const thumbInp = m.querySelector('#mdlThumbInput');
-        const thumbWrap = m.querySelector('#mdlThumbPreviewWrap');
+        const btnClearThumb = m.querySelector('#btnClearThumb');
 
         gradeSel.addEventListener('change', () => {
           lessonSel.innerHTML = buildLessonOptions(gradeSel.value, '');
         });
 
-        async function loadHtmlFile(file) {
-          if (!/\.html?$/i.test(file.name)) {
-            showToast('Vui lòng chọn file có đuôi .html hoặc .htm.', 'error');
-            return;
-          }
-          selectedHtmlText = await file.text();
-          selectedFileName = file.name;
-          htmlLbl.textContent = `Đã chọn: ${file.name}`;
-          if (!nameInp.value.trim()) {
-            const tm = selectedHtmlText.match(/<title[^>]*>([^<]+)<\/title>/i);
-            nameInp.value = tm ? tm[1].trim() : file.name.replace(/\.html?$/i, '');
-          }
-        }
-
-        htmlDrop.addEventListener('click', () => htmlInp.click());
-        htmlDrop.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          htmlDrop.classList.add('drag-over');
-        });
-        htmlDrop.addEventListener('dragleave', () => htmlDrop.classList.remove('drag-over'));
-        htmlDrop.addEventListener('drop', (e) => {
-          e.preventDefault();
-          htmlDrop.classList.remove('drag-over');
-          const f = e.dataTransfer?.files?.[0];
-          if (f) loadHtmlFile(f);
-        });
-        htmlInp.addEventListener('change', () => {
-          const f = htmlInp.files?.[0];
-          if (f) loadHtmlFile(f);
-          htmlInp.value = '';
+        const htmlDz = mountAnimatedDropzone(m.querySelector('#mdlHtmlDrop'), {
+          inputId: 'mdlHtmlInput',
+          accept: '.html,.htm,text/html',
+          compact: true,
+          idleTitle: 'Kéo thả file .html vào đây',
+          dragTitle: 'Thả file HTML để nạp',
+          subNote: '.html / .htm',
+          maxBytes: 15 * 1024 * 1024,
+          initialSelectedText: selectedFileName ? `Đã chọn: ${selectedFileName}` : '',
+          onProcess: async (file) => {
+            if (!/\.html?$/i.test(file.name)) {
+              throw new Error('Vui lòng chọn file có đuôi .html hoặc .htm.');
+            }
+            const htmlText = await file.text();
+            return { htmlText, fileName: file.name };
+          },
+          onComplete: ({ htmlText, fileName }) => {
+            selectedHtmlText = htmlText;
+            selectedFileName = fileName;
+            htmlDz?.setIdleTitle(`Đã chọn: ${fileName}`);
+            if (!nameInp.value.trim()) {
+              const tm = selectedHtmlText.match(/<title[^>]*>([^<]+)<\/title>/i);
+              nameInp.value = tm ? tm[1].trim() : fileName.replace(/\.html?$/i, '');
+            }
+          },
+          onError: (err) => showToast(err?.message || 'Không thể đọc file HTML.', 'error'),
         });
 
-        async function loadThumbFile(file) {
-          if (!file.type.startsWith('image/')) {
-            showToast('Vui lòng chọn file ảnh (.png, .jpg, .webp).', 'error');
-            return;
-          }
-          try {
-            selectedThumbnail = await compressImageToDataUrl(file);
-            thumbWrap.innerHTML = `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`;
-          } catch (err) {
-            showToast(err.message, 'error');
-          }
-        }
-
-        thumbDrop.addEventListener('click', () => thumbInp.click());
-        thumbInp.addEventListener('change', () => {
-          const f = thumbInp.files?.[0];
-          if (f) loadThumbFile(f);
-          thumbInp.value = '';
+        const thumbDz = mountAnimatedDropzone(m.querySelector('#mdlThumbDrop'), {
+          inputId: 'mdlThumbInput',
+          accept: 'image/*',
+          compact: true,
+          idleTitle: 'Kéo thả ảnh xem trước',
+          dragTitle: 'Thả ảnh để nén & xem trước',
+          subNote: 'tự nén gọn nhẹ',
+          maxBytes: null,
+          initialThumbUrl: selectedThumbnail || '',
+          onProcess: async (file) => {
+            if (!file.type.startsWith('image/')) {
+              throw new Error('Vui lòng chọn file ảnh (.png, .jpg, .webp).');
+            }
+            return compressImageToDataUrl(file);
+          },
+          onComplete: (dataUrl) => {
+            selectedThumbnail = dataUrl;
+            thumbDz?.setThumbPreview(dataUrl);
+            btnClearThumb?.classList.remove('hidden');
+          },
+          onError: (err) => showToast(err?.message || 'Không thể đọc file ảnh.', 'error'),
         });
 
         m.querySelector('#btnAutoCapSingle')?.addEventListener('click', async (e) => {
@@ -1120,7 +1097,8 @@ export function createHtmlLabController({
           btn.textContent = 'Đang chụp...';
           try {
             selectedThumbnail = await captureModelThumbnail(existing.id, { width: 720, height: 450 });
-            thumbWrap.innerHTML = `<img src="${escapeAttr(selectedThumbnail)}" style="max-height:76px; border-radius:8px; display:block; margin:0 auto;" />`;
+            thumbDz?.setThumbPreview(selectedThumbnail);
+            btnClearThumb?.classList.remove('hidden');
             const kb = Math.round((selectedThumbnail.length * 0.75) / 1024);
             showToast(`Đã chụp ảnh 720×450 (~${kb} KB)! Nhấn "Lưu thay đổi" để lưu.`, 'success');
           } catch (err) {
@@ -1131,9 +1109,10 @@ export function createHtmlLabController({
           }
         });
 
-        m.querySelector('#btnClearThumb')?.addEventListener('click', () => {
+        btnClearThumb?.addEventListener('click', () => {
           selectedThumbnail = '';
-          thumbWrap.innerHTML = `<div class="dropzone-title" style="font-size:0.84rem;">Nhấn chọn ảnh .png / .jpg (tùy chọn)</div>`;
+          thumbDz?.setThumbPreview('');
+          btnClearThumb.classList.add('hidden');
         });
 
         m.querySelector('#mCancelMdl').addEventListener('click', closeModal);

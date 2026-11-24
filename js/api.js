@@ -61,6 +61,7 @@ export const api = {
   createPost: (post) => request('/api/admin/posts', { method: 'POST', body: post }),
   updatePost: (id, post) => request(`/api/admin/posts/${encodeURIComponent(id)}`, { method: 'PUT', body: post }),
   deletePost: (id) => request(`/api/admin/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  togglePostLike: (id) => request(`/api/posts/${encodeURIComponent(id)}/like`, { method: 'POST', body: {} }),
 
   // Supabase / Local Storage Quota Manager
   getStorageStats: () => request('/api/admin/storage'),

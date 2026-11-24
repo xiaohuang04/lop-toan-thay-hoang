@@ -1,6 +1,7 @@
 import { api } from './api.js?v=20261124m';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 import { extractGradebookFromPdfFile, formatDobVNAdmin } from './pdf-reader.js?v=20261124o';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
 
 function getColumnsForTerm(term) {
   const numTx = Number(term) === 2 ? 5 : 4;
@@ -1083,58 +1084,42 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
         saveBtn.classList.add('hidden');
         if (cancelBtn) cancelBtn.textContent = 'Hủy';
         bodyEl.innerHTML = `
-          <div class="dropzone" id="gbPdfDropzone">
-            <input type="file" id="inpGbPdfFile" accept=".pdf,application/pdf" hidden />
-            <div class="dropzone-title">Chọn hoặc kéo thả file PDF Sổ điểm</div>
-            <div class="dropzone-sub">
-              Hỗ trợ cả file 1 lớp lẫn file trọn bộ nhiều lớp (tự bù lệch lề chẵn lẻ khi in 2 mặt, tự nhận diện tên lớp, học kì, họ tên HS và chính xác từng cột ĐĐGtx, ĐĐGgk, ĐĐGck).
-            </div>
-          </div>
+          <div id="gbPdfDropzone"></div>
           <div id="gbPdfStatus" class="hidden" style="margin-top:12px;"></div>
         `;
-        const dz = bodyEl.querySelector('#gbPdfDropzone');
-        const fileInp = bodyEl.querySelector('#inpGbPdfFile');
+        const dzHost = bodyEl.querySelector('#gbPdfDropzone');
         const statusEl = bodyEl.querySelector('#gbPdfStatus');
 
-        const handleFile = async (file) => {
-          if (!file) return;
-          statusEl.className = 'import-status info';
-          statusEl.textContent = `Đang đọc cấu trúc bảng 2D từ "${file.name}"...`;
-          statusEl.classList.remove('hidden');
-          try {
+        mountAnimatedDropzone(dzHost, {
+          inputId: 'inpGbPdfFile',
+          accept: '.pdf,application/pdf',
+          idleTitle: 'Kéo thả file PDF Sổ điểm vào đây',
+          dragTitle: 'Thả file để đọc dữ liệu',
+          hintText: 'Hỗ trợ cả file 1 lớp lẫn trọn bộ nhiều lớp (tự bù lệch lề chẵn/lẻ & nhận diện cột ĐĐGtx, ĐĐGgk, ĐĐGck).',
+          onProcess: async (file) => {
+            statusEl.classList.add('hidden');
             const res = await extractGradebookFromPdfFile(file);
             const sections = Array.isArray(res.classes) ? res.classes.filter((c) => c.students?.length > 0) : [];
             if (sections.length === 0) {
-              statusEl.className = 'import-status error';
-              statusEl.textContent = 'Không tìm thấy dòng học sinh nào trong file PDF này. Vui lòng kiểm tra lại đúng mẫu sổ điểm.';
-              return;
+              throw new Error('Không tìm thấy dòng học sinh nào trong file PDF này. Vui lòng kiểm tra lại đúng mẫu sổ điểm.');
             }
+            return { res, sections };
+          },
+          onComplete: ({ res, sections }) => {
             parsedFile = { ...res, classes: sections };
             importedPdfIndices = new Set();
-            // Auto-select the PDF class matching currently active tab class if present
             const matchIdx = sections.findIndex(
               (s) => s.className && state.selectedClass && s.className.toLowerCase() === state.selectedClass.toLowerCase()
             );
             activePdfIdx = matchIdx >= 0 ? matchIdx : 0;
             syncDefaultsFromPdfSection(sections[activePdfIdx]);
             renderWizardStep(m);
-          } catch (err) {
+          },
+          onError: (err) => {
             statusEl.className = 'import-status error';
-            statusEl.textContent = err.message || 'Không thể đọc file PDF.';
-          }
-        };
-
-        dz.addEventListener('click', () => fileInp.click());
-        fileInp.addEventListener('change', () => handleFile(fileInp.files?.[0]));
-        dz.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          dz.classList.add('is-drag');
-        });
-        dz.addEventListener('dragleave', () => dz.classList.remove('is-drag'));
-        dz.addEventListener('drop', (e) => {
-          e.preventDefault();
-          dz.classList.remove('is-drag');
-          handleFile(e.dataTransfer?.files?.[0]);
+            statusEl.textContent = err?.message || 'Không thể đọc file PDF.';
+            statusEl.classList.remove('hidden');
+          },
         });
         return;
       }

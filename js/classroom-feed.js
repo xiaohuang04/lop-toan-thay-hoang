@@ -1,6 +1,7 @@
-import { api } from './api.js?v=20261123d';
+import { api } from './api.js?v=20261124z2';
 import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261123d';
 import { loadPdfJs } from './pdf-reader.js?v=20261123d';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 
 /**
  * Extract 11-char YouTube video ID from any URL or full <iframe> embed code.
@@ -98,6 +99,87 @@ function extractDomain(url) {
   } catch {
     return url;
   }
+}
+
+function computeUserInitials(name = '') {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (parts[0] || 'U').slice(0, 2).toUpperCase();
+}
+
+function renderPostLikeFooter(post, isAdmin) {
+  const likeCount = Math.max(0, Number(post.likeCount) || 0);
+  const likedByMe = Boolean(post.likedByMe);
+  const safeGid = `u022-g-${String(post.id || 'p').replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  return `
+    <div class="feed-post-footer">
+      <div
+        class="ux u022 u022-post ${likedByMe ? 'is-on' : ''}"
+        data-like-widget="${escapeAttr(post.id)}"
+        data-like-count="${likeCount}"
+      >
+        <button
+          class="u022-btn"
+          type="button"
+          data-like-btn="${escapeAttr(post.id)}"
+          aria-pressed="${likedByMe ? 'true' : 'false'}"
+          aria-label="${likedByMe ? 'Bỏ thả tim bài viết' : 'Thả tim bài viết'}"
+          title="${likedByMe ? 'Bỏ thả tim' : 'Thả tim bài viết'}"
+        >
+          <span class="u022-ring" aria-hidden="true"></span>
+          <span class="u022-dot" style="--a:0deg;--c:#FF4D6D;--c2:#FFB26B" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:51deg;--c:#8B6CFF;--c2:#FF7A93" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:103deg;--c:#FFB547;--c2:#22C3A6" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:154deg;--c:#FF4D6D;--c2:#8B6CFF" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:206deg;--c:#22C3A6;--c2:#FFB547" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:257deg;--c:#FF7A93;--c2:#3D8BFF" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-dot" style="--a:309deg;--c:#3D8BFF;--c2:#FF4D6D" aria-hidden="true"><i></i><i></i></span>
+          <span class="u022-heart" aria-hidden="true">
+            <svg viewBox="0 0 52 52">
+              <defs>
+                <linearGradient id="${safeGid}" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#FF7A93"/>
+                  <stop offset="1" stop-color="#F0264D"/>
+                </linearGradient>
+              </defs>
+              <path
+                class="u022-f"
+                style="fill:url(#${safeGid})"
+                d="M26 45S5 33 5 18.5C5 11.6 10.4 7 16.4 7c4.3 0 7.6 2.3 9.6 5.6C28 9.3 31.3 7 35.6 7 41.6 7 47 11.6 47 18.5 47 33 26 45 26 45z"
+              />
+              <path
+                class="u022-o"
+                style="${likedByMe ? 'stroke:transparent' : ''}"
+                d="M26 45S5 33 5 18.5C5 11.6 10.4 7 16.4 7c4.3 0 7.6 2.3 9.6 5.6C28 9.3 31.3 7 35.6 7 41.6 7 47 11.6 47 18.5 47 33 26 45 26 45z"
+              />
+            </svg>
+          </span>
+        </button>
+        ${
+          isAdmin
+            ? `
+              <button
+                type="button"
+                class="u022-meta u022-likers-btn ${likeCount > 0 ? 'has-likers' : ''}"
+                data-view-likers="${escapeAttr(post.id)}"
+                title="Xem ai đã thả tim"
+              >
+                <span class="u022-roll" aria-live="polite" data-ci="0"><span>${likeCount}</span><span></span></span>
+              </button>
+            `
+            : `
+              <span class="u022-meta">
+                <span class="u022-roll" aria-live="polite" data-ci="0"><span>${likeCount}</span><span></span></span>
+              </span>
+            `
+        }
+      </div>
+    </div>
+  `;
 }
 
 /**
@@ -327,6 +409,8 @@ export function renderFeedPostCard(post, { isAdmin = false } = {}) {
           `
           : ''
       }
+      <!-- ZONE E: Heart Like Footer (#022) -->
+      ${renderPostLikeFooter(post, isAdmin)}
     </article>
   `;
 }
@@ -349,8 +433,167 @@ export function renderFeedList({ posts = [], isAdmin = false, emptyTitle = 'Chư
   return `<div class="feed-stream">${posts.map((p) => renderFeedPostCard(p, { isAdmin })).join('')}</div>`;
 }
 
-export function bindFeedEvents(container, { uiHelpers, onEdit, onDelete, onTogglePin } = {}) {
-  const { openModal, closeModal } = uiHelpers;
+export function bindFeedEvents(container, { uiHelpers, posts = [], isAdmin = false, onEdit, onDelete, onTogglePin } = {}) {
+  const { openModal, closeModal, showToast } = uiHelpers;
+  const reducedMotion = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function rollCounterTo(rollEl, nextVal, up) {
+    if (!rollEl || rollEl.children.length < 2) return;
+    const ci = Number(rollEl.dataset.ci || '0') === 1 ? 1 : 0;
+    const cur = rollEl.children[ci];
+    const nxt = rollEl.children[1 - ci];
+    if (cur.textContent === String(nextVal)) return;
+    nxt.style.transition = 'none';
+    nxt.textContent = String(nextVal);
+    nxt.style.transform = `translateY(${up ? 100 : -100}%)`;
+    nxt.style.opacity = '0';
+    void nxt.offsetWidth;
+    nxt.style.transition = '';
+    nxt.style.transform = 'none';
+    nxt.style.opacity = '1';
+    cur.style.transform = `translateY(${up ? -100 : 100}%)`;
+    cur.style.opacity = '0';
+    rollEl.dataset.ci = String(1 - ci);
+  }
+
+  function syncAdminLikersButton(widget, count) {
+    const likersBtn = widget.querySelector('[data-view-likers]');
+    if (!likersBtn) return;
+    likersBtn.classList.toggle('has-likers', count > 0);
+    const chip = likersBtn.querySelector('.u022-who-chip');
+    if (chip) chip.classList.toggle('hidden', count <= 0);
+  }
+
+  // Heart Like Button (#022)
+  container.querySelectorAll('[data-like-widget]').forEach((widget) => {
+    const postId = widget.dataset.likeWidget;
+    const btn = widget.querySelector('[data-like-btn]');
+    const roll = widget.querySelector('.u022-roll');
+    const outline = widget.querySelector('.u022-o');
+    if (!btn || !roll) return;
+    let popTimer = 0;
+
+    btn.addEventListener('click', async () => {
+      if (widget.dataset.busy === '1') return;
+      widget.dataset.busy = '1';
+
+      const prevOn = widget.classList.contains('is-on');
+      const prevCount = Math.max(0, Number(widget.dataset.likeCount) || 0);
+      const nextOn = !prevOn;
+      const nextCount = Math.max(0, prevCount + (nextOn ? 1 : -1));
+
+      // Instant optimistic Lucian #022 animation
+      widget.classList.toggle('is-on', nextOn);
+      widget.dataset.likeCount = String(nextCount);
+      btn.setAttribute('aria-pressed', String(nextOn));
+      btn.setAttribute('aria-label', nextOn ? 'Bỏ thả tim bài viết' : 'Thả tim bài viết');
+      btn.setAttribute('title', nextOn ? 'Bỏ thả tim' : 'Thả tim bài viết');
+      if (outline) outline.style.stroke = nextOn ? 'transparent' : '';
+      rollCounterTo(roll, nextCount, nextOn);
+      syncAdminLikersButton(widget, nextCount);
+
+      widget.classList.remove('is-pop');
+      clearTimeout(popTimer);
+      if (nextOn && !reducedMotion) {
+        void widget.offsetWidth;
+        widget.classList.add('is-pop');
+        popTimer = setTimeout(() => widget.classList.remove('is-pop'), 900);
+      }
+
+      try {
+        const res = await api.togglePostLike(postId);
+        const srv = res?.post;
+        if (srv) {
+          const target = Array.isArray(posts) ? posts.find((p) => p.id === postId) : null;
+          if (target) Object.assign(target, srv);
+
+          const finalOn = Boolean(srv.likedByMe);
+          const finalCount = Math.max(0, Number(srv.likeCount) || 0);
+          widget.classList.toggle('is-on', finalOn);
+          widget.dataset.likeCount = String(finalCount);
+          btn.setAttribute('aria-pressed', String(finalOn));
+          btn.setAttribute('aria-label', finalOn ? 'Bỏ thả tim bài viết' : 'Thả tim bài viết');
+          btn.setAttribute('title', finalOn ? 'Bỏ thả tim' : 'Thả tim bài viết');
+          if (outline) outline.style.stroke = finalOn ? 'transparent' : '';
+          if (finalCount !== nextCount) {
+            rollCounterTo(roll, finalCount, finalCount > nextCount);
+          }
+          syncAdminLikersButton(widget, finalCount);
+        }
+      } catch (err) {
+        // Revert optimistic state on error
+        widget.classList.toggle('is-on', prevOn);
+        widget.dataset.likeCount = String(prevCount);
+        btn.setAttribute('aria-pressed', String(prevOn));
+        btn.setAttribute('aria-label', prevOn ? 'Bỏ thả tim bài viết' : 'Thả tim bài viết');
+        btn.setAttribute('title', prevOn ? 'Bỏ thả tim' : 'Thả tim bài viết');
+        if (outline) outline.style.stroke = prevOn ? 'transparent' : '';
+        rollCounterTo(roll, prevCount, prevCount > nextCount);
+        syncAdminLikersButton(widget, prevCount);
+        showToast?.(err?.message || 'Không thể cập nhật lượt thả tim.', 'error');
+      } finally {
+        widget.dataset.busy = '0';
+      }
+    });
+  });
+
+  // Admin-only Likers Modal ("Những người đã thả tim")
+  if (isAdmin) {
+    container.querySelectorAll('[data-view-likers]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.viewLikers;
+        const post = Array.isArray(posts) ? posts.find((p) => p.id === postId) : null;
+        const likers = Array.isArray(post?.likedBy) ? post.likedBy : [];
+
+        const bodyHtml =
+          likers.length === 0
+            ? `<div class="feed-likers-empty">Chưa có ai thả tim bài viết này.</div>`
+            : `
+              <div class="feed-likers-list">
+                ${likers
+                  .map((u) => {
+                    const isAdm = u.role === 'admin';
+                    const roleBadge = isAdm
+                      ? `<span class="badge badge-p1">Giáo viên</span>`
+                      : u.className
+                        ? `<span class="badge badge-neutral">Lớp ${escapeHtml(u.className)}</span>`
+                        : `<span class="badge badge-neutral">Học sinh</span>`;
+                    const avSrc =
+                      u.avatarUrl && u.avatarUrl.startsWith('/assets/avatars/') && !u.avatarUrl.includes('?')
+                        ? `${u.avatarUrl}?v=20261124f`
+                        : u.avatarUrl;
+                    const avHtml = avSrc
+                      ? `<img src="${escapeAttr(avSrc)}" alt="${escapeAttr(u.fullName)}" />`
+                      : `<span>${escapeHtml(computeUserInitials(u.fullName || u.username))}</span>`;
+                    return `
+                      <div class="feed-liker-row">
+                        <div class="feed-liker-av ${isAdm ? 'is-admin' : ''}">${avHtml}</div>
+                        <div class="feed-liker-info">
+                          <div class="feed-liker-name-row">
+                            <strong>${escapeHtml(u.fullName || u.username)}</strong>
+                            ${roleBadge}
+                          </div>
+                          <div class="feed-liker-sub">
+                            @${escapeHtml(u.username)}${u.at ? ` · ${escapeHtml(formatDateTimeVN(u.at))}` : ''}
+                          </div>
+                        </div>
+                        <span class="feed-liker-heart" aria-hidden="true">❤</span>
+                      </div>
+                    `;
+                  })
+                  .join('')}
+              </div>
+            `;
+
+        openModal({
+          title: `Những người đã thả tim (${likers.length})`,
+          bodyHtml,
+          footerHtml: `<button class="btn btn-primary" id="mCloseLikers">Đóng</button>`,
+          onMount: (m) => m.querySelector('#mCloseLikers')?.addEventListener('click', closeModal),
+        });
+      });
+    });
+  }
 
   // Built-in fit-to-frame PDF.js viewer popup modal (crisp on iPhone/Android/Desktop + open in new tab)
   container.querySelectorAll('[data-view-pdf]').forEach((btn) => {
@@ -608,25 +851,8 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
           <span style="font-size:0.76rem; color:var(--text-muted);">Tự động sắp xếp hiển thị gọn đẹp theo từng loại</span>
         </div>
 
-        <!-- Drag & Drop / Multi-File Upload Zone (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) -->
-        <input
-          type="file"
-          id="inpPostFiles"
-          multiple
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.rtf,.odt,.ods,.odp,.html,.htm,.zip,.rar,.7z"
-          hidden
-        />
-        <div class="composer-upload-zone" id="btnPickPostFiles" role="button" tabindex="0">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <div>
-            <div class="composer-upload-title" id="uploadZoneTitle">Tải tệp từ máy tính (kéo thả hoặc bấm chọn nhiều tệp)</div>
-            <div class="composer-upload-sub">Ảnh, Video (MP4/WebM/MOV), Âm thanh (MP3), PDF, Word, PowerPoint, Excel, ZIP... (tối đa 20 MB/tệp)</div>
-          </div>
-        </div>
+        <!-- Animated Multi-File Upload Zone (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) -->
+        <div id="btnPickPostFiles"></div>
 
         <!-- Add YouTube -->
         <div class="composer-add-row" style="margin-top:10px;">
@@ -734,86 +960,64 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         syncAttDom();
       });
 
-      // Upload Files (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) with drag & drop
-      const fileInp = m.querySelector('#inpPostFiles');
-      const pickZone = m.querySelector('#btnPickPostFiles');
-      const uploadTitleEl = m.querySelector('#uploadZoneTitle');
+      // Upload Files (Images, Video, Audio, PDF, Word, PPT, Excel, ZIP...) with #432 animated dropzone
       const MAX_FILE_BYTES = 20 * 1024 * 1024;
-
-      async function handleUploadFiles(fileList) {
-        const files = Array.from(fileList || []);
-        if (!files.length) return;
-        uploadingCount += files.length;
-        pickZone.classList.add('is-uploading');
-        uploadTitleEl.textContent = `Đang tải lên ${uploadingCount} tệp...`;
-        saveBtn.disabled = true;
-
-        for (const f of files) {
+      mountAnimatedDropzone(m.querySelector('#btnPickPostFiles'), {
+        inputId: 'inpPostFiles',
+        accept: 'image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.rtf,.odt,.ods,.odp,.html,.htm,.zip,.rar,.7z',
+        multiple: true,
+        compact: true,
+        idleTitle: 'Kéo thả tệp đính kèm vào đây',
+        dragTitle: 'Thả tệp để tải lên bài viết',
+        subNote: 'chọn nhiều tệp · tối đa 20 MB/tệp',
+        hintText: 'Ảnh, Video (MP4/WebM/MOV), Âm thanh (MP3), PDF, Word, PowerPoint, Excel, ZIP...',
+        maxBytes: MAX_FILE_BYTES,
+        onProcessFiles: async (files) => {
+          uploadingCount += files.length;
+          saveBtn.disabled = true;
+          const uploaded = [];
           try {
-            if (f.size > MAX_FILE_BYTES) {
-              const isVid = getFileTypeMeta(f.name, f.type).kind === 'video';
-              throw new Error(
-                isVid
-                  ? `Tệp vượt quá 20 MB (${formatFileSize(f.size)}). Với video dung lượng lớn, thầy nên up lên YouTube (Không công khai) rồi dán link để không tốn bộ nhớ Supabase.`
-                  : `Tệp vượt quá giới hạn 20 MB (${formatFileSize(f.size)}).`
-              );
+            for (const f of files) {
+              if (f.size > MAX_FILE_BYTES) {
+                const isVid = getFileTypeMeta(f.name, f.type).kind === 'video';
+                throw new Error(
+                  isVid
+                    ? `Tệp vượt quá 20 MB (${formatFileSize(f.size)}). Với video dung lượng lớn, thầy nên up lên YouTube (Không công khai) rồi dán link để không tốn bộ nhớ Supabase.`
+                    : `Tệp vượt quá giới hạn 20 MB (${formatFileSize(f.size)}).`
+                );
+              }
+              const b64 = await fileToBase64(f);
+              const res = await api.uploadFile({
+                fileName: f.name,
+                mimeType: f.type || 'application/octet-stream',
+                base64Data: b64,
+              });
+              const meta = res.file;
+              uploaded.push({
+                type: 'file',
+                fileId: meta.id,
+                fileName: meta.fileName,
+                mimeType: meta.mimeType,
+                size: meta.size,
+                url: meta.url,
+                title: meta.fileName,
+              });
             }
-            const b64 = await fileToBase64(f);
-            const res = await api.uploadFile({
-              fileName: f.name,
-              mimeType: f.type || 'application/octet-stream',
-              base64Data: b64,
-            });
-            const meta = res.file;
-            attachments.push({
-              type: 'file',
-              fileId: meta.id,
-              fileName: meta.fileName,
-              mimeType: meta.mimeType,
-              size: meta.size,
-              url: meta.url,
-              title: meta.fileName,
-            });
-            syncAttDom();
-          } catch (err) {
-            showToast(`Lỗi tải tệp ${f.name}: ${err.message}`, 'error');
+            return uploaded;
           } finally {
-            uploadingCount = Math.max(0, uploadingCount - 1);
-            if (uploadingCount > 0) {
-              uploadTitleEl.textContent = `Đang tải lên ${uploadingCount} tệp...`;
-            }
+            uploadingCount = Math.max(0, uploadingCount - files.length);
+            saveBtn.disabled = uploadingCount > 0;
           }
-        }
-        pickZone.classList.remove('is-uploading');
-        uploadTitleEl.textContent = 'Tải tệp từ máy tính (kéo thả hoặc bấm chọn nhiều tệp)';
-        saveBtn.disabled = false;
-      }
-
-      pickZone.addEventListener('click', () => {
-        if (!pickZone.classList.contains('is-uploading')) fileInp.click();
-      });
-      pickZone.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          if (!pickZone.classList.contains('is-uploading')) fileInp.click();
-        }
-      });
-      pickZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        pickZone.classList.add('drag-over');
-      });
-      pickZone.addEventListener('dragleave', () => pickZone.classList.remove('drag-over'));
-      pickZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        pickZone.classList.remove('drag-over');
-        if (e.dataTransfer?.files?.length) {
-          handleUploadFiles(e.dataTransfer.files);
-        }
-      });
-      fileInp.addEventListener('change', async () => {
-        const files = Array.from(fileInp.files || []);
-        fileInp.value = '';
-        await handleUploadFiles(files);
+        },
+        onComplete: (uploaded) => {
+          if (Array.isArray(uploaded) && uploaded.length) {
+            attachments.push(...uploaded);
+            syncAttDom();
+          }
+        },
+        onError: (err) => {
+          showToast(err?.message || 'Lỗi tải tệp lên.', 'error');
+        },
       });
 
       // Target class toggle
