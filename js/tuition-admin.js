@@ -4,67 +4,6 @@ import {
   parseVnDateOnlyToIso,
 } from './exam-engine.js?v=20261123d';
 
-export const VIETQR_BANKS = [
-  { id: 'VCB', name: 'Vietcombank' },
-  { id: 'MB', name: 'MB Bank' },
-  { id: 'TCB', name: 'Techcombank' },
-  { id: 'BIDV', name: 'BIDV' },
-  { id: 'ICB', name: 'VietinBank' },
-  { id: 'ACB', name: 'ACB' },
-  { id: 'VPB', name: 'VPBank' },
-  { id: 'VBA', name: 'Agribank' },
-  { id: 'TPB', name: 'TPBank' },
-  { id: 'STB', name: 'Sacombank' },
-  { id: 'VIB', name: 'VIB' },
-  { id: 'SHB', name: 'SHB' },
-  { id: 'HDB', name: 'HDBank' },
-  { id: 'OCB', name: 'OCB' },
-  { id: 'MSB', name: 'MSB' },
-  { id: 'LPB', name: 'LPBank' },
-  { id: 'EIB', name: 'Eximbank' },
-  { id: 'SEAB', name: 'SeABank' },
-  { id: 'NAB', name: 'Nam A Bank' },
-  { id: 'SCB', name: 'SCB' },
-  { id: 'CAKE', name: 'CAKE by VPBank' },
-  { id: 'TIMO', name: 'Timo' },
-];
-
-export function stripVietnameseDiacritics(str) {
-  return String(str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .replace(/[^0-9A-Za-z\s/_-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function buildTransferNote(template, { fullName = '', className = '', monthKey = '' } = {}) {
-  const m = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
-  const mmNum = m ? Number(m[2]) : '';
-  const mmStr = mmNum === 1 || mmNum === 2 ? `0${mmNum}` : String(mmNum || '');
-  const monthYear = m ? `${mmStr}/${m[1]}` : '';
-  const tpl = String(template || '{TEN} Lop {LOP} nộp HP T{THANG}').trim() || '{TEN} Lop {LOP} nộp HP T{THANG}';
-  const raw = tpl
-    .replace(/\{TEN\}/gi, fullName || '')
-    .replace(/\{LOP\}/gi, className || '')
-    .replace(/\{THANG_NAM\}/gi, monthYear)
-    .replace(/\{THANG\}/gi, mmStr);
-  return stripVietnameseDiacritics(raw).slice(0, 50);
-}
-
-export function buildVietQrImageUrl({ bankId, accountNo, accountName, amount, addInfo }) {
-  const cleanBank = encodeURIComponent(String(bankId || '').trim().toUpperCase());
-  const cleanAcc = encodeURIComponent(String(accountNo || '').replace(/[^0-9A-Za-z]/g, ''));
-  const params = new URLSearchParams();
-  const amtNum = Math.max(0, Math.round(Number(amount) || 0));
-  if (amtNum > 0) params.set('amount', String(amtNum));
-  if (addInfo) params.set('addInfo', String(addInfo).trim().slice(0, 50));
-  if (accountName) params.set('accountName', stripVietnameseDiacritics(accountName).toUpperCase());
-  return `https://img.vietqr.io/image/${cleanBank}-${cleanAcc}-compact2.png?${params.toString()}`;
-}
-
 export function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
   return `${n.toLocaleString('vi-VN')} ₫`;
@@ -159,16 +98,6 @@ export function ensureTuitionObj(raw) {
   if (!t.monthAdjustments || typeof t.monthAdjustments !== 'object') t.monthAdjustments = {};
   if (!t.studentOverrides || typeof t.studentOverrides !== 'object') t.studentOverrides = {};
   if (!t.payments || typeof t.payments !== 'object') t.payments = {};
-  if (!t.bankQr || typeof t.bankQr !== 'object') {
-    t.bankQr = {
-      enabled: false,
-      bankId: 'MB',
-      bankName: 'MB Bank',
-      accountNo: '',
-      accountName: '',
-      noteTemplate: '{TEN} Lop {LOP} nộp HP T{THANG}',
-    };
-  }
   return t;
 }
 
@@ -388,10 +317,6 @@ export function renderTuitionAdminSection({ students, classes, tuition: rawTuiti
       </div>
 
       <div class="tui-action-group">
-        <button type="button" class="btn btn-secondary btn-sm" id="btnOpenBankQrModal">
-          ${tuition.bankQr?.enabled && tuition.bankQr?.accountNo ? `<span class="tui-qr-active-dot" aria-hidden="true"></span>` : ''}
-          QR ngân hàng
-        </button>
         <button type="button" class="btn btn-secondary btn-sm" id="btnOpenRatesModal">Mức HP định mức</button>
         <button type="button" class="btn btn-primary btn-sm" id="btnOpenMonthAdjModal">Điều chỉnh tháng này</button>
       </div>
@@ -579,11 +504,6 @@ export function bindTuitionAdminEvents({ rootEl, students, classes, tuition: raw
     });
   });
 
-  // Modal 0: VietQR Bank Payment Settings
-  rootEl.querySelector('#btnOpenBankQrModal')?.addEventListener('click', () => {
-    openBankQrModal({ tuition, selMonth, uiHelpers, onSaveTuition });
-  });
-
   // Modal 1: Standard Class Rates & Rate Schedule (change effective from any month!)
   rootEl.querySelector('#btnOpenRatesModal')?.addEventListener('click', () => {
     openRatesModal({ classes, tuition, selMonth, uiHelpers, onSaveTuition });
@@ -635,144 +555,6 @@ export function bindTuitionAdminEvents({ rootEl, students, classes, tuition: raw
         },
       });
     });
-  });
-}
-
-function openBankQrModal({ tuition, selMonth, uiHelpers, onSaveTuition }) {
-  const { showToast, openModal, closeModal } = uiHelpers;
-  const cur = {
-    enabled: Boolean(tuition.bankQr?.enabled),
-    bankId: tuition.bankQr?.bankId || 'MB',
-    bankName: tuition.bankQr?.bankName || 'MB Bank',
-    accountNo: tuition.bankQr?.accountNo || '',
-    accountName: tuition.bankQr?.accountName || '',
-    noteTemplate: tuition.bankQr?.noteTemplate || '{TEN} Lop {LOP} nộp HP T{THANG}',
-  };
-
-  openModal({
-    title: 'Cài đặt mã VietQR ngân hàng',
-    wide: true,
-    bodyHtml: `
-      <label class="tui-qr-enable-row">
-        <input type="checkbox" id="qrEnabledChk" ${cur.enabled ? 'checked' : ''} />
-        <div>
-          <strong>Hiển thị mã VietQR tự điền số tiền cho học sinh chưa nộp học phí</strong>
-          <small>Học sinh &amp; phụ huynh quét trực tiếp bằng mọi app ngân hàng / MoMo / ZaloPay.</small>
-        </div>
-      </label>
-
-      <div class="tui-qr-modal-grid">
-        <div>
-          <div class="form-group">
-            <label>Ngân hàng *</label>
-            <select id="qrBankSel" class="input-control">
-              ${VIETQR_BANKS.map(
-                (b) =>
-                  `<option value="${escapeAttr(b.id)}" ${cur.bankId === b.id ? 'selected' : ''}>${escapeHtml(b.name)} (${escapeHtml(b.id)})</option>`
-              ).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Số tài khoản *</label>
-            <input id="qrAccNoInp" class="input-control" inputmode="numeric" placeholder="Nhập số tài khoản nhận học phí" value="${escapeAttr(cur.accountNo)}" />
-          </div>
-          <div class="form-group">
-            <label>Tên chủ tài khoản (in hoa không dấu)</label>
-            <input id="qrAccNameInp" class="input-control" placeholder="VD: LE VIET HOANG" value="${escapeAttr(cur.accountName)}" />
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label>Mẫu nội dung chuyển khoản</label>
-            <input id="qrNoteTplInp" class="input-control" placeholder="{TEN} Lop {LOP} nộp HP T{THANG}" value="${escapeAttr(cur.noteTemplate)}" />
-            <div class="tui-k-preview">Từ khóa: <code>{TEN}</code> (tên HS), <code>{LOP}</code> (lớp), <code>{THANG}</code> (tháng)</div>
-          </div>
-        </div>
-
-        <div class="tui-qr-preview-col">
-          <div class="tui-qr-preview-title">Xem trước mã QR mẫu (300.000 ₫)</div>
-          <div id="qrPreviewStage" class="tui-qr-preview-box"></div>
-          <div id="qrPreviewNote" class="tui-qr-preview-sub"></div>
-        </div>
-      </div>
-    `,
-    footerHtml: `
-      <button type="button" class="btn btn-secondary" id="mCancelQr">Đóng</button>
-      <button type="button" class="btn btn-primary" id="mSaveQr">Lưu cài đặt QR</button>
-    `,
-    onMount: (m) => {
-      const enabledChk = m.querySelector('#qrEnabledChk');
-      const bankSel = m.querySelector('#qrBankSel');
-      const accNoInp = m.querySelector('#qrAccNoInp');
-      const accNameInp = m.querySelector('#qrAccNameInp');
-      const noteTplInp = m.querySelector('#qrNoteTplInp');
-      const stageEl = m.querySelector('#qrPreviewStage');
-      const noteEl = m.querySelector('#qrPreviewNote');
-
-      let previewTimer = null;
-      const updatePreview = () => {
-        const bankId = bankSel.value;
-        const accNo = accNoInp.value.replace(/[^0-9A-Za-z]/g, '').trim();
-        const accName = accNameInp.value.trim();
-        const sampleNote = buildTransferNote(noteTplInp.value, {
-          fullName: 'Nguyễn Minh Anh',
-          className: '12A1',
-          monthKey: selMonth,
-        });
-        noteEl.textContent = sampleNote ? `Nội dung mẫu: ${sampleNote}` : '';
-        if (!accNo) {
-          stageEl.innerHTML = `<div class="tui-qr-placeholder">Nhập <strong>Số tài khoản</strong> bên trái để xem trước và quét thử mã VietQR ngay tại đây.</div>`;
-          return;
-        }
-        const url = buildVietQrImageUrl({
-          bankId,
-          accountNo: accNo,
-          accountName: accName,
-          amount: 300000,
-          addInfo: sampleNote,
-        });
-        stageEl.innerHTML = `<img src="${escapeAttr(url)}" alt="Xem trước mã VietQR" class="tui-qr-preview-img" />`;
-      };
-
-      const schedulePreview = () => {
-        clearTimeout(previewTimer);
-        previewTimer = setTimeout(updatePreview, 250);
-      };
-
-      updatePreview();
-      bankSel.addEventListener('change', updatePreview);
-      accNoInp.addEventListener('input', schedulePreview);
-      accNameInp.addEventListener('input', schedulePreview);
-      noteTplInp.addEventListener('input', schedulePreview);
-
-      m.querySelector('#mCancelQr').addEventListener('click', closeModal);
-      m.querySelector('#mSaveQr').addEventListener('click', async () => {
-        const enabled = enabledChk.checked;
-        const bankId = bankSel.value;
-        const bankObj = VIETQR_BANKS.find((b) => b.id === bankId);
-        const accountNo = accNoInp.value.replace(/[^0-9A-Za-z]/g, '').trim();
-        const accountName = stripVietnameseDiacritics(accNameInp.value).toUpperCase();
-        const noteTemplate = noteTplInp.value.trim() || '{TEN} Lop {LOP} nộp HP T{THANG}';
-
-        if (enabled && !accountNo) {
-          showToast('Vui lòng nhập Số tài khoản ngân hàng khi bật mã QR.', 'error');
-          accNoInp.focus();
-          return;
-        }
-
-        tuition.bankQr = {
-          enabled,
-          bankId,
-          bankName: bankObj ? bankObj.name : bankId,
-          accountNo,
-          accountName,
-          noteTemplate,
-        };
-        closeModal();
-        await onSaveTuition(
-          tuition,
-          enabled ? 'Đã lưu & bật mã VietQR thanh toán học phí!' : 'Đã lưu cài đặt (đang tắt hiển thị mã QR).'
-        );
-      });
-    },
   });
 }
 

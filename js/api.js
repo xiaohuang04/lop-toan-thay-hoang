@@ -70,6 +70,10 @@ export const api = {
   getTeachingLog: () => request('/api/admin/teaching-log'),
   saveTeachingLog: (teachingLog) => request('/api/admin/teaching-log', { method: 'PUT', body: teachingLog }),
 
+  // Admin School Gradebook (Sổ điểm trên trường)
+  getGradebook: () => request('/api/admin/gradebook'),
+  saveGradebook: (gradebook) => request('/api/admin/gradebook', { method: 'PUT', body: gradebook }),
+
   // Admin Tuition Management (Quản lý học phí)
   saveTuition: (tuition) => request('/api/admin/tuition', { method: 'PUT', body: tuition }),
 

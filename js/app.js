@@ -1,9 +1,10 @@
-import { api, setToken } from './api.js?v=20261124e';
+import { api, setToken } from './api.js?v=20261124m';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261124k';
-import { createStudentController } from './student-ui.js?v=20261124k';
+import { createTeacherController } from './teacher-ui.js?v=20261124s';
+import { createStudentController } from './student-ui.js?v=20261124s';
 import { createHtmlLabController } from './html-lab.js?v=20261124e';
 import { createTeachingLogController } from './teaching-log.js?v=20261124h';
+import { createGradebookController } from './gradebook.js?v=20261124v';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');
@@ -187,6 +188,27 @@ const studentCtrl = createStudentController({
 
 function parseRouteFromLocation() {
   const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
+  if (raw === '/so-diem' || raw.startsWith('/so-diem/')) {
+    const rest = raw.slice('/so-diem'.length).replace(/^\/+/, '');
+    if (rest === 'thong-ke') {
+      const qs = new URLSearchParams(window.location.search || '');
+      return {
+        tab: 'gradebook',
+        view: 'stats',
+        statsType: qs.get('type') === 'ck' ? 'ck' : 'gk',
+        statsTerm: Number(qs.get('term')) === 2 ? 2 : 1,
+        statsScope: qs.get('scope') || 'all',
+        grade: null,
+        manage: false,
+      };
+    }
+    return {
+      tab: 'gradebook',
+      view: 'sheet',
+      grade: null,
+      manage: false,
+    };
+  }
   if (raw === '/so-bao-giang' || raw.startsWith('/so-bao-giang/')) {
     const rest = raw.slice('/so-bao-giang'.length).replace(/^\/+/, '');
     const subMap = {
@@ -218,7 +240,8 @@ function parseRouteFromLocation() {
 function syncBrowserUrl(targetPath, { replace = false } = {}) {
   if (!window.history?.pushState) return;
   const norm = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
-  if (window.location.pathname === norm) return;
+  const currentFull = `${window.location.pathname}${window.location.search || ''}`;
+  if (currentFull === norm) return;
   if (replace) window.history.replaceState({ path: norm }, '', norm);
   else window.history.pushState({ path: norm }, '', norm);
 }
@@ -257,15 +280,27 @@ const teachingLogCtrl = createTeachingLogController({
   },
 });
 
-// 3-Tab Navigation (Tab 3 Admin-only) + Clean History API URL Routing (/lop-hoc, /mo-hinh, /so-bao-giang)
+const gradebookCtrl = createGradebookController({
+  rootEl: document.getElementById('gradebookRoot'),
+  uiHelpers,
+  onRouteChange: (subPath, opts) => {
+    if (panels.gradebook?.classList.contains('active')) {
+      syncBrowserUrl(subPath, opts);
+    }
+  },
+});
+
+// 4-Tab Navigation (Tab 3 & 4 Admin-only) + Clean History API URL Routing (/lop-hoc, /mo-hinh, /so-bao-giang, /so-diem)
 const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
 const tabBtnTeachingLog = document.getElementById('tabBtnTeachingLog');
+const tabBtnGradebook = document.getElementById('tabBtnGradebook');
 const tabExamLabel = document.getElementById('tabExamLabel');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
   'teaching-log': document.getElementById('panel-teaching-log'),
+  gradebook: document.getElementById('panel-gradebook'),
 };
 
 function updateLabTabLock() {
@@ -276,7 +311,9 @@ function updateLabTabLock() {
 }
 
 function updateDocumentTitle(tabName) {
-  if (tabName === 'teaching-log') {
+  if (tabName === 'gradebook') {
+    document.title = 'Sổ điểm — Lớp toán thầy Hoàng';
+  } else if (tabName === 'teaching-log') {
     document.title = 'Sổ báo giảng — Lớp toán thầy Hoàng';
   } else if (tabName === 'lab') {
     document.title = 'Mô hình tương tác — Lớp toán thầy Hoàng';
@@ -288,8 +325,8 @@ function updateDocumentTitle(tabName) {
 }
 
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
-  // Guard Admin-only Sổ báo giảng tab
-  if (tabName === 'teaching-log' && currentUser?.role !== 'admin') {
+  // Guard Admin-only Sổ báo giảng & Sổ điểm tabs
+  if ((tabName === 'teaching-log' || tabName === 'gradebook') && currentUser?.role !== 'admin') {
     tabName = 'exam';
   }
   // Guard Mô hình tương tác when visibility is set to Admin-only
@@ -309,7 +346,21 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
   setHeaderStatus('');
   updateDocumentTitle(tabName);
 
-  if (tabName === 'teaching-log') {
+  if (tabName === 'gradebook') {
+    if (updateUrl) {
+      if (routeOpts?.view === 'stats') {
+        const qs = new URLSearchParams({
+          type: routeOpts.statsType === 'ck' ? 'ck' : 'gk',
+          term: String(routeOpts.statsTerm === 2 ? 2 : 1),
+          scope: routeOpts.statsScope || 'all',
+        });
+        syncBrowserUrl(`/so-diem/thong-ke?${qs.toString()}`, { replace: replaceUrl });
+      } else {
+        syncBrowserUrl('/so-diem', { replace: replaceUrl });
+      }
+    }
+    gradebookCtrl.init(routeOpts);
+  } else if (tabName === 'teaching-log') {
     if (updateUrl) {
       const subUrlMap = {
         log: '/so-bao-giang',
@@ -401,6 +452,9 @@ function updateUserHeader() {
   }
   if (tabBtnTeachingLog) {
     tabBtnTeachingLog.classList.toggle('hidden', !isAdmin);
+  }
+  if (tabBtnGradebook) {
+    tabBtnGradebook.classList.toggle('hidden', !isAdmin);
   }
   if (btnLocalQuickSwitch) {
     const allowQuick = isLocalhostClient() && isLocalDevSession;
@@ -835,6 +889,8 @@ function showAuthScreen() {
   if (examRootEl) examRootEl.innerHTML = '';
   const tlRootEl = document.getElementById('teachingLogRoot');
   if (tlRootEl) tlRootEl.innerHTML = '';
+  const gbRootEl = document.getElementById('gradebookRoot');
+  if (gbRootEl) gbRootEl.innerHTML = '';
   currentUser = null;
   activeRoleCtrl = null;
   appShell.classList.add('hidden');
@@ -863,7 +919,10 @@ async function enterApp(user) {
   }
 
   const initialRoute = parseRouteFromLocation();
-  if (initialRoute.tab === 'teaching-log' && user.role === 'admin') {
+  if (initialRoute.tab === 'gradebook' && user.role === 'admin') {
+    switchTab('gradebook', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    activeRoleCtrl.init();
+  } else if (initialRoute.tab === 'teaching-log' && user.role === 'admin') {
     switchTab('teaching-log', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
     activeRoleCtrl.init();
   } else if (initialRoute.tab === 'lab') {
