@@ -8221,6 +8221,7 @@ iframe {
 }
 
 .gb-col-score {
+  position: relative;
   width: 66px;
   min-width: 62px;
   padding: 4px !important;
@@ -8257,6 +8258,23 @@ iframe {
 /* Red Draft Score Highlight (red text only — clean, no filled box) */
 .gb-col-score.is-draft-cell {
   background: transparent;
+}
+
+.gb-col-score.is-draft-empty::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.gb-col-score.is-draft-empty:focus-within::after {
+  opacity: 0;
 }
 
 .gb-score-inp.is-draft {

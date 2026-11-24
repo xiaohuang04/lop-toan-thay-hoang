@@ -48,16 +48,20 @@ function normalizeCell(cell) {
   if (typeof cell === 'number' && Number.isFinite(cell)) {
     return { val: cell, draft: false, adjusted: false, origVal: null };
   }
-  if (typeof cell === 'object' && cell.val !== null && cell.val !== undefined && cell.val !== '') {
-    const n = Number(cell.val);
-    if (Number.isFinite(n)) {
-      const hasOrig = cell.origVal !== undefined && cell.origVal !== null && cell.origVal !== '' && Number.isFinite(Number(cell.origVal));
-      return {
-        val: n,
-        draft: Boolean(cell.draft),
-        adjusted: Boolean(cell.adjusted),
-        origVal: hasOrig ? Number(cell.origVal) : null,
-      };
+  if (typeof cell === 'object') {
+    if (cell.val !== null && cell.val !== undefined && cell.val !== '') {
+      const n = Number(cell.val);
+      if (Number.isFinite(n)) {
+        const hasOrig = cell.origVal !== undefined && cell.origVal !== null && cell.origVal !== '' && Number.isFinite(Number(cell.origVal));
+        return {
+          val: n,
+          draft: Boolean(cell.draft),
+          adjusted: Boolean(cell.adjusted),
+          origVal: hasOrig ? Number(cell.origVal) : null,
+        };
+      }
+    } else if (cell.draft) {
+      return { val: null, draft: true, adjusted: false, origVal: null };
     }
   }
   return null;
@@ -81,7 +85,7 @@ function computeStudentAverages(student, term) {
 
   for (const col of cols) {
     const cell = normalizeCell(termMap[col.key]);
-    if (!cell) continue;
+    if (!cell || cell.val === null) continue;
     sumAll += cell.val * col.weight;
     wAll += col.weight;
     if (cell.draft) {
@@ -527,15 +531,16 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
                                 ${cols
                                   .map((c) => {
                                     const cell = normalizeCell(termMap[c.key]);
-                                    const valStr = cell ? formatScoreCell(cell.val) : '';
+                                    const valStr = cell && cell.val !== null ? formatScoreCell(cell.val) : '';
                                     const isDraft = Boolean(cell && cell.draft);
-                                    const isAdjusted = Boolean(cell && cell.adjusted && (c.key === 'gk' || c.key === 'ck'));
+                                    const isDraftEmpty = Boolean(isDraft && (!cell || cell.val === null));
+                                    const isAdjusted = Boolean(cell && cell.val !== null && cell.adjusted && (c.key === 'gk' || c.key === 'ck'));
                                     const origAttr =
                                       isAdjusted && cell.origVal !== null
                                         ? `data-gb-orig="${escapeAttr(formatScoreCell(cell.origVal))}"`
                                         : '';
                                     return `
-                                      <td class="gb-col-score ${isDraft ? 'is-draft-cell' : ''}">
+                                      <td class="gb-col-score ${isDraft ? 'is-draft-cell' : ''} ${isDraftEmpty ? 'is-draft-empty' : ''}">
                                         <input
                                           type="text"
                                           inputmode="decimal"
@@ -669,10 +674,26 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
     if (!stu) return;
     const termMap = ensureStudentTermMap(stu, state.term);
     const cur = normalizeCell(termMap[colKey]);
+    const td = inp.closest('td');
+
     if (!cur) {
-      showToast('Ô chưa có điểm để đánh dấu nháp.', 'info');
+      // Allow marking an empty cell as red draft before entering a score
+      termMap[colKey] = { val: null, draft: true };
+      inp.classList.add('is-draft');
+      td?.classList.add('is-draft-cell', 'is-draft-empty');
+      schedulePersist();
       return;
     }
+
+    if (cur.val === null) {
+      // Unmark empty red draft cell
+      delete termMap[colKey];
+      inp.classList.remove('is-draft');
+      td?.classList.remove('is-draft-cell', 'is-draft-empty');
+      schedulePersist();
+      return;
+    }
+
     const nextDraft = !cur.draft;
     const nextCell = { val: cur.val, draft: nextDraft };
     if (cur.adjusted) {
@@ -681,7 +702,8 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
     }
     termMap[colKey] = nextCell;
     inp.classList.toggle('is-draft', nextDraft);
-    inp.closest('td')?.classList.toggle('is-draft-cell', nextDraft);
+    td?.classList.toggle('is-draft-cell', nextDraft);
+    td?.classList.remove('is-draft-empty');
     updateRowAveragesInPlace(stuId);
     schedulePersist();
   }
@@ -916,7 +938,7 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
           inp.value = '';
           inp.classList.remove('is-draft', 'is-gkck-adjusted');
           delete inp.dataset.gbOrig;
-          inp.closest('td')?.classList.remove('is-draft-cell');
+          inp.closest('td')?.classList.remove('is-draft-cell', 'is-draft-empty');
           hideOrigScorePopover();
         } else {
           const keepDraft = Boolean(prev && prev.draft);
@@ -934,6 +956,9 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
           }
           termMap[colKey] = nextCell;
           inp.value = formatScoreCell(parsed.value);
+          inp.classList.toggle('is-draft', keepDraft);
+          inp.closest('td')?.classList.toggle('is-draft-cell', keepDraft);
+          inp.closest('td')?.classList.remove('is-draft-empty');
         }
         updateRowAveragesInPlace(stuId);
         schedulePersist();
@@ -1465,7 +1490,7 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
     const rawAdj = termMap[adjKey];
     if (rawAdj !== undefined && rawAdj !== null && rawAdj !== '') {
       const cell = normalizeCell(rawAdj);
-      if (cell) {
+      if (cell && cell.val !== null) {
         const isModified = origVal === null || Math.abs(cell.val - origVal) > 1e-9;
         return { val: cell.val, isModified, isExplicit: true };
       }

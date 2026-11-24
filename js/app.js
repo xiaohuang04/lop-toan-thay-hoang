@@ -4,7 +4,7 @@ import { createTeacherController } from './teacher-ui.js?v=20261124s';
 import { createStudentController } from './student-ui.js?v=20261124s';
 import { createHtmlLabController } from './html-lab.js?v=20261124e';
 import { createTeachingLogController } from './teaching-log.js?v=20261124h';
-import { createGradebookController } from './gradebook.js?v=20261124v';
+import { createGradebookController } from './gradebook.js?v=20261124x';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');
