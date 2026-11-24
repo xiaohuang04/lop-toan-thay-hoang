@@ -18,6 +18,7 @@ import secrets
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -403,9 +404,34 @@ def record_student_model_click(db: dict, user: dict, model: dict) -> None:
     save_db(db, keys=["analytics"])
 
 
+def build_default_bank_qr() -> dict:
+    return {
+        "enabled": False,
+        "bankId": "MB",
+        "bankName": "MB Bank",
+        "accountNo": "",
+        "accountName": "",
+        "noteTemplate": "{TEN} Lop {LOP} nộp HP T{THANG}",
+    }
+
+
+def sanitize_bank_qr(raw) -> dict:
+    base = build_default_bank_qr()
+    if not isinstance(raw, dict):
+        return base
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "bankId": str(raw.get("bankId", base["bankId"])).strip().upper()[:24] or base["bankId"],
+        "bankName": str(raw.get("bankName", base["bankName"])).strip()[:80],
+        "accountNo": re.sub(r"[^0-9A-Za-z]", "", str(raw.get("accountNo", "")).strip())[:32],
+        "accountName": str(raw.get("accountName", "")).strip()[:80],
+        "noteTemplate": str(raw.get("noteTemplate", base["noteTemplate"])).strip()[:80] or base["noteTemplate"],
+    }
+
+
 def build_default_tuition() -> dict:
     """Default tuition structure supporting class-level effective rate history,
-    one-click monthly adjustments, per-student prorated overrides, and payment logs."""
+    one-click monthly adjustments, per-student prorated overrides, payment logs, and VietQR bank settings."""
     return {
         "defaultRates": [
             {"id": "rate-default-1", "fromMonth": "2026-09", "amount": 300000, "note": "Mức định mức chung"},
@@ -414,6 +440,7 @@ def build_default_tuition() -> dict:
         "monthAdjustments": {},
         "studentOverrides": {},
         "payments": {},
+        "bankQr": build_default_bank_qr(),
     }
 
 
@@ -432,6 +459,9 @@ def ensure_tuition(db: dict) -> dict:
         if not isinstance(t.get(k), dict):
             t[k] = {}
             changed = True
+    if not isinstance(t.get("bankQr"), dict):
+        t["bankQr"] = build_default_bank_qr()
+        changed = True
     if changed:
         save_db(db, keys=["tuition"])
     return t
@@ -632,10 +662,18 @@ def build_student_tuition_payload(student: dict, tuition: dict) -> dict:
     ]
     prev_entries = [e for e in prev_entries if not e["notEnrolled"] or e["paid"]]
 
+    bank_qr = sanitize_bank_qr(tuition.get("bankQr"))
+    public_bank_qr = (
+        bank_qr
+        if bank_qr["enabled"] and bank_qr["bankId"] and bank_qr["accountNo"]
+        else None
+    )
+
     return {
         "currentMonth": current_entry,
         "previousMonths": prev_entries,
         "startDate": start_date,
+        "bankQr": public_bank_qr,
     }
 
 
@@ -754,6 +792,18 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             if u["id"] == user_id:
                 return u, token
         return None, None
+
+    def is_local_dev_request(self) -> bool:
+        """Strictly allow localhost-only dev helpers; NEVER enabled on Render or Supabase Cloud."""
+        if STORE.mode != "local":
+            return False
+        if os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_URL"):
+            return False
+        client_ip = str(self.client_address[0] if self.client_address else "")
+        if client_ip not in ("127.0.0.1", "::1", "localhost"):
+            return False
+        host_hdr = str(self.headers.get("Host", "")).split(":", 1)[0].strip().lower()
+        return host_hdr in ("localhost", "127.0.0.1")
 
     def block_private_paths(self, path: str) -> bool:
         norm = path.lstrip("/").lower()
@@ -954,15 +1004,59 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "supabaseError": STORE.supabase_error,
                 })
 
+            if path == "/api/vietqr-download":
+                if not user:
+                    return self.send_json(401, {"error": "Vui lòng đăng nhập."})
+                qs = parse_qs(parsed.query)
+                bank_id = re.sub(r"[^0-9A-Za-z]", "", (qs.get("bankId", [""])[0] or "").strip().upper())[:24]
+                acc_no = re.sub(r"[^0-9A-Za-z]", "", (qs.get("accountNo", [""])[0] or "").strip())[:32]
+                acc_name = (qs.get("accountName", [""])[0] or "").strip()[:80]
+                add_info = (qs.get("addInfo", [""])[0] or "").strip()[:50]
+                raw_amt = (qs.get("amount", ["0"])[0] or "0").strip()
+                fname = re.sub(r"[^0-9A-Za-z._-]", "_", (qs.get("fileName", ["QR_HocPhi.png"])[0] or "QR_HocPhi.png"))[:64]
+                if not fname.lower().endswith(".png"):
+                    fname += ".png"
+                try:
+                    amt_int = max(0, int(raw_amt))
+                except Exception:
+                    amt_int = 0
+                if not bank_id or not acc_no:
+                    return self.send_json(400, {"error": "Thiếu thông tin ngân hàng."})
+                q_params = []
+                if amt_int > 0:
+                    q_params.append(f"amount={amt_int}")
+                if add_info:
+                    q_params.append(f"addInfo={quote(add_info)}")
+                if acc_name:
+                    q_params.append(f"accountName={quote(acc_name)}")
+                qr_url = f"https://img.vietqr.io/image/{bank_id}-{acc_no}-compact2.png"
+                if q_params:
+                    qr_url += "?" + "&".join(q_params)
+                try:
+                    req = urllib.request.Request(qr_url, headers={"User-Agent": "LopToanThayHoang/1.0"})
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        png_bytes = resp.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Length", str(len(png_bytes)))
+                    self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(png_bytes)
+                    return
+                except Exception as e:
+                    return self.send_json(502, {"error": f"Không thể tải ảnh VietQR: {e}"})
+
             if path == "/api/me":
                 vis_mode = get_models_visibility_mode(db)
+                is_local_dev = self.is_local_dev_request()
                 if not user:
-                    return self.send_json(200, {"user": None, "modelsVisibilityMode": vis_mode})
+                    return self.send_json(200, {"user": None, "modelsVisibilityMode": vis_mode, "isLocalDev": is_local_dev})
                 _, tok = self.get_auth_user(db)
                 extra = [self._session_cookie_header(tok)] if tok and self._get_cookie_token() != tok else None
                 return self.send_json(
                     200,
-                    {"user": public_user(user), "modelsVisibilityMode": vis_mode},
+                    {"user": public_user(user), "modelsVisibilityMode": vis_mode, "isLocalDev": is_local_dev},
                     extra_headers=extra,
                 )
 
@@ -1143,6 +1237,36 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                         "token": token,
                         "user": public_user(matched),
                         "modelsVisibilityMode": get_models_visibility_mode(db),
+                        "isLocalDev": self.is_local_dev_request(),
+                    },
+                    extra_headers=[self._session_cookie_header(token)],
+                )
+
+            # Localhost-only 1-click quick role switch (Admin <-> Student) — strictly 403 on Render/Cloud
+            if path == "/api/dev/quick-switch":
+                if not self.is_local_dev_request():
+                    return self.send_json(403, {"error": "Chức năng chỉ hỗ trợ trên localhost."})
+                target_role = str(body.get("role", "")).strip().lower()
+                if target_role == "admin":
+                    matched = next((u for u in db["users"] if u.get("role") == "admin"), None)
+                else:
+                    matched = next(
+                        (u for u in db["users"] if u.get("role") == "student" and u.get("username") == "hs01"),
+                        None,
+                    ) or next((u for u in db["users"] if u.get("role") == "student"), None)
+                if not matched:
+                    return self.send_json(404, {"error": "Không tìm thấy tài khoản tương ứng."})
+                token = secrets.token_urlsafe(32)
+                sessions = load_sessions()
+                sessions[token] = matched["id"]
+                save_sessions(sessions)
+                return self.send_json(
+                    200,
+                    {
+                        "token": token,
+                        "user": public_user(matched),
+                        "modelsVisibilityMode": get_models_visibility_mode(db),
+                        "isLocalDev": True,
                     },
                     extra_headers=[self._session_cookie_header(token)],
                 )
@@ -1604,6 +1728,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "monthAdjustments": body.get("monthAdjustments") if isinstance(body.get("monthAdjustments"), dict) else {},
                     "studentOverrides": body.get("studentOverrides") if isinstance(body.get("studentOverrides"), dict) else {},
                     "payments": body.get("payments") if isinstance(body.get("payments"), dict) else {},
+                    "bankQr": sanitize_bank_qr(body.get("bankQr")),
                 }
                 db["tuition"] = clean_tuition
                 save_db(db, keys=["tuition"])

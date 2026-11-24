@@ -1,9 +1,9 @@
-import { api, setToken } from './api.js?v=20261124a';
+import { api, setToken } from './api.js?v=20261124e';
 import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261124a';
-import { createStudentController } from './student-ui.js?v=20261123x';
-import { createHtmlLabController } from './html-lab.js?v=20261124a';
-import { createTeachingLogController } from './teaching-log.js?v=20261124a';
+import { createTeacherController } from './teacher-ui.js?v=20261124k';
+import { createStudentController } from './student-ui.js?v=20261124k';
+import { createHtmlLabController } from './html-lab.js?v=20261124e';
+import { createTeachingLogController } from './teaching-log.js?v=20261124h';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 
 const authScreen = document.getElementById('authScreen');
@@ -24,6 +24,7 @@ const loginError = document.getElementById('loginError');
 const userRoleBadge = document.getElementById('userRoleBadge');
 const userNameText = document.getElementById('userNameText');
 const userMenuWrap = document.getElementById('userMenuWrap');
+const btnLocalQuickSwitch = document.getElementById('btnLocalQuickSwitch');
 const userMenuTrigger = document.getElementById('userMenuTrigger');
 const userDropdown = document.getElementById('userDropdown');
 const menuItemProfile = document.getElementById('menuItemProfile');
@@ -223,6 +224,12 @@ function syncBrowserUrl(targetPath, { replace = false } = {}) {
 }
 
 let modelsVisibilityMode = 'all_grades';
+let isLocalDevSession = false;
+
+function isLocalhostClient() {
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1';
+}
 
 const labCtrl = createHtmlLabController({
   rootEl: document.getElementById('labRoot'),
@@ -395,7 +402,37 @@ function updateUserHeader() {
   if (tabBtnTeachingLog) {
     tabBtnTeachingLog.classList.toggle('hidden', !isAdmin);
   }
+  if (btnLocalQuickSwitch) {
+    const allowQuick = isLocalhostClient() && isLocalDevSession;
+    btnLocalQuickSwitch.classList.toggle('hidden', !allowQuick);
+    if (allowQuick) {
+      btnLocalQuickSwitch.textContent = isAdmin ? '⇄ Xem góc HS' : '⇄ Về Admin';
+    }
+  }
 }
+
+btnLocalQuickSwitch?.addEventListener('click', async () => {
+  if (!isLocalhostClient() || !isLocalDevSession || !currentUser) return;
+  const targetRole = currentUser.role === 'admin' ? 'student' : 'admin';
+  btnLocalQuickSwitch.disabled = true;
+  try {
+    const res = await api.devQuickSwitch(targetRole);
+    setToken(res.token);
+    if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
+    isLocalDevSession = Boolean(res.isLocalDev);
+    showToast(
+      targetRole === 'admin'
+        ? `Đã chuyển sang Admin (${res.user.fullName}).`
+        : `Đã chuyển sang HS (${res.user.fullName}).`,
+      'info'
+    );
+    await enterApp(res.user);
+  } catch (err) {
+    showToast(err.message || 'Không thể chuyển tài khoản.', 'error');
+  } finally {
+    btnLocalQuickSwitch.disabled = false;
+  }
+});
 
 function formatBytesVN(bytes) {
   const n = Number(bytes) || 0;
@@ -849,6 +886,7 @@ loginForm.addEventListener('submit', async (e) => {
     const res = await api.login(u, p);
     setToken(res.token);
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
+    isLocalDevSession = Boolean(res.isLocalDev);
     showToast(`Đăng nhập thành công! Chào mừng ${res.user.fullName}.`, 'success');
     await enterApp(res.user);
   } catch (err) {
@@ -1002,6 +1040,7 @@ async function boot() {
   try {
     const res = await api.me();
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
+    isLocalDevSession = Boolean(res.isLocalDev);
     if (res.user) {
       await enterApp(res.user);
       return;

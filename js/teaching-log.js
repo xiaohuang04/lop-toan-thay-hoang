@@ -768,12 +768,24 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     const visibleDays = week.visibleDays;
     const sessionLabel = SESSION_LABELS[schedule.session] || 'Sáng';
     const todayIso = toIsoDateLocal(new Date());
+    const privateNotes = sem.privateNotes && typeof sem.privateNotes === 'object' ? sem.privateNotes : {};
 
     const rowsHtml = [];
     for (let period = 1; period <= 5; period++) {
       const tds = visibleDays.map((day) => {
         const entry = day.slots[period];
         const todayCls = day.iso === todayIso ? ' is-today-col' : '';
+        const privNote = String(privateNotes[`${day.iso}|${period}`] || '').trim();
+        const privNoteBadgeHtml = privNote
+          ? `
+            <div class="tl-slot-priv-note tl-no-print" title="${escapeAttr(privNote)}">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              <span>${escapeHtml(privNote)}</span>
+            </div>
+          `
+          : '';
 
         if (entry && entry.type === 'midterm') {
           return `
@@ -787,6 +799,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
                 <div class="tl-slot-meta">
                   ${entry.ppct != null ? `PPCT ${entry.ppct} • ` : ''}${escapeHtml(entry.className)}
                 </div>
+                ${privNoteBadgeHtml}
               </div>
             </td>
           `;
@@ -818,6 +831,7 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
                   </span>
                 </div>
                 <div class="tl-slot-title">${escapeHtml(entry.lessonName)}</div>
+                ${privNoteBadgeHtml}
               </div>
             </td>
           `;
@@ -2271,8 +2285,34 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
     });
   }
 
-  function openSlotDetailModal(entry) {
+  function findPrevClassPrivateNote(sem, schedule, entry) {
+    const entryIso = entry?.iso || entry?.dateIso || '';
+    if (!sem || !schedule || !entry || !entry.classId || !entryIso) return null;
+    const notesMap = sem.privateNotes && typeof sem.privateNotes === 'object' ? sem.privateNotes : {};
+    const days = schedule.allDays || [];
+    let checkedForClass = 0;
+
+    for (let i = days.length - 1; i >= 0; i--) {
+      const d = days[i];
+      if (!d || d.iso > entryIso) continue;
+      for (let p = 5; p >= 1; p--) {
+        if (d.iso === entryIso && p >= Number(entry.period)) continue;
+        const sl = d.slots?.[p];
+        if (!sl || sl.classId !== entry.classId) continue;
+        checkedForClass += 1;
+        const txt = String(notesMap[`${d.iso}|${p}`] || '').trim();
+        if (txt) {
+          return { dateVN: d.dateVN, period: p, note: txt };
+        }
+        if (checkedForClass >= 2) return null;
+      }
+    }
+    return null;
+  }
+
+  function openSlotDetailModal(entry, sem, schedule, onUpdated) {
     if (!entry) return;
+    const entryIso = entry.iso || entry.dateIso || '';
     const sessionLabel = SESSION_LABELS[entry.session] || 'Sáng';
     const dowLabel = DAY_LABELS[entry.dayOfWeek] || '';
     const kindBadge =
@@ -2284,6 +2324,9 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
 
     const noteText = String(entry.note || '').trim();
     const equipText = String(entry.equipment || '').trim();
+    const slotKey = `${entryIso}|${entry.period}`;
+    const curPrivNote = String(sem?.privateNotes?.[slotKey] || '').trim();
+    const prevReminder = findPrevClassPrivateNote(sem, schedule, { ...entry, iso: entryIso });
 
     openModal({
       title: 'Chi tiết tiết dạy',
@@ -2319,11 +2362,76 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
               </div>
             </div>
           </div>
+
+          ${
+            prevReminder
+              ? `
+                <div class="tl-priv-prev-banner">
+                  <strong>Nhắc từ tiết trước (${escapeHtml(prevReminder.dateVN)} • Tiết ${prevReminder.period}):</strong>
+                  <span>${escapeHtml(prevReminder.note)}</span>
+                </div>
+              `
+              : ''
+          }
+
+          <div class="tl-priv-note-box">
+            <div class="tl-priv-note-head">
+              <span class="tl-detail-box-label" style="margin:0;">Sổ tay tiết dạy</span>
+              <span class="tl-priv-note-tag">Ghi chú riêng • Không in</span>
+            </div>
+            <textarea
+              id="slotPrivateNoteInp"
+              class="input-control tl-priv-note-ta"
+              rows="3"
+              placeholder="VD: ${escapeAttr(entry.className || '11/6')} chưa kịp chữa bài 3, tiết sau nhắc lại / Kiểm tra 15p vào thứ 6..."
+            >${escapeHtml(curPrivNote)}</textarea>
+          </div>
         </div>
       `,
-      footerHtml: `<button class="btn btn-primary" id="mCloseSlotDetail">Đóng</button>`,
+      footerHtml: `
+        ${curPrivNote ? `<button type="button" class="btn btn-danger-outline" id="mDelSlotNote" style="margin-right:auto;">Xóa ghi chú</button>` : ''}
+        <button type="button" class="btn btn-secondary" id="mCloseSlotDetail">Đóng</button>
+        <button type="button" class="btn btn-primary" id="mSaveSlotNote">Lưu ghi chú</button>
+      `,
       onMount: (m) => {
+        const ta = m.querySelector('#slotPrivateNoteInp');
+        const btnSave = m.querySelector('#mSaveSlotNote');
+        const btnDel = m.querySelector('#mDelSlotNote');
+
+        const saveNoteValue = async (nextVal, successMsg) => {
+          if (!sem) return;
+          if (!sem.privateNotes || typeof sem.privateNotes !== 'object') {
+            sem.privateNotes = {};
+          }
+          const clean = String(nextVal || '').trim();
+          if (clean) {
+            sem.privateNotes[slotKey] = clean;
+          } else {
+            delete sem.privateNotes[slotKey];
+          }
+          if (btnSave) btnSave.disabled = true;
+          if (btnDel) btnDel.disabled = true;
+          try {
+            const res = await api.saveTeachingLog(state.data);
+            if (res?.teachingLog) state.data = res.teachingLog;
+            closeModal();
+            if (typeof onUpdated === 'function') onUpdated();
+            showToast(successMsg, 'success');
+          } catch (err) {
+            showToast(err.message || 'Không thể lưu ghi chú tiết dạy.', 'error');
+            if (btnSave) btnSave.disabled = false;
+            if (btnDel) btnDel.disabled = false;
+          }
+        };
+
         m.querySelector('#mCloseSlotDetail')?.addEventListener('click', closeModal);
+        btnSave?.addEventListener('click', () => {
+          const val = ta ? ta.value.trim() : '';
+          saveNoteValue(val, val ? 'Đã lưu ghi chú sổ tay tiết dạy!' : 'Đã xóa ghi chú sổ tay.');
+        });
+        btnDel?.addEventListener('click', () => {
+          saveNoteValue('', 'Đã xóa ghi chú sổ tay.');
+        });
       },
     });
   }
@@ -2535,7 +2643,18 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
           const period = Number(card.dataset.slotPeriod);
           const dayObj = schedule.allDays.find((d) => d.iso === iso);
           const entry = dayObj?.slots?.[period];
-          if (entry) openSlotDetailModal(entry);
+          if (entry) {
+            const activeSem = getActiveSemester() || sem;
+            openSlotDetailModal({ ...entry, iso }, activeSem, schedule, () => {
+              const prevScrollLeft = hostEl.querySelector('.tl-grid-scroll')?.scrollLeft || 0;
+              const curSem = getActiveSemester() || sem;
+              const curWeek = schedule.weeks[state.selectedWeekIdx] || schedule.weeks[0];
+              hostEl.innerHTML = renderLogWeekGridHtml(curSem, schedule, curWeek);
+              bindLogGridEvents(hostEl);
+              const nextScroll = hostEl.querySelector('.tl-grid-scroll');
+              if (nextScroll) nextScroll.scrollLeft = prevScrollLeft;
+            });
+          }
         };
         card.addEventListener('click', openDetails);
         card.addEventListener('keydown', (e) => {
@@ -2550,7 +2669,8 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const id = btn.dataset.delSatMt;
-          sem.saturdayMidterms = (sem.saturdayMidterms || []).filter((x) => x.id !== id);
+          const curSem = getActiveSemester() || sem;
+          curSem.saturdayMidterms = (curSem.saturdayMidterms || []).filter((x) => x.id !== id);
           await persist('Đã xóa lịch kiểm tra giữa kì.');
         });
       });
@@ -2592,9 +2712,10 @@ export function createTeachingLogController({ rootEl, uiHelpers, onRouteChange }
       if (btnPrev) btnPrev.disabled = clamped <= 0;
       if (btnNext) btnNext.disabled = clamped >= schedule.weeks.length - 1;
 
-      // Replace ONLY the table content inside #tlWeekGridHost
+      // Replace ONLY the table content inside #tlWeekGridHost (always read latest active semester!)
       if (gridHost) {
-        gridHost.innerHTML = renderLogWeekGridHtml(sem, schedule, schedule.weeks[clamped]);
+        const curSem = getActiveSemester() || sem;
+        gridHost.innerHTML = renderLogWeekGridHtml(curSem, schedule, schedule.weeks[clamped]);
         bindLogGridEvents(gridHost);
       }
     }

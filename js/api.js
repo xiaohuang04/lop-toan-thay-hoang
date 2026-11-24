@@ -35,6 +35,7 @@ export const api = {
   me: () => request('/api/me'),
   login: (username, password) => request('/api/login', { method: 'POST', body: { username, password } }),
   logout: () => request('/api/logout', { method: 'POST' }),
+  devQuickSwitch: (role) => request('/api/dev/quick-switch', { method: 'POST', body: { role } }),
   updateProfile: (payload) => request('/api/profile', { method: 'PUT', body: payload }),
   changePassword: (currentPassword, newPassword) =>
     request('/api/change-password', { method: 'POST', body: { currentPassword, newPassword } }),

@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261124a';
+import { api } from './api.js?v=20261124e';
 import { MATH_CURRICULUM, findLessonInfo } from './curriculum-data.js?v=20261123d';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 
@@ -828,6 +828,7 @@ export function createHtmlLabController({
                                         <a class="btn btn-secondary btn-sm" href="/model/${encodeURIComponent(m.id)}" target="_blank" rel="noopener noreferrer">
                                           Mở ↗
                                         </a>
+                                        <button type="button" class="btn btn-secondary btn-sm" data-download-model="${m.id}">Tải xuống</button>
                                         <button type="button" class="btn btn-secondary btn-sm" data-edit-code="${m.id}">Sửa mã HTML</button>
                                         <button type="button" class="btn btn-secondary btn-sm" data-edit-model="${m.id}">Sửa</button>
                                         <button type="button" class="btn btn-danger-outline btn-sm" data-del-model="${m.id}">Xóa</button>
@@ -1517,6 +1518,42 @@ export function createHtmlLabController({
         } catch (err) {
           chk.checked = !nextVis;
           showToast(err.message, 'error');
+        }
+      });
+    });
+
+    rootEl.querySelectorAll('[data-download-model]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.downloadModel;
+        const m = state.models.find((x) => x.id === id);
+        if (!m) return;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Đang tải...';
+        try {
+          const res = await api.getModel(id);
+          const htmlText = res?.model?.html || '';
+          if (!htmlText) {
+            showToast('Mô hình không có nội dung HTML để tải về.', 'error');
+            return;
+          }
+          const rawName = (res.model.fileName || m.fileName || m.name || 'mo-hinh').trim();
+          const fileName = /\.html?$/i.test(rawName) ? rawName : `${rawName}.html`;
+          const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          showToast(`Đã tải xuống "${fileName}"!`, 'success');
+        } catch (err) {
+          showToast(err.message || 'Không thể tải xuống file HTML.', 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = origText;
         }
       });
     });

@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261123p';
+import { api } from './api.js?v=20261124e';
 import {
   escapeHtml,
   escapeAttr,
@@ -8,6 +8,7 @@ import {
   getDeadlineStatus,
 } from './exam-engine.js?v=20261123d';
 import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261123d';
+import { buildTransferNote, buildVietQrImageUrl } from './tuition-admin.js?v=20261124k';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -29,7 +30,7 @@ function paymentMethodLabel(method) {
 }
 
 export function createStudentController({ rootEl, examRunner, uiHelpers, onUserUpdated }) {
-  const { showToast, setHeaderStatus, renderMath } = uiHelpers;
+  const { showToast, openModal, closeModal, setHeaderStatus, renderMath } = uiHelpers;
 
   const state = {
     subTab: 'feed', // 'feed' | 'exam' | 'tuition'
@@ -195,6 +196,54 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     `;
   }
 
+  function renderQrCompactCard(bankQr, monthItem, { showNoteCaption = false } = {}) {
+    if (!bankQr || !bankQr.enabled || !bankQr.bankId || !bankQr.accountNo) return '';
+    if (!monthItem || monthItem.paid || monthItem.notEnrolled || !(monthItem.amount > 0)) return '';
+    const u = state.data.user || {};
+    const addInfo = buildTransferNote(bankQr.noteTemplate, {
+      fullName: u.fullName || u.username || '',
+      className: u.className || '',
+      monthKey: monthItem.monthKey,
+    });
+    const qrUrl = buildVietQrImageUrl({
+      bankId: bankQr.bankId,
+      accountNo: bankQr.accountNo,
+      accountName: bankQr.accountName,
+      amount: monthItem.amount,
+      addInfo,
+    });
+    const fileName = `QR_HocPhi_${monthItem.monthKey}.png`;
+    const dlParams = new URLSearchParams({
+      bankId: bankQr.bankId,
+      accountNo: bankQr.accountNo,
+      accountName: bankQr.accountName || '',
+      amount: String(Math.max(0, Math.round(Number(monthItem.amount) || 0))),
+      addInfo,
+      fileName,
+    });
+    const proxyDlUrl = `/api/vietqr-download?${dlParams.toString()}`;
+
+    return `
+      <div class="stu-qr-side-col">
+        <div class="stu-qr-img-box">
+          <img src="${escapeAttr(qrUrl)}" alt="Mã VietQR chuyển khoản học phí" class="stu-qr-img" loading="lazy" />
+        </div>
+        ${
+          showNoteCaption && addInfo
+            ? `<div class="stu-qr-caption">Nội dung CK: <strong>${escapeHtml(addInfo)}</strong></div>`
+            : ''
+        }
+        <a
+          class="btn btn-secondary btn-sm stu-qr-dl-btn"
+          href="${escapeAttr(proxyDlUrl)}"
+          download="${escapeAttr(fileName)}"
+        >
+          Tải ảnh mã QR
+        </a>
+      </div>
+    `;
+  }
+
   function renderTuitionSection() {
     const t = state.data.tuition;
     if (!t || !t.currentMonth) {
@@ -207,6 +256,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
 
     const cur = t.currentMonth;
     const prevList = Array.isArray(t.previousMonths) ? t.previousMonths : [];
+    const bankQr = t.bankQr && t.bankQr.enabled && t.bankQr.accountNo ? t.bankQr : null;
 
     let heroBodyHtml = '';
     const curCarryHtml =
@@ -269,18 +319,25 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       `;
     }
 
+    const sideQrHtml = !cur.paid && !cur.notEnrolled && bankQr && cur.amount > 0
+      ? renderQrCompactCard(bankQr, cur)
+      : '';
+
     return `
       <div class="stu-tuition-wrap">
         <!-- Large Centered Current Month Tuition Card -->
-        <div class="card stu-tuition-hero ${cur.paid ? 'is-paid' : cur.notEnrolled ? '' : 'is-unpaid'}">
-          <div class="stu-tuition-hero-top">
-            <span class="stu-tuition-month-eyebrow">HỌC PHÍ THÁNG NÀY</span>
-            <h2>${escapeHtml(cur.monthLabel)}</h2>
+        <div class="card stu-tuition-hero ${cur.paid ? 'is-paid' : cur.notEnrolled ? '' : 'is-unpaid'} ${sideQrHtml ? 'has-qr-side' : ''}">
+          <div class="stu-tuition-hero-main">
+            <div class="stu-tuition-hero-top">
+              <span class="stu-tuition-month-eyebrow">HỌC PHÍ THÁNG NÀY</span>
+              <h2>${escapeHtml(cur.monthLabel)}</h2>
+            </div>
+            ${heroBodyHtml}
           </div>
-          ${heroBodyHtml}
+          ${sideQrHtml}
         </div>
 
-        <!-- Smaller Previous Months Grid -->
+        <!-- Previous Months Horizontal Bars -->
         <div class="stu-tuition-history-sec">
           <div class="stu-section-heading">
             <h3>Trạng thái học phí các tháng trước</h3>
@@ -292,38 +349,58 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                   Chưa có lịch sử học phí của các tháng trước.
                 </div>`
               : `
-                <div class="stu-tuition-prev-grid">
+                <div class="stu-tuition-prev-list">
                   ${prevList
                     .map((m) => {
                       const mPaidVal = m.paidAmount !== undefined && m.paidAmount !== null ? m.paidAmount : m.amount;
                       const mDiff = Number(m.balanceDiff) || 0;
-                      const mDiffHtml =
-                        m.paid && mDiff < 0
-                          ? `<span class="tui-carry-note is-short">Thiếu ${escapeHtml(formatVnd(Math.abs(mDiff)))} (cộng tháng sau)</span>`
-                          : m.paid && mDiff > 0
-                            ? `<span class="tui-carry-note is-over">Thừa ${escapeHtml(formatVnd(mDiff))} (trừ tháng sau)</span>`
-                            : '';
+                      const metaParts = [];
+                      if (m.paid) {
+                        if (m.paidAt) {
+                          metaParts.push(`<span class="stu-prev-chip">${escapeHtml(formatDateVNAdmin(m.paidAt))}</span>`);
+                        }
+                        metaParts.push(`<span class="stu-prev-chip">${escapeHtml(paymentMethodLabel(m.method))}</span>`);
+                        if (mDiff < 0) {
+                          metaParts.push(`<span class="stu-prev-chip is-short">Thiếu ${escapeHtml(formatVnd(Math.abs(mDiff)))}</span>`);
+                        } else if (mDiff > 0) {
+                          metaParts.push(`<span class="stu-prev-chip is-over">Thừa ${escapeHtml(formatVnd(mDiff))}</span>`);
+                        }
+                        if (m.note) {
+                          metaParts.push(`<span class="stu-prev-chip">${escapeHtml(m.note)}</span>`);
+                        }
+                      } else {
+                        if (m.carryFromPrev < 0) {
+                          metaParts.push(`<span class="stu-prev-chip is-short">Gồm +${escapeHtml(formatVnd(Math.abs(m.carryFromPrev)))} thiếu tháng trước</span>`);
+                        } else if (m.carryFromPrev > 0) {
+                          metaParts.push(`<span class="stu-prev-chip is-over">Đã trừ ${escapeHtml(formatVnd(m.carryFromPrev))} thừa tháng trước</span>`);
+                        }
+                        if (m.adjustmentNote) {
+                          metaParts.push(`<span class="stu-prev-chip">${escapeHtml(m.adjustmentNote)}</span>`);
+                        }
+                      }
+                      const metaJoined = metaParts.join('<span class="stu-prev-sep" aria-hidden="true">|</span>');
+
                       return `
-                    <div class="card stu-tuition-prev-card ${m.paid ? 'is-paid' : 'is-unpaid'}">
-                      <div class="stu-tuition-prev-head">
-                        <strong>${escapeHtml(m.monthLabel)}</strong>
+                    <div class="card stu-tuition-prev-bar ${m.paid ? 'is-paid' : 'is-unpaid'}">
+                      <div class="stu-prev-bar-left">
+                        <strong class="stu-prev-bar-month">${escapeHtml(m.monthLabel)}</strong>
                         <span class="badge ${m.paid ? 'badge-success' : 'badge-warning'}">
-                          ${m.paid ? 'Đã nộp' : 'Chưa nộp'}
+                          ${m.paid ? '✓ Đã nộp' : 'Chưa nộp'}
                         </span>
                       </div>
-                      <div class="stu-tuition-prev-amt">${escapeHtml(formatVnd(m.paid ? mPaidVal : m.amount))}</div>
-                      ${
-                        m.paid
-                          ? `<div class="stu-tuition-prev-meta">
-                              ${m.paidAt ? `<span>Ngày nộp: <strong>${escapeHtml(formatDateVNAdmin(m.paidAt))}</strong></span>` : ''}
-                              <span>Hình thức: <strong>${escapeHtml(paymentMethodLabel(m.method))}</strong></span>
-                              ${mDiffHtml}
-                            </div>`
-                          : `<div class="stu-tuition-prev-meta">
-                              <span>Cần nộp: <strong>${escapeHtml(formatVnd(m.amount))}</strong></span>
-                              ${m.adjustmentNote ? `<span>${escapeHtml(m.adjustmentNote)}</span>` : ''}
-                            </div>`
-                      }
+                      <div class="stu-prev-bar-mid ${metaParts.length === 0 ? 'is-empty-mid' : ''}">
+                        ${metaJoined}
+                      </div>
+                      <div class="stu-prev-bar-right">
+                        ${
+                          !m.paid && bankQr && m.amount > 0
+                            ? `<button type="button" class="btn btn-secondary btn-sm stu-prev-qr-btn" data-open-month-qr="${escapeAttr(m.monthKey)}">Mã QR</button>`
+                            : ''
+                        }
+                        <div class="stu-prev-bar-amt ${m.paid ? 'is-paid' : 'is-unpaid'}">
+                          ${escapeHtml(formatVnd(m.paid ? mPaidVal : m.amount))}
+                        </div>
+                      </div>
                     </div>
                   `;
                     })
@@ -498,6 +575,26 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       bindFeedEvents(feedListEl, { uiHelpers });
     }
 
+    bindQrActionButtons(rootEl);
+
+    rootEl.querySelectorAll('[data-open-month-qr]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mk = btn.dataset.openMonthQr;
+        const t = state.data.tuition;
+        const mItem = (t?.previousMonths || []).find((x) => x.monthKey === mk);
+        const bankQr = t?.bankQr;
+        if (!mItem || !bankQr) return;
+        openModal({
+          title: `Quét mã QR học phí — ${mItem.monthLabel}`,
+          bodyHtml: `<div class="stu-qr-modal-center">${renderQrCompactCard(bankQr, mItem, { showNoteCaption: true })}</div>`,
+          footerHtml: `<button type="button" class="btn btn-primary" id="mCloseStuQr">Đóng</button>`,
+          onMount: (m) => {
+            m.querySelector('#mCloseStuQr')?.addEventListener('click', closeModal);
+          },
+        });
+      });
+    });
+
     rootEl.querySelector('#inpStuFeedSearch')?.addEventListener('input', (e) => {
       state.feedSearch = e.target.value;
       const listEl = rootEl.querySelector('#studentFeedList');
@@ -512,6 +609,59 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       });
       bindFeedEvents(listEl, { uiHelpers });
       renderMath(listEl);
+    });
+  }
+
+  function bindQrActionButtons(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-copy-text]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const text = btn.dataset.copyText || '';
+        const lbl = btn.dataset.copyLabel || 'thông tin';
+        if (!text) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast(`Đã sao chép ${lbl}!`, 'success');
+        } catch {
+          const tmp = document.createElement('textarea');
+          tmp.value = text;
+          document.body.appendChild(tmp);
+          tmp.select();
+          document.execCommand('copy');
+          tmp.remove();
+          showToast(`Đã sao chép ${lbl}!`, 'success');
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-dl-qr-url]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const url = btn.dataset.dlQrUrl;
+        const name = btn.dataset.dlQrName || 'QR_HocPhi.png';
+        if (!url) return;
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Đang tải...';
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('fetch failed');
+          const blob = await resp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = objUrl;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+          showToast('Đã tải ảnh mã QR về máy!', 'success');
+        } catch {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      });
     });
   }
 

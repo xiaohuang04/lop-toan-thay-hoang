@@ -6409,7 +6409,7 @@ iframe {
 }
 
 .stu-tuition-hero {
-  max-width: 680px;
+  max-width: 740px;
   width: 100%;
   margin: 4px auto 0;
   padding: 28px 26px 26px;
@@ -6560,60 +6560,124 @@ iframe {
   padding: 8px 12px;
 }
 
-/* Previous Months Compact Grid */
+/* Previous Months Horizontal Bars */
 .stu-tuition-history-sec {
-  max-width: 960px;
+  max-width: 740px;
   width: 100%;
   margin: 0 auto;
 }
 
-.stu-tuition-prev-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
-  gap: 12px;
-}
-
-.stu-tuition-prev-card {
-  padding: 14px 16px;
-  border-radius: 14px;
+.stu-tuition-prev-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-left: 4px solid var(--border);
+  gap: 10px;
 }
 
-.stu-tuition-prev-card.is-paid {
-  border-left-color: #16a34a;
-}
-
-.stu-tuition-prev-card.is-unpaid {
-  border-left-color: #d97706;
-}
-
-.stu-tuition-prev-head {
+.stu-tuition-prev-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border-left: 4px solid var(--border);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
 }
 
-.stu-tuition-prev-head strong {
-  font-size: 0.92rem;
-  color: var(--text);
+.stu-tuition-prev-bar:hover {
+  box-shadow: 0 6px 18px -10px rgba(15, 23, 42, 0.16);
 }
 
-.stu-tuition-prev-amt {
-  font-size: 1.08rem;
+.stu-tuition-prev-bar.is-paid {
+  border-left-color: #16a34a;
+}
+
+.stu-tuition-prev-bar.is-unpaid {
+  border-left-color: #d97706;
+}
+
+.stu-prev-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 205px;
+}
+
+.stu-prev-bar-month {
+  font-size: 0.95rem;
   font-weight: 800;
   color: var(--text);
+  white-space: nowrap;
+  min-width: 112px;
 }
 
-.stu-tuition-prev-meta {
+.stu-prev-bar-mid {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 0.78rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
   color: var(--text-secondary);
+}
+
+.stu-prev-sep {
+  color: var(--border-strong);
+  font-weight: 400;
+  user-select: none;
+}
+
+.stu-prev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.stu-prev-chip.is-muted {
+  color: var(--text-muted);
+}
+
+.stu-prev-chip.is-short {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.stu-prev-chip.is-over {
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.stu-prev-bar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.stu-prev-qr-btn {
+  padding: 4px 10px !important;
+  min-height: 28px !important;
+  font-size: 0.76rem !important;
+}
+
+.stu-prev-bar-amt {
+  font-size: 1.06rem;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.stu-prev-bar-amt.is-paid {
+  color: #15803d;
+}
+
+.stu-prev-bar-amt.is-unpaid {
+  color: #b45309;
 }
 
 /* Admin Tuition Management */
@@ -6865,32 +6929,48 @@ iframe {
     font-size: 0.88rem;
   }
 
-  .stu-tuition-prev-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+  .stu-tuition-prev-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 12px 14px;
+    align-items: center;
   }
 
-  .stu-tuition-prev-card {
-    padding: 12px;
-    gap: 6px;
+  .stu-prev-bar-left {
+    grid-column: 1;
+    grid-row: 1;
     min-width: 0;
-  }
-
-  .stu-tuition-prev-head {
+    gap: 8px;
     flex-wrap: wrap;
-    gap: 4px;
   }
 
-  .stu-tuition-prev-head strong {
-    font-size: 0.86rem;
+  .stu-prev-bar-month {
+    font-size: 0.9rem;
+    min-width: auto;
   }
 
-  .stu-tuition-prev-amt {
-    font-size: 1rem;
+    .stu-prev-bar-right {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 6px;
   }
 
-  .stu-tuition-prev-meta {
-    font-size: 0.75rem;
+  .stu-prev-bar-amt {
+    font-size: 0.98rem;
+  }
+
+  .stu-prev-bar-mid {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    gap: 4px 8px;
+    font-size: 0.8rem;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .stu-prev-bar-mid.is-empty-mid {
+    display: none;
   }
 
   /* ===== ADMIN TUITION (Optimized for iPhone 17 Pro Max 440px Safari) ===== */
@@ -7204,10 +7284,6 @@ iframe {
 
 /* Narrow Smartphones (<= 389px, e.g., iPhone SE / compact Android) */
 @media (max-width: 389px) {
-  .stu-tuition-prev-grid {
-    grid-template-columns: 1fr;
-  }
-
   .stu-tuition-hero {
     padding: 18px 13px 16px;
   }
@@ -7422,6 +7498,296 @@ iframe {
     font-size: 0.76rem;
     font-weight: 600;
     color: var(--text-muted);
+  }
+}
+
+.local-switch-btn {
+  border-color: #c7d2fe !important;
+  background: #eef2ff !important;
+  color: #3730a3 !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+  padding: 6px 11px !important;
+  border-radius: 999px !important;
+}
+
+.local-switch-btn:hover {
+  background: #e0e7ff !important;
+  border-color: #818cf8 !important;
+}
+
+/* Private Post-Lesson Notebook (Sổ tay tiết dạy — never printed) */
+.tl-slot-priv-note {
+  margin-top: 6px;
+  padding: 4px 7px;
+  border-radius: 7px;
+  background: rgba(255, 251, 235, 0.92);
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.32;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.tl-slot-priv-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #d97706;
+}
+
+.tl-slot-priv-note span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.tl-priv-prev-banner {
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tl-priv-note-box {
+  padding: 12px 13px;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tl-priv-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tl-priv-note-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.tl-priv-note-ta {
+  background: #ffffff;
+  border-color: #fcd34d;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 76px;
+}
+
+.tl-priv-note-ta:focus {
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+}
+
+@media (max-width: 768px) {
+  .tl-priv-note-ta {
+    font-size: 16px;
+  }
+}
+
+/* =========================================================
+   VIETQR BANK PAYMENT SETTINGS (ADMIN) & DISPLAY (STUDENT)
+   ========================================================= */
+.tui-qr-active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #16a34a;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.tui-qr-enable-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+.tui-qr-enable-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.tui-qr-enable-row strong {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.tui-qr-enable-row small {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.tui-qr-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.tui-qr-preview-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tui-qr-preview-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tui-qr-preview-box {
+  width: 100%;
+  max-width: 260px;
+  min-height: 220px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--border-strong);
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.tui-qr-preview-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.tui-qr-placeholder {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.45;
+  padding: 14px;
+}
+
+.tui-qr-preview-sub {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-align: center;
+  word-break: break-word;
+}
+
+/* Student VietQR Side-by-Side Layout inside Hero Card & Past-Month Modal */
+.stu-tuition-hero.has-qr-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  gap: 24px;
+  align-items: center;
+  padding: 24px 28px;
+}
+
+.stu-tuition-hero-main {
+  min-width: 0;
+}
+
+.stu-qr-side-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+
+.stu-qr-modal-center {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.stu-qr-caption {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: center;
+  word-break: break-word;
+}
+
+.stu-qr-img-box {
+  width: 100%;
+  max-width: 224px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.12);
+}
+
+.stu-qr-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.stu-qr-dl-btn {
+  width: 100%;
+  max-width: 224px;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .tui-qr-modal-grid,
+  .stu-tuition-hero.has-qr-side {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .stu-tuition-hero.has-qr-side {
+    padding: 20px 16px 18px;
+  }
+
+  .stu-qr-img-box,
+  .stu-qr-dl-btn {
+    max-width: 230px;
+  }
+
+  .tui-action-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tui-action-group .btn {
+    font-size: 0.78rem;
+    padding: 8px 6px;
   }
 }
 

@@ -29,7 +29,7 @@ import {
   countMonthUnpaid,
   renderTuitionAdminSection,
   bindTuitionAdminEvents,
-} from './tuition-admin.js?v=20261123x';
+} from './tuition-admin.js?v=20261124k';
 import {
   renderAnalyticsAdminSection,
   bindAnalyticsAdminEvents,
