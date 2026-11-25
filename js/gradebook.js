@@ -2,6 +2,7 @@ import { api } from './api.js?v=20261124m';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 import { extractGradebookFromPdfFile, formatDobVNAdmin } from './pdf-reader.js?v=20261124o';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
+import { renderMorphBarChartHtml, bindMorphBarChart } from './ux-effects.js?v=20261125g';
 
 function getColumnsForTerm(term) {
   const numTx = Number(term) === 2 ? 5 : 4;
@@ -1696,8 +1697,30 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
     const diffPassUpPct = adjDist.pctPassUp - origDist.pctPassUp;
     const diffAvg = origDist.avg !== null && adjDist.avg !== null ? adjDist.avg - origDist.avg : null;
 
+    const morphBuckets = rowsSpec.map((r) => {
+      const dCnt = r.adj - r.orig;
+      return {
+        label: r.label,
+        shortLabel: r.key === 'good' ? 'Tốt' : r.key === 'fair' ? 'Khá' : r.key === 'pass' ? 'Đạt' : 'Chưa đạt',
+        cls: r.cls,
+        count: r.adj,
+        pct: r.aPct,
+        deltaText: dCnt === 0 ? `${colLabel}: ${r.orig} HS` : `${colLabel} → ${colStarLabel}: ${dCnt > 0 ? '+' : ''}${dCnt} HS`,
+      };
+    });
+    const morphMeta = {
+      key: 'gb-stats-dist',
+      title: `Phổ điểm ${colStarLabel}${scopeData.scopeTitle ? ` — ${scopeData.scopeTitle}` : ''}`,
+      avgLabel: `ĐTB ${colStarLabel}`,
+      avgVal: adjDist.avg !== null ? formatAvgScore(adjDist.avg) : '—',
+      summaryRight: adjDist.scored > 0 ? `Đạt ≥ 5,0: <strong>${adjDist.pctPassUp.toFixed(1).replace('.', ',')}%</strong>` : 'Chưa có điểm',
+    };
+    state._lastMorphChart = { buckets: morphBuckets, meta: morphMeta };
+
     return `
       <div class="card gbs-card">
+        ${renderMorphBarChartHtml(morphBuckets, morphMeta)}
+
         <div style="overflow-x:auto;">
           <table class="data-table gbs-summary-table">
             <thead>
@@ -2031,6 +2054,9 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
   }
 
   function bindPerClassModeButtons() {
+    if (state._lastMorphChart) {
+      bindMorphBarChart(rootEl, state._lastMorphChart.buckets, state._lastMorphChart.meta);
+    }
     rootEl.querySelectorAll('[data-gbs-cls-mode]').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.statsPerClassMode = btn.dataset.gbsClsMode === 'orig' ? 'orig' : 'adj';

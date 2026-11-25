@@ -8,6 +8,7 @@ import {
   prepareExamInstance,
   gradeExam,
 } from './exam-engine.js';
+import { renderFlipClockHtml, updateFlipClock } from './ux-effects.js?v=20261125g';
 
 export function createExamRunner({ rootEl, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
@@ -260,10 +261,9 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     const clockEl = rootEl.querySelector('#examClock');
     if (!clockEl) return;
     if (state.timedMode) {
-      clockEl.textContent = formatTime(state.secondsLeft);
-      clockEl.classList.toggle('warning', state.secondsLeft <= 300);
+      updateFlipClock(clockEl, state.secondsLeft, { warnUnder: 300 });
     } else {
-      clockEl.textContent = formatTime(state.elapsedSeconds);
+      updateFlipClock(clockEl, state.elapsedSeconds, { warnUnder: 0 });
     }
   }
 
@@ -406,8 +406,11 @@ export function createExamRunner({ rootEl, uiHelpers }) {
               ? `
                 <div class="card timer-card">
                   <div class="timer-label">${state.timedMode ? 'Thời gian còn lại' : 'Thời gian làm bài'}</div>
-                  <div class="timer-clock ${state.timedMode && state.secondsLeft <= 300 ? 'warning' : ''}" id="examClock">
-                    ${state.timedMode ? formatTime(state.secondsLeft) : formatTime(state.elapsedSeconds)}
+                  <div class="timer-clock-wrap">
+                    ${renderFlipClockHtml(state.timedMode ? state.secondsLeft : state.elapsedSeconds, {
+                      id: 'examClock',
+                      warnUnder: state.timedMode ? 300 : 0,
+                    })}
                   </div>
                   <div class="progress-track">
                     <div class="progress-fill" id="progressFill" style="width:${total ? Math.round((done / total) * 100) : 0}%"></div>

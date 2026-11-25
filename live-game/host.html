@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
@@ -11,7 +11,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-  <link rel="stylesheet" href="/live-game/css/live-game.css?v=20261124a" />
+  <link rel="stylesheet" href="/live-game/css/live-game.css?v=20261125e" />
 </head>
 <body>
   <!-- TOP BAR (automatically hidden if ?embed=1 inside edu-exam-2025) -->
@@ -19,9 +19,8 @@
     <div class="lg-brand" id="btnHomeBrand">
       <div class="lg-brand-icon" aria-hidden="true">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
+          <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+          <path d="M6 12v5c3 3 9 3 12 0v-5"/>
         </svg>
       </div>
       <div>
@@ -31,7 +30,10 @@
     </div>
     <div class="lg-top-actions" id="topBarActions">
       <button class="btn btn-outline btn-sm" id="btnTopLibrary">Thư viện câu hỏi</button>
-      <a class="btn btn-soft btn-sm" href="/play" target="_blank" rel="noopener">Mở thử màn hình HS ↗</a>
+      <a class="btn btn-soft btn-sm" href="/play" target="_blank" rel="noopener">
+        Mở thử màn hình HS
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
     </div>
   </header>
 
@@ -40,14 +42,18 @@
     <div style="text-align:center; padding:60px 20px; color:var(--text-muted);">Đang tải dữ liệu...</div>
   </main>
 
-  <!-- MODAL ROOT -->
+  <!-- RIGHT-EDGE SLIDE-IN LEADERBOARD DELTA POPUP -->
+  <aside id="rankDrawer" class="rank-drawer" aria-live="polite"></aside>
+
+  <!-- MODAL ROOT (matches edu-exam-2025 modal-card) -->
   <div id="modalRoot"></div>
 
   <!-- TOASTS -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="/live-game/js/qrcode.js?v=20261124a"></script>
-  <script src="/live-game/js/katex-helper.js?v=20261124a"></script>
-  <script src="/live-game/js/host.js?v=20261124a"></script>
+  <script src="/live-game/js/icons.js?v=20261125e"></script>
+  <script src="/live-game/js/qrcode.js?v=20261125e"></script>
+  <script src="/live-game/js/katex-helper.js?v=20261125e"></script>
+  <script src="/live-game/js/host.js?v=20261125e"></script>
 </body>
 </html>

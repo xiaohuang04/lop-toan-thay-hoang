@@ -1,13 +1,21 @@
 import { api, setToken } from './api.js?v=20261124z2';
-import { createExamRunner } from './exam-runner.js?v=20261123d';
-import { createTeacherController } from './teacher-ui.js?v=20261124z4';
-import { createStudentController } from './student-ui.js?v=20261124z4';
+import { createExamRunner } from './exam-runner.js?v=20261125g';
+import { createTeacherController } from './teacher-ui.js?v=20261125h';
+import { createStudentController } from './student-ui.js?v=20261125h';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
-import { createTeachingLogController } from './teaching-log.js?v=20261124h';
-import { createGradebookController } from './gradebook.js?v=20261124z';
+import { createTeachingLogController } from './teaching-log.js?v=20261125h';
+import { createGradebookController } from './gradebook.js?v=20261125g';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
+import {
+  attachJellyTabs,
+  createStackingToaster,
+  renderSegmentedStorageMeterHtml,
+  bindSegmentedStorageMeter,
+  initAnimateUiPrimitives,
+  scanAnimateUiPrimitives,
+} from './ux-effects.js?v=20261125g';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -47,17 +55,7 @@ const headerStatusBadge = document.getElementById('headerStatusBadge');
 let currentUser = null;
 let activeRoleCtrl = null;
 
-function showToast(message, type = 'info') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  toastContainer.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transition = 'opacity 0.25s';
-    setTimeout(() => el.remove(), 260);
-  }, 3400);
-}
+const showToast = createStackingToaster(toastContainer);
 
 let modalDismissible = true;
 let modalLockedScrollY = null;
@@ -88,7 +86,13 @@ function unlockBackgroundScroll() {
   window.scrollTo({ top: restoreY, left: 0, behavior: 'instant' });
 }
 
+let modalCloseTimer = null;
+
 function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false, dismissible = true, onMount }) {
+  if (modalCloseTimer) {
+    clearTimeout(modalCloseTimer);
+    modalCloseTimer = null;
+  }
   modalDismissible = dismissible;
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
@@ -99,19 +103,44 @@ function openModal({ title, bodyHtml, footerHtml = '', wide = false, xl = false,
   modalCard.classList.toggle('modal-xl', Boolean(xl));
   modalCloseBtn.classList.toggle('hidden', !dismissible);
   modalBody.scrollTop = 0;
-  modalBackdrop.classList.remove('hidden');
+
+  modalBackdrop.classList.remove('hidden', 'is-closing', 'is-open');
   lockBackgroundScroll();
+  scanAnimateUiPrimitives(modalCard);
   if (typeof onMount === 'function') onMount(modalCard);
+  void modalBackdrop.offsetWidth;
+  modalBackdrop.classList.add('is-open');
 }
 
 function closeModal() {
+  if (modalBackdrop.classList.contains('hidden')) return;
   modalDismissible = true;
-  modalCard.classList.remove('modal-wide', 'modal-xl', 'modal-cropper-only');
-  modalFooter.classList.remove('hidden');
-  modalCloseBtn.classList.remove('hidden');
-  modalBackdrop.classList.add('hidden');
+  if (modalCloseTimer) {
+    clearTimeout(modalCloseTimer);
+    modalCloseTimer = null;
+  }
+  const rm = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  modalBackdrop.classList.remove('is-open');
+  modalBackdrop.classList.add('is-closing');
   unlockBackgroundScroll();
+
+  const finishClose = () => {
+    modalCloseTimer = null;
+    modalBackdrop.classList.remove('is-closing');
+    modalBackdrop.classList.add('hidden');
+    modalCard.classList.remove('modal-wide', 'modal-xl', 'modal-cropper-only');
+    modalFooter.classList.remove('hidden');
+    modalCloseBtn.classList.remove('hidden');
+  };
+
+  if (rm) {
+    finishClose();
+  } else {
+    modalCloseTimer = setTimeout(finishClose, 220);
+  }
 }
+
+initAnimateUiPrimitives();
 
 // Block touch-scrolling directly on the blurred backdrop (iOS Safari) while allowing modal-body to scroll
 modalBackdrop.addEventListener(
@@ -369,6 +398,7 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', String(active));
   });
+  attachJellyTabs(document.querySelector('.main-tabs'), { key: 'main-nav-tabs', itemSelector: '.main-tab' });
   Object.entries(panels).forEach(([key, panel]) => {
     panel.classList.toggle('active', key === tabName);
   });
@@ -679,10 +709,6 @@ async function openStorageManagerModal() {
                   </span>
                   <span style="font-size:0.78rem; color:var(--text-muted);">Hạn mức gói miễn phí Supabase: 500 MB</span>
                 </div>
-                <div class="storage-big-num">
-                  <strong>${formatBytesVN(stats.totalBytes)}</strong>
-                  <span>/ 500 MB (${String(pct).replace('.', ',')}%)</span>
-                </div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 ${
@@ -693,29 +719,27 @@ async function openStorageManagerModal() {
                 <button type="button" class="btn btn-ghost btn-sm" id="btnRefreshStorage">Làm mới</button>
               </div>
             </div>
-            <div class="storage-bar-track">
-              <div class="storage-bar-fill ${barCls}" style="width:${Math.max(pct, stats.totalBytes > 0 ? 1.5 : 0)}%;"></div>
-            </div>
+            ${renderSegmentedStorageMeterHtml(stats, formatBytesVN)}
           </div>
 
           <div class="storage-breakdown-grid">
-            <div class="storage-stat-box">
-              <div class="storage-stat-lbl">Tệp đính kèm (PDF, ảnh...)</div>
+            <div class="storage-stat-box u472-card-link" data-u472-key="files">
+              <div class="storage-stat-lbl"><span class="u472-dot" style="background:#2563EB;"></span> Tệp đính kèm (PDF, ảnh...)</div>
               <div class="storage-stat-val">${formatBytesVN(bd.files?.bytes || 0)}</div>
               <div class="storage-stat-sub">${bd.files?.count || 0} tệp</div>
             </div>
-            <div class="storage-stat-box">
-              <div class="storage-stat-lbl">Mô hình tương tác (.html)</div>
+            <div class="storage-stat-box u472-card-link" data-u472-key="models">
+              <div class="storage-stat-lbl"><span class="u472-dot" style="background:#7C3AED;"></span> Mô hình tương tác (.html)</div>
               <div class="storage-stat-val">${formatBytesVN(bd.models?.bytes || 0)}</div>
               <div class="storage-stat-sub">${bd.models?.count || 0} mô hình</div>
             </div>
-            <div class="storage-stat-box">
-              <div class="storage-stat-lbl">Ngân hàng đề thi</div>
+            <div class="storage-stat-box u472-card-link" data-u472-key="exams">
+              <div class="storage-stat-lbl"><span class="u472-dot" style="background:#119C72;"></span> Ngân hàng đề thi</div>
               <div class="storage-stat-val">${formatBytesVN(bd.exams?.bytes || 0)}</div>
               <div class="storage-stat-sub">${bd.exams?.count || 0} đề thi</div>
             </div>
-            <div class="storage-stat-box">
-              <div class="storage-stat-lbl">Bài viết, HS &amp; Bài nộp</div>
+            <div class="storage-stat-box u472-card-link" data-u472-key="other">
+              <div class="storage-stat-lbl"><span class="u472-dot" style="background:#F59E0B;"></span> Bài viết, HS &amp; Bài nộp</div>
               <div class="storage-stat-val">${formatBytesVN(bd.other?.bytes || 0)}</div>
               <div class="storage-stat-sub">${bd.other?.postsCount || 0} bài viết</div>
             </div>
@@ -786,6 +810,7 @@ async function openStorageManagerModal() {
           </p>
         `;
 
+        bindSegmentedStorageMeter(modalBody, stats, formatBytesVN);
         modalBody.querySelector('#btnRefreshStorage')?.addEventListener('click', loadAndRender);
         modalBody.querySelector('#btnCleanupOrphans')?.addEventListener('click', async () => {
           try {
@@ -1319,22 +1344,70 @@ async function enterApp(user) {
   }
 }
 
-// Login Form
+// Login Form (#403 Sign-in feedback: shake + red sweep on error, shrink -> check on success)
+const authCardEl = authScreen?.querySelector('.auth-card');
+const loginBaseBtnText = () => btnLoginSubmit?.dataset.baseLabel || btnLoginSubmit?.textContent || 'Đăng nhập';
+
+function resetLoginVisualState() {
+  if (btnLoginSubmit) {
+    btnLoginSubmit.disabled = false;
+    btnLoginSubmit.classList.remove('u403-loading', 'u403-ok');
+    if (btnLoginSubmit.dataset.baseLabel) {
+      btnLoginSubmit.textContent = btnLoginSubmit.dataset.baseLabel;
+    }
+  }
+  authCardEl?.classList.remove('u403-shake', 'u403-has-err');
+}
+
+loginPassword?.addEventListener('input', () => {
+  authCardEl?.classList.remove('u403-has-err');
+});
+loginUsername?.addEventListener('input', () => {
+  authCardEl?.classList.remove('u403-has-err');
+});
+
 loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (btnLoginSubmit?.disabled) return;
   loginError.classList.add('hidden');
+  authCardEl?.classList.remove('u403-shake', 'u403-has-err');
+
   const u = loginUsername.value.trim();
   const p = loginPassword.value;
+  if (btnLoginSubmit) {
+    if (!btnLoginSubmit.dataset.baseLabel || !btnLoginSubmit.classList.contains('u403-ok')) {
+      btnLoginSubmit.dataset.baseLabel = btnLoginSubmit.textContent.trim() || 'Đăng nhập';
+    }
+    btnLoginSubmit.disabled = true;
+  }
+
   try {
     const res = await api.login(u, p);
     setToken(res.token);
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
     isLocalDevSession = Boolean(res.isLocalDev);
+
+    if (btnLoginSubmit) {
+      btnLoginSubmit.classList.add('u403-ok');
+      btnLoginSubmit.innerHTML = `<svg class="u403-chk" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 L10 17.5 L19 7.5"/></svg>`;
+    }
+    const rm = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    await new Promise((r) => setTimeout(r, rm ? 60 : 480));
+    resetLoginVisualState();
     showToast(`Đăng nhập thành công! Chào mừng ${res.user.fullName}.`, 'success');
     await enterApp(res.user);
   } catch (err) {
+    if (btnLoginSubmit) btnLoginSubmit.disabled = false;
     loginError.textContent = err.message || 'Đăng nhập thất bại.';
     loginError.classList.remove('hidden');
+    if (authCardEl) {
+      authCardEl.classList.add('u403-has-err');
+      void authCardEl.offsetWidth;
+      authCardEl.classList.add('u403-shake');
+      setTimeout(() => authCardEl.classList.remove('u403-shake'), 520);
+    }
+    loginPassword?.focus();
+    loginPassword?.select?.();
   }
 });
 

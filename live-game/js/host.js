@@ -1,13 +1,19 @@
 /**
  * Edu Live Game — Teacher Host & Projector Controller
- * Views: library | editor | room (lobby / answering / review / leaderboard / finished)
+ * Unified with "Lớp toán thầy Hoàng" (edu-exam-2025):
+ * - Custom monoline SVG icons only (zero system emojis)
+ * - Main-site modal dialogs (no native confirm/alert/prompt)
+ * - 10..20 rank-scaled scoring to 1 decimal place
+ * - Auto-close when all students submit + right-edge slide-in BXH delta popup
+ * - Sleek icon-only floating control dock
+ * - Instant room-closed broadcast to all student phones
  */
 (function () {
   "use strict";
 
   const { escapeHtml, formatRichText, renderMathIn, getTypeMeta } = window.LiveMath;
+  const { icon, glassCrackSvg, wireSvg, avatarBadge, GAME_MODES } = window.LiveIcons;
 
-  // Detect embedded mode inside edu-exam-2025 iframe/tab
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get("embed") === "1") {
     document.body.classList.add("is-embedded");
@@ -16,17 +22,21 @@
   const root = document.getElementById("hostRoot");
   const modalRoot = document.getElementById("modalRoot");
   const toastContainer = document.getElementById("toastContainer");
+  const rankDrawer = document.getElementById("rankDrawer");
 
   const OPT_COLORS = ["#2563eb", "#0d9488", "#d97706", "#9333ea"];
+
+  function fmtScore(val) {
+    const num = Number(val || 0);
+    return Number.isFinite(num) ? num.toFixed(1) : "0.0";
+  }
 
   const app = {
     view: "library", // library | editor | room
     sets: [],
     serverInfo: { lanIps: [] },
-    // Editor state
     editSet: null,
     editQIndex: 0,
-    // Live Room state
     roomCode: null,
     hostToken: null,
     roomState: null,
@@ -36,6 +46,13 @@
     countdownTimer: null,
     localRemaining: null,
     showMiniQr: false,
+    lastSeenRankSeq: 0,
+    rankDrawerTimer: null,
+    rankDrawerHover: false,
+    podiumRevealedKey: null,
+    podiumTimers: [],
+    confettiRaf: null,
+    prevRaceSnapshot: new Map(),
   };
 
   function toast(msg, type = "info") {
@@ -52,18 +69,216 @@
       ...opts,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || `Lỗi kết nối (${res.status})`);
-    }
+    if (!res.ok) throw new Error(data.error || `Lỗi kết nối (${res.status})`);
     return data;
   }
 
+  // =========================================================================
+  // MAIN-WEBSITE MODAL SYSTEM (matches edu-exam-2025 .modal-card + Animate UI Dialog)
+  // =========================================================================
+  let lgModalCloseTimer = null;
+
+  function closeModal() {
+    const backdrop = document.getElementById("lgModalBackdrop");
+    if (!backdrop) {
+      modalRoot.innerHTML = "";
+      return;
+    }
+    if (lgModalCloseTimer) {
+      clearTimeout(lgModalCloseTimer);
+      lgModalCloseTimer = null;
+    }
+    const rm = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    backdrop.classList.remove("is-open");
+    backdrop.classList.add("is-closing");
+    if (rm) {
+      modalRoot.innerHTML = "";
+    } else {
+      lgModalCloseTimer = setTimeout(() => {
+        lgModalCloseTimer = null;
+        modalRoot.innerHTML = "";
+      }, 210);
+    }
+  }
+
+  function openModal({ title, iconName = "", bodyHtml, footerHtml = "", wide = false, onMount }) {
+    if (lgModalCloseTimer) {
+      clearTimeout(lgModalCloseTimer);
+      lgModalCloseTimer = null;
+    }
+    modalRoot.innerHTML = `
+      <div class="modal-backdrop" id="lgModalBackdrop" role="dialog" aria-modal="true">
+        <div class="modal-card ${wide ? "modal-wide" : ""}">
+          <div class="modal-header">
+            <h3>${iconName ? icon(iconName, 18) : ""}<span>${escapeHtml(title)}</span></h3>
+            <button type="button" class="icon-btn" id="lgModalCloseBtn" aria-label="Đóng">${icon("close", 18)}</button>
+          </div>
+          <div class="modal-body">${bodyHtml}</div>
+          ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ""}
+        </div>
+      </div>
+    `;
+    const backdrop = document.getElementById("lgModalBackdrop");
+    document.getElementById("lgModalCloseBtn").onclick = closeModal;
+    backdrop.onclick = (e) => {
+      if (e.target.id === "lgModalBackdrop") closeModal();
+    };
+    if (typeof onMount === "function") onMount();
+    void backdrop.offsetWidth;
+    backdrop.classList.add("is-open");
+  }
+
+  function openConfirmModal({ title, message, confirmLabel = "Xác nhận", cancelLabel = "Hủy", danger = false, iconName = "alertCircle", onConfirm }) {
+    openModal({
+      title,
+      iconName,
+      bodyHtml: `<p style="margin:0; color:var(--text); line-height:1.6;">${message}</p>`,
+      footerHtml: `
+        <button type="button" class="btn btn-outline" id="btnConfirmCancel">${escapeHtml(cancelLabel)}</button>
+        <button type="button" class="btn ${danger ? "btn-danger" : "btn-primary"}" id="btnConfirmOk">${escapeHtml(confirmLabel)}</button>
+      `,
+      onMount: () => {
+        document.getElementById("btnConfirmCancel").onclick = closeModal;
+        document.getElementById("btnConfirmOk").onclick = async () => {
+          closeModal();
+          await onConfirm?.();
+        };
+      },
+    });
+  }
+
+  function openPromptModal({ title, label, value = "", placeholder = "", confirmLabel = "Lưu", onSubmit }) {
+    openModal({
+      title,
+      iconName: "settings",
+      bodyHtml: `
+        <label class="field-label">${escapeHtml(label)}</label>
+        <input id="lgPromptInput" class="input" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" />
+      `,
+      footerHtml: `
+        <button type="button" class="btn btn-outline" id="btnPromptCancel">Hủy</button>
+        <button type="button" class="btn btn-primary" id="btnPromptOk">${escapeHtml(confirmLabel)}</button>
+      `,
+      onMount: () => {
+        const inp = document.getElementById("lgPromptInput");
+        inp.focus();
+        inp.select();
+        document.getElementById("btnPromptCancel").onclick = closeModal;
+        const submit = () => {
+          const v = inp.value.trim();
+          closeModal();
+          onSubmit?.(v);
+        };
+        document.getElementById("btnPromptOk").onclick = submit;
+        inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+      },
+    });
+  }
+
+  // =========================================================================
+  // RIGHT-EDGE SLIDE-IN LEADERBOARD DELTA POPUP
+  // =========================================================================
+  function hideRankDrawer() {
+    if (app.rankDrawerTimer) {
+      clearTimeout(app.rankDrawerTimer);
+      app.rankDrawerTimer = null;
+    }
+    rankDrawer.classList.remove("is-open");
+  }
+
+  function scheduleRankDrawerClose(ms = 2800) {
+    if (app.rankDrawerTimer) clearTimeout(app.rankDrawerTimer);
+    const bar = rankDrawer.querySelector(".rank-drawer-timer-bar");
+    if (bar) {
+      bar.style.transition = "none";
+      bar.style.transform = "scaleX(1)";
+      requestAnimationFrame(() => {
+        bar.style.transition = `transform ${ms}ms linear`;
+        bar.style.transform = "scaleX(0)";
+      });
+    }
+    app.rankDrawerTimer = setTimeout(() => {
+      if (!app.rankDrawerHover) hideRankDrawer();
+    }, ms);
+  }
+
+  function showRankChangeDrawer(st) {
+    if (!st.settings?.scoringEnabled) return;
+    const rows = (st.rankChanges || []).slice(0, 6);
+    if (!rows.length) return;
+
+    const reasonText =
+      st.lastRankChangeReason === "all_submitted"
+        ? "Tất cả học sinh đã nộp bài"
+        : "Đã tổng kết câu hỏi";
+
+    rankDrawer.innerHTML = `
+      <div class="rank-drawer-head">
+        <div style="display:flex; align-items:center; gap:9px; min-width:0;">
+          ${icon("trophy", 19)}
+          <div style="min-width:0;">
+            <div style="font-weight:800; font-size:0.94rem; line-height:1.2;">Biến động Bảng xếp hạng</div>
+            <div style="font-size:0.75rem; opacity:0.86;">${escapeHtml(reasonText)}</div>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" id="btnCloseRankDrawer" style="color:#fff;" aria-label="Đóng">${icon("close", 16)}</button>
+      </div>
+      <div class="rank-drawer-body">
+        ${rows
+          .map((r) => {
+            const deltaCls = r.rankDelta > 0 ? "up" : r.rankDelta < 0 ? "down" : "same";
+            const deltaHtml =
+              r.rankDelta > 0
+                ? `${icon("arrowUp", 12)}+${r.rankDelta}`
+                : r.rankDelta < 0
+                  ? `${icon("arrowDown", 12)}${r.rankDelta}`
+                  : "—";
+            return `
+              <div class="rank-delta-row ${r.rank === 1 ? "top-1" : ""}">
+                <span style="font-family:var(--font-mono); font-weight:800; width:24px; color:var(--primary);">#${r.rank}</span>
+                ${avatarBadge(r.name, r.avatar, 28)}
+                <div style="min-width:0; flex:1;">
+                  <div style="font-weight:700; font-size:0.86rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(r.name)}</div>
+                  <div style="font-size:0.74rem; color:var(--success); font-weight:700;">
+                    ${r.pointsGained > 0 ? `+${fmtScore(r.pointsGained)} đ câu này` : "0.0 đ câu này"}
+                  </div>
+                </div>
+                <span class="rank-delta-badge ${deltaCls}">${deltaHtml}</span>
+                <span style="font-family:var(--font-mono); font-weight:800; font-size:0.88rem; color:var(--text); min-width:44px; text-align:right;">${fmtScore(r.score)}</span>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+      <div class="rank-drawer-timer"><div class="rank-drawer-timer-bar"></div></div>
+    `;
+
+    document.getElementById("btnCloseRankDrawer").onclick = hideRankDrawer;
+    rankDrawer.onmouseenter = () => {
+      app.rankDrawerHover = true;
+      if (app.rankDrawerTimer) clearTimeout(app.rankDrawerTimer);
+      const bar = rankDrawer.querySelector(".rank-drawer-timer-bar");
+      if (bar) bar.style.transition = "none";
+    };
+    rankDrawer.onmouseleave = () => {
+      app.rankDrawerHover = false;
+      scheduleRankDrawerClose(1200);
+    };
+
+    requestAnimationFrame(() => {
+      rankDrawer.classList.add("is-open");
+      scheduleRankDrawerClose(2800);
+    });
+  }
+
+  // =========================================================================
+  // URL HELPERS & INIT
+  // =========================================================================
   function getJoinBaseUrl() {
     if (app.customJoinBaseUrl.trim()) {
       return app.customJoinBaseUrl.trim().replace(/\/+$/, "");
     }
     const loc = window.location;
-    // If teacher opened on localhost and we detected a Wi-Fi LAN IP, default to LAN IP so phones can scan!
     if ((loc.hostname === "localhost" || loc.hostname === "127.0.0.1") && app.serverInfo.lanIps && app.serverInfo.lanIps.length > 0) {
       const portPart = loc.port ? `:${loc.port}` : "";
       return `${loc.protocol}//${app.serverInfo.lanIps[0]}${portPart}`;
@@ -76,9 +291,6 @@
     return `${getJoinBaseUrl()}/play/${app.roomCode}`;
   }
 
-  // =========================================================================
-  // INITIALIZATION & NAVIGATION
-  // =========================================================================
   async function init() {
     try {
       const [infoRes, setsRes] = await Promise.all([
@@ -91,18 +303,34 @@
       toast(err.message, "error");
     }
 
-    document.getElementById("btnHomeBrand")?.addEventListener("click", goLibrary);
-    document.getElementById("btnTopLibrary")?.addEventListener("click", goLibrary);
+    document.getElementById("btnHomeBrand")?.addEventListener("click", () => {
+      if (app.view === "room") promptCloseRoomAndExit();
+      else goLibrary();
+    });
+    document.getElementById("btnTopLibrary")?.addEventListener("click", () => {
+      if (app.view === "room") promptCloseRoomAndExit();
+      else goLibrary();
+    });
 
-    // Keyboard shortcuts during live stage
+    // Click anywhere outside the slide-in BXH drawer -> smoothly retract it!
+    document.addEventListener("pointerdown", (e) => {
+      if (rankDrawer.classList.contains("is-open") && !rankDrawer.contains(e.target)) {
+        hideRankDrawer();
+      }
+    });
+
     window.addEventListener("keydown", (e) => {
-      if (app.view !== "room" || !app.roomState) return;
+      if (e.key === "Escape" && modalRoot.innerHTML) {
+        closeModal();
+        return;
+      }
+      if (app.view !== "room" || !app.roomState || modalRoot.innerHTML) return;
       const tag = (e.target && e.target.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === "ArrowRight") {
         e.preventDefault();
         if (app.roomState.phase === "lobby") sendAction("start");
-        else sendAction("next");
+        else if (app.roomState.phase !== "finished") sendAction("next");
       } else if (e.key === "l" || e.key === "L") {
         if (app.roomState.phase === "answering") sendAction("lock");
       } else if (e.key === "r" || e.key === "R") {
@@ -115,23 +343,63 @@
     render();
   }
 
+  function clearPodiumEffects() {
+    app.podiumTimers.forEach((t) => clearTimeout(t));
+    app.podiumTimers = [];
+    if (app.confettiRaf) {
+      cancelAnimationFrame(app.confettiRaf);
+      app.confettiRaf = null;
+    }
+  }
+
   function disconnectRoomStreams() {
-    if (app.sse) {
-      app.sse.close();
-      app.sse = null;
-    }
-    if (app.pollTimer) {
-      clearInterval(app.pollTimer);
-      app.pollTimer = null;
-    }
-    if (app.countdownTimer) {
-      clearInterval(app.countdownTimer);
-      app.countdownTimer = null;
-    }
+    hideRankDrawer();
+    clearPodiumEffects();
+    if (app.sse) { app.sse.close(); app.sse = null; }
+    if (app.pollTimer) { clearInterval(app.pollTimer); app.pollTimer = null; }
+    if (app.countdownTimer) { clearInterval(app.countdownTimer); app.countdownTimer = null; }
+  }
+
+  function openQrLightbox() {
+    const st = app.roomState;
+    if (!st) return;
+    const joinUrl = getJoinUrl();
+    modalRoot.innerHTML = `
+      <div class="modal-backdrop" id="qrLightboxBackdrop" role="dialog" aria-modal="true">
+        <div class="qr-lightbox-card">
+          <button type="button" class="icon-btn" id="btnCloseQrLightbox" style="position:absolute; top:16px; right:16px;" aria-label="Đóng">${icon("close", 20)}</button>
+          <div style="font-size:0.86rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted);">Quét mã QR để tham gia phòng chơi</div>
+          <div class="qr-lightbox-code">${escapeHtml(st.code)}</div>
+          <div class="qr-lightbox-svg" id="qrLightboxSvgBox"></div>
+          <div style="margin-top:14px; font-family:var(--font-mono); font-size:0.88rem; color:var(--text-secondary); word-break:break-all;">${escapeHtml(joinUrl)}</div>
+          <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:16px; flex-wrap:wrap;">
+            <span class="badge badge-success" style="font-size:0.9rem; padding:6px 12px;" id="qrLightboxCount">${icon("users", 14)} ${st.playerCount} học sinh đã vào phòng</span>
+            <button type="button" class="btn btn-soft btn-sm" id="btnLightboxCopy">${icon("copy", 14)} Sao chép link</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const qrSize = Math.min(390, Math.max(260, window.innerWidth - 130));
+    window.LiveQR.renderSvg(document.getElementById("qrLightboxSvgBox"), joinUrl, qrSize);
+    document.getElementById("btnCloseQrLightbox").onclick = closeModal;
+    document.getElementById("qrLightboxBackdrop").onclick = (e) => {
+      if (e.target.id === "qrLightboxBackdrop") closeModal();
+    };
+    document.getElementById("btnLightboxCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(joinUrl);
+        toast("Đã sao chép đường dẫn phòng chơi!", "success");
+      } catch (_) {
+        toast(joinUrl);
+      }
+    };
   }
 
   async function goLibrary() {
     disconnectRoomStreams();
+    app.roomCode = null;
+    app.hostToken = null;
+    app.roomState = null;
     app.view = "library";
     try {
       const setsRes = await api("/api/live/sets");
@@ -140,9 +408,29 @@
     render();
   }
 
-  // =========================================================================
-  // RENDER DISPATCHER
-  // =========================================================================
+  function promptCloseRoomAndExit() {
+    openConfirmModal({
+      title: "Thoát khỏi phòng chơi?",
+      iconName: "logout",
+      message: "Khi thoát, phòng chơi sẽ được đóng lại và <strong>tất cả điện thoại học sinh đang kết nối sẽ nhận thông báo kết thúc ngay lập tức</strong>.",
+      confirmLabel: "Thoát & Đóng phòng",
+      cancelLabel: "Ở lại phòng",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          if (app.roomCode && app.hostToken) {
+            await api(`/api/live/rooms/${app.roomCode}/action`, {
+              method: "POST",
+              body: JSON.stringify({ hostToken: app.hostToken, action: "close_room" }),
+            });
+          }
+        } catch (_) {}
+        toast("Đã đóng phòng chơi và gửi thông báo tới học sinh.");
+        goLibrary();
+      },
+    });
+  }
+
   function render() {
     if (app.view === "library") renderLibrary();
     else if (app.view === "editor") renderEditor();
@@ -179,11 +467,11 @@
                 <p class="set-card-desc">${escapeHtml(s.description || "Bộ câu hỏi tương tác trực tiếp trên lớp.")}</p>
                 <div class="set-type-chips">${chips || '<span class="badge badge-amber">Chưa có câu hỏi</span>'}</div>
                 <div class="set-card-footer">
-                  <button class="btn btn-primary" data-launch="${escapeHtml(s.id)}">▶ Mở phòng chơi (QR)</button>
+                  <button class="btn btn-primary" data-launch="${escapeHtml(s.id)}">${icon("play", 16)} Mở phòng chơi (QR)</button>
                   <div style="display:flex; gap:6px;">
-                    <button class="btn btn-outline btn-sm" data-edit="${escapeHtml(s.id)}">Sửa</button>
-                    <button class="btn btn-outline btn-sm" data-dup="${escapeHtml(s.id)}">Nhân bản</button>
-                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" data-del="${escapeHtml(s.id)}">Xóa</button>
+                    <button class="btn btn-outline btn-sm" data-edit="${escapeHtml(s.id)}">${icon("edit", 14)} Sửa</button>
+                    <button class="btn btn-outline btn-sm" data-dup="${escapeHtml(s.id)}">${icon("copy", 14)} Nhân bản</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" data-del="${escapeHtml(s.id)}" title="Xóa">${icon("trash", 15)}</button>
                   </div>
                 </div>
               </article>
@@ -196,19 +484,19 @@
       <section class="hero-banner">
         <div>
           <h1>Game Tương Tác Lớp Học (40–50 Học Sinh)</h1>
-          <p>Học sinh quét mã QR trên điện thoại để trả lời Trắc nghiệm, Đúng/Sai, Trả lời ngắn, Điền chỗ trống và Kéo thả. Kết quả tổng hợp tức thì lên màn hình chiếu để thầy/cô phân tích &amp; giải thích.</p>
+          <p>4 chế độ trên cùng bộ câu hỏi: <strong>Gỡ Bom Mảnh Ghép</strong>, <strong>Ma Sói Toán Học</strong>, <strong>Cầu Kính Sinh Tử</strong> và <strong>Đấu Trường Tốc Độ</strong>.</p>
         </div>
         <div class="hero-actions">
-          <button class="btn btn-white btn-lg" id="btnOpenImport">📥 Nhập Excel / CSV</button>
-          <button class="btn btn-glass btn-lg" id="btnNewSet">＋ Soạn bộ câu hỏi mới</button>
+          <button class="btn btn-white btn-lg" id="btnOpenImport">${icon("upload", 18)} Nhập Excel / CSV</button>
+          <button class="btn btn-glass btn-lg" id="btnNewSet">${icon("plus", 18)} Soạn bộ câu hỏi mới</button>
         </div>
       </section>
 
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-        <h2 style="margin:0; font-size:1.18rem;">Kho bộ câu hỏi (${app.sets.length})</h2>
+        <h2 style="margin:0; font-size:1.16rem;">Kho bộ câu hỏi (${app.sets.length})</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <a class="btn btn-outline btn-sm" href="/api/live/template/xlsx">⬇ Tải file mẫu Excel (.xlsx)</a>
-          <a class="btn btn-outline btn-sm" href="/api/live/template/csv">⬇ Tải file mẫu CSV</a>
+          <a class="btn btn-outline btn-sm" href="/api/live/template/xlsx">${icon("download", 15)} Tải file mẫu Excel (.xlsx)</a>
+          <a class="btn btn-outline btn-sm" href="/api/live/template/csv">${icon("download", 15)} Tải file mẫu CSV</a>
         </div>
       </div>
 
@@ -230,7 +518,7 @@
     };
 
     root.querySelectorAll("[data-launch]").forEach((btn) => {
-      btn.onclick = () => launchRoom(btn.dataset.launch);
+      btn.onclick = () => openModePickerModal(btn.dataset.launch);
     });
     root.querySelectorAll("[data-edit]").forEach((btn) => {
       btn.onclick = () => {
@@ -255,80 +543,82 @@
       };
     });
     root.querySelectorAll("[data-del]").forEach((btn) => {
-      btn.onclick = async () => {
-        if (!confirm("Bạn có chắc muốn xóa bộ câu hỏi này?")) return;
-        try {
-          await api(`/api/live/sets/${btn.dataset.del}`, { method: "DELETE" });
-          toast("Đã xóa bộ câu hỏi.", "success");
-          goLibrary();
-        } catch (err) {
-          toast(err.message, "error");
-        }
+      btn.onclick = () => {
+        openConfirmModal({
+          title: "Xóa bộ câu hỏi?",
+          iconName: "trash",
+          message: "Bộ câu hỏi này sẽ bị xóa vĩnh viễn khỏi danh sách. Bạn có chắc muốn tiếp tục?",
+          confirmLabel: "Xóa bộ câu hỏi",
+          danger: true,
+          onConfirm: async () => {
+            try {
+              await api(`/api/live/sets/${btn.dataset.del}`, { method: "DELETE" });
+              toast("Đã xóa bộ câu hỏi.", "success");
+              goLibrary();
+            } catch (err) {
+              toast(err.message, "error");
+            }
+          },
+        });
       };
     });
   }
 
   // =========================================================================
-  // IMPORT EXCEL / CSV / JSON MODAL
+  // IMPORT EXCEL / CSV / JSON MODAL (main-site .modal-card style)
   // =========================================================================
   function openImportModal() {
-    modalRoot.innerHTML = `
-      <div class="modal-backdrop" id="importBackdrop">
-        <div class="modal-box">
-          <div class="modal-head">
-            <h3 style="margin:0; font-size:1.18rem;">📥 Nhập bộ câu hỏi từ Excel / CSV / JSON</h3>
-            <button class="btn btn-ghost btn-sm" id="btnCloseImport">✕</button>
-          </div>
-          <p style="margin:0 0 14px; font-size:0.9rem; color:var(--text-secondary);">
-            Hỗ trợ trực tiếp file <strong>.xlsx</strong> (Excel/Google Sheets), <strong>.csv</strong> và <strong>.json</strong> với đủ 6 dạng câu hỏi và công thức toán KaTeX <code>$...$</code>.
-          </p>
-          <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
-            <a class="btn btn-soft btn-sm" href="/api/live/template/xlsx">⬇ Tải file Excel mẫu (.xlsx)</a>
-            <a class="btn btn-outline btn-sm" href="/api/live/template/csv">⬇ Tải file CSV mẫu (.csv)</a>
-          </div>
-          <div class="form-grid-2" style="margin-bottom:14px;">
-            <div>
-              <label class="field-label">Tên bộ câu hỏi (tùy chọn)</label>
-              <input id="impTitle" class="input" placeholder="Để trống sẽ lấy theo tên file" />
-            </div>
-            <div>
-              <label class="field-label">Môn học / Chủ đề</label>
-              <input id="impSubject" class="input" value="Toán học" />
-            </div>
-          </div>
-          <div class="dropzone" id="impDropzone">
-            <div style="font-size:2rem; margin-bottom:6px;">📄</div>
-            <div style="font-weight:700; color:var(--primary);">Kéo thả file Excel (.xlsx), CSV hoặc JSON vào đây</div>
-            <div style="font-size:0.84rem; color:var(--text-muted); margin-top:4px;">hoặc bấm để chọn tệp từ máy tính</div>
-            <input type="file" id="impFileInput" accept=".xlsx,.csv,.json,.txt" class="hidden" />
-          </div>
-          <div id="impStatus" style="margin-top:12px; font-size:0.88rem;"></div>
+    openModal({
+      title: "Nhập bộ câu hỏi từ Excel / CSV / JSON",
+      iconName: "upload",
+      wide: true,
+      bodyHtml: `
+        <p style="margin:0 0 14px; font-size:0.9rem; color:var(--text-secondary);">
+          Hỗ trợ trực tiếp file <strong>.xlsx</strong> (Excel/Google Sheets), <strong>.csv</strong> và <strong>.json</strong> với đủ 6 dạng câu hỏi và công thức toán KaTeX <code>$...$</code>.
+        </p>
+        <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+          <a class="btn btn-soft btn-sm" href="/api/live/template/xlsx">${icon("download", 15)} Tải file Excel mẫu (.xlsx)</a>
+          <a class="btn btn-outline btn-sm" href="/api/live/template/csv">${icon("download", 15)} Tải file CSV mẫu (.csv)</a>
         </div>
-      </div>
-    `;
-
-    const close = () => { modalRoot.innerHTML = ""; };
-    document.getElementById("btnCloseImport").onclick = close;
-    document.getElementById("importBackdrop").onclick = (e) => {
-      if (e.target.id === "importBackdrop") close();
-    };
-
-    const dz = document.getElementById("impDropzone");
-    const fi = document.getElementById("impFileInput");
-    dz.onclick = () => fi.click();
-    dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
-    dz.ondragleave = () => dz.classList.remove("dragover");
-    dz.ondrop = (e) => {
-      e.preventDefault();
-      dz.classList.remove("dragover");
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0], close);
-    };
-    fi.onchange = () => {
-      if (fi.files && fi.files[0]) handleImportFile(fi.files[0], close);
-    };
+        <div class="form-grid-2" style="margin-bottom:14px;">
+          <div>
+            <label class="field-label">Tên bộ câu hỏi (tùy chọn)</label>
+            <input id="impTitle" class="input" placeholder="Để trống sẽ lấy theo tên file" />
+          </div>
+          <div>
+            <label class="field-label">Môn học / Chủ đề</label>
+            <input id="impSubject" class="input" value="Toán học" />
+          </div>
+        </div>
+        <div class="dropzone" id="impDropzone">
+          <div class="icon-emblem" style="width:48px; height:48px; border-radius:14px; margin-bottom:8px;">${icon("fileText", 22)}</div>
+          <div style="font-weight:700; color:var(--primary);">Kéo thả file Excel (.xlsx), CSV hoặc JSON vào đây</div>
+          <div style="font-size:0.84rem; color:var(--text-muted); margin-top:4px;">hoặc bấm để chọn tệp từ máy tính</div>
+          <input type="file" id="impFileInput" accept=".xlsx,.csv,.json,.txt" class="hidden" />
+        </div>
+        <div id="impStatus" style="margin-top:12px; font-size:0.88rem;"></div>
+      `,
+      footerHtml: `<button type="button" class="btn btn-outline" id="btnImpCancel">Đóng</button>`,
+      onMount: () => {
+        document.getElementById("btnImpCancel").onclick = closeModal;
+        const dz = document.getElementById("impDropzone");
+        const fi = document.getElementById("impFileInput");
+        dz.onclick = () => fi.click();
+        dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
+        dz.ondragleave = () => dz.classList.remove("dragover");
+        dz.ondrop = (e) => {
+          e.preventDefault();
+          dz.classList.remove("dragover");
+          if (e.dataTransfer.files && e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]);
+        };
+        fi.onchange = () => {
+          if (fi.files && fi.files[0]) handleImportFile(fi.files[0]);
+        };
+      },
+    });
   }
 
-  function handleImportFile(file, onDone) {
+  function handleImportFile(file) {
     const statusEl = document.getElementById("impStatus");
     statusEl.innerHTML = `<span style="color:var(--primary); font-weight:600;">Đang đọc tệp ${escapeHtml(file.name)}...</span>`;
     const reader = new FileReader();
@@ -344,10 +634,16 @@
           }),
         });
         toast(`Đã nhập thành công ${res.set.questions.length} câu hỏi!`, "success");
+        closeModal();
         if (res.warnings && res.warnings.length) {
-          alert("Lưu ý khi nhập dữ liệu:\n- " + res.warnings.join("\n- "));
+          openModal({
+            title: "Lưu ý sau khi nhập dữ liệu",
+            iconName: "alertCircle",
+            bodyHtml: `<ul style="margin:0; padding-left:18px;">${res.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`,
+            footerHtml: `<button type="button" class="btn btn-primary" id="btnWarnOk">Đã hiểu</button>`,
+            onMount: () => { document.getElementById("btnWarnOk").onclick = closeModal; },
+          });
         }
-        onDone();
         goLibrary();
       } catch (err) {
         statusEl.innerHTML = `<span style="color:var(--danger); font-weight:600;">${escapeHtml(err.message)}</span>`;
@@ -357,11 +653,11 @@
   }
 
   // =========================================================================
-  // VIEW 2: VISUAL QUESTION SET EDITOR (ALL 6 TYPES!)
+  // VIEW 2: VISUAL QUESTION SET EDITOR
   // =========================================================================
   function createBlankQuestion(type) {
     const id = "q-" + Math.random().toString(36).slice(2, 9);
-    const base = { id, type, prompt: "", image: "", timeLimit: 30, points: 1000, explanation: "", data: {} };
+    const base = { id, type, prompt: "", image: "", timeLimit: 30, points: 20, explanation: "", data: {} };
     if (type === "mcq") {
       base.prompt = "Nhập nội dung câu hỏi trắc nghiệm...";
       base.data = { options: ["Phương án A", "Phương án B", "Phương án C", "Phương án D"], correctIndex: 0 };
@@ -425,10 +721,10 @@
     root.innerHTML = `
       <div class="card" style="margin-bottom:18px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px;">
-          <button class="btn btn-outline btn-sm" id="btnEdBack">← Quay lại thư viện</button>
+          <button class="btn btn-outline btn-sm" id="btnEdBack">${icon("back", 15)} Quay lại thư viện</button>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn btn-outline" id="btnEdSave">💾 Lưu bộ câu hỏi</button>
-            <button class="btn btn-primary" id="btnEdSaveLaunch">▶ Lưu &amp; Mở phòng chơi</button>
+            <button class="btn btn-outline" id="btnEdSave">${icon("save", 16)} Lưu bộ câu hỏi</button>
+            <button class="btn btn-primary" id="btnEdSaveLaunch">${icon("play", 16)} Lưu &amp; Mở phòng chơi</button>
           </div>
         </div>
         <div class="form-grid-2">
@@ -449,12 +745,12 @@
           <div id="edQList" style="max-height:460px; overflow-y:auto; margin-bottom:12px;">${listHtml}</div>
           <div style="font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:8px;">THÊM CÂU HỎI DẠNG:</div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-            <button class="btn btn-soft btn-sm" data-add-type="mcq">+ Trắc nghiệm</button>
-            <button class="btn btn-soft btn-sm" data-add-type="true_false">+ Đúng / Sai</button>
-            <button class="btn btn-soft btn-sm" data-add-type="short_answer">+ Trả lời ngắn</button>
-            <button class="btn btn-soft btn-sm" data-add-type="fill_blank">+ Điền chỗ trống</button>
-            <button class="btn btn-soft btn-sm" data-add-type="drag_order">+ Sắp xếp</button>
-            <button class="btn btn-soft btn-sm" data-add-type="drag_match">+ Ghép đôi</button>
+            <button class="btn btn-soft btn-sm" data-add-type="mcq">${icon("plus", 13)} Trắc nghiệm</button>
+            <button class="btn btn-soft btn-sm" data-add-type="true_false">${icon("plus", 13)} Đúng / Sai</button>
+            <button class="btn btn-soft btn-sm" data-add-type="short_answer">${icon("plus", 13)} Trả lời ngắn</button>
+            <button class="btn btn-soft btn-sm" data-add-type="fill_blank">${icon("plus", 13)} Điền chỗ trống</button>
+            <button class="btn btn-soft btn-sm" data-add-type="drag_order">${icon("plus", 13)} Sắp xếp</button>
+            <button class="btn btn-soft btn-sm" data-add-type="drag_match">${icon("plus", 13)} Ghép đôi</button>
           </div>
         </aside>
 
@@ -465,7 +761,6 @@
     document.getElementById("btnEdBack").onclick = goLibrary;
     document.getElementById("edSetTitle").oninput = (e) => { set.title = e.target.value; };
     document.getElementById("edSetSubject").oninput = (e) => { set.subject = e.target.value; };
-
     document.getElementById("btnEdSave").onclick = () => saveEditedSet(false);
     document.getElementById("btnEdSaveLaunch").onclick = () => saveEditedSet(true);
 
@@ -511,8 +806,8 @@
       typeFieldsHtml = `
         <div style="margin-top:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="field-label" style="margin:0;">Các mệnh đề Đúng / Sai (1 mệnh đề để trống text sẽ dùng trực tiếp câu hỏi ở trên; hoặc nhập 2–4 ý a,b,c,d chuẩn 2025)</label>
-            <button class="btn btn-soft btn-sm" id="btnAddTfStmt">+ Thêm mệnh đề</button>
+            <label class="field-label" style="margin:0;">Các mệnh đề Đúng / Sai (1 mệnh đề để trống text sẽ dùng trực tiếp câu hỏi; hoặc 2–4 ý a,b,c,d)</label>
+            <button class="btn btn-soft btn-sm" id="btnAddTfStmt">${icon("plus", 14)} Thêm mệnh đề</button>
           </div>
           ${stmts.map((st, i) => `
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
@@ -522,7 +817,7 @@
                 <option value="true" ${st.answer ? "selected" : ""}>Đúng</option>
                 <option value="false" ${!st.answer ? "selected" : ""}>Sai</option>
               </select>
-              ${stmts.length > 1 ? `<button class="btn btn-ghost btn-sm" data-tf-del="${i}" style="color:var(--danger);">✕</button>` : ""}
+              ${stmts.length > 1 ? `<button class="icon-btn" data-tf-del="${i}" style="color:var(--danger);">${icon("close", 15)}</button>` : ""}
             </div>
           `).join("")}
         </div>
@@ -531,7 +826,7 @@
       typeFieldsHtml = `
         <div style="margin-top:16px;" class="form-grid-2">
           <div>
-            <label class="field-label">Đáp án chấp nhận (cách nhau bởi dấu <code>|</code>)</label>
+            <label class="field-label">Đáp án chấp nhận (cách nhau dấu <code>|</code>)</label>
             <input class="input" id="edShortAcc" value="${escapeHtml((q.data.acceptedAnswers || []).join(" | "))}" placeholder="Ví dụ: 3,5 | 3.5 | 7/2" />
           </div>
           <div>
@@ -541,17 +836,16 @@
         </div>
       `;
     } else if (q.type === "fill_blank") {
-      // Reconstruct human-friendly {{answer}} syntax for easy editing
       let editableTpl = q.data.template || "";
       (q.data.blanks || []).forEach((b, i) => {
         editableTpl = editableTpl.replace(`{{${i}}}`, `{{${(b.accepted || [""]).join("|")}}}`);
       });
       typeFieldsHtml = `
         <div style="margin-top:16px;">
-          <label class="field-label">Đoạn văn có chỗ trống (bọc đáp án đúng trong <code>{{đáp án}}</code> — có thể dùng <code>|</code> cho nhiều cách viết)</label>
+          <label class="field-label">Đoạn văn có chỗ trống (bọc đáp án đúng trong <code>{{đáp án}}</code>)</label>
           <textarea class="textarea" id="edClozeTpl">${escapeHtml(editableTpl)}</textarea>
           <div style="margin-top:10px;">
-            <label class="field-label">Ngân hàng từ kéo thả (cách nhau dấu <code>|</code> — để trống nếu muốn học sinh tự gõ tay)</label>
+            <label class="field-label">Ngân hàng từ kéo thả (cách nhau dấu <code>|</code> — để trống nếu tự gõ)</label>
             <input class="input" id="edClozeWb" value="${escapeHtml((q.data.wordBank || []).join(" | "))}" placeholder="Ví dụ: -1 | 1 | 2 | -2 | 0" />
           </div>
         </div>
@@ -561,14 +855,14 @@
       typeFieldsHtml = `
         <div style="margin-top:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="field-label" style="margin:0;">Các bước theo ĐÚNG THỨ TỰ (hệ thống sẽ tự động xáo trộn khi gửi xuống điện thoại học sinh)</label>
-            <button class="btn btn-soft btn-sm" id="btnAddOrderItem">+ Thêm mục</button>
+            <label class="field-label" style="margin:0;">Các bước theo ĐÚNG THỨ TỰ (tự xáo trộn khi gửi cho học sinh)</label>
+            <button class="btn btn-soft btn-sm" id="btnAddOrderItem">${icon("plus", 14)} Thêm mục</button>
           </div>
           ${items.map((it, i) => `
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
               <span class="badge badge-indigo">Bước ${i + 1}</span>
               <input class="input" data-ord-item="${i}" value="${escapeHtml(it)}" />
-              ${items.length > 2 ? `<button class="btn btn-ghost btn-sm" data-ord-del="${i}" style="color:var(--danger);">✕</button>` : ""}
+              ${items.length > 2 ? `<button class="icon-btn" data-ord-del="${i}" style="color:var(--danger);">${icon("close", 15)}</button>` : ""}
             </div>
           `).join("")}
         </div>
@@ -578,15 +872,15 @@
       typeFieldsHtml = `
         <div style="margin-top:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="field-label" style="margin:0;">Các cặp ghép ĐÚNG (cột phải sẽ tự xáo trộn trên điện thoại học sinh)</label>
-            <button class="btn btn-soft btn-sm" id="btnAddMatchPair">+ Thêm cặp</button>
+            <label class="field-label" style="margin:0;">Các cặp ghép ĐÚNG (cột phải tự xáo trộn trên điện thoại học sinh)</label>
+            <button class="btn btn-soft btn-sm" id="btnAddMatchPair">${icon("plus", 14)} Thêm cặp</button>
           </div>
           ${pairs.map((p, i) => `
             <div style="display:grid; grid-template-columns:1fr 24px 1fr auto; gap:8px; align-items:center; margin-bottom:8px;">
               <input class="input" data-match-left="${i}" value="${escapeHtml(p.left)}" placeholder="Vế trái ${i + 1}" />
-              <div style="text-align:center; font-weight:800; color:var(--text-muted);">⇄</div>
+              <div style="text-align:center; color:var(--text-muted);">${icon("link", 15)}</div>
               <input class="input" data-match-right="${i}" value="${escapeHtml(p.right)}" placeholder="Vế phải tương ứng ${i + 1}" />
-              ${pairs.length > 2 ? `<button class="btn btn-ghost btn-sm" data-match-del="${i}" style="color:var(--danger);">✕</button>` : ""}
+              ${pairs.length > 2 ? `<button class="icon-btn" data-match-del="${i}" style="color:var(--danger);">${icon("close", 15)}</button>` : ""}
             </div>
           `).join("")}
         </div>
@@ -595,13 +889,11 @@
 
     wrap.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span class="badge badge-${meta.color}">Câu ${idx + 1}: ${meta.label}</span>
-        </div>
+        <span class="badge badge-${meta.color}">Câu ${idx + 1}: ${meta.label}</span>
         <div style="display:flex; gap:6px;">
-          <button class="btn btn-outline btn-sm" id="btnQMoveUp" ${idx === 0 ? "disabled" : ""}>↑</button>
-          <button class="btn btn-outline btn-sm" id="btnQMoveDown" ${idx === total - 1 ? "disabled" : ""}>↓</button>
-          <button class="btn btn-ghost btn-sm" style="color:var(--danger);" id="btnQDelete" ${total <= 1 ? "disabled" : ""}>Xóa câu</button>
+          <button class="btn btn-outline btn-sm" id="btnQMoveUp" ${idx === 0 ? "disabled" : ""}>${icon("arrowUp", 14)}</button>
+          <button class="btn btn-outline btn-sm" id="btnQMoveDown" ${idx === total - 1 ? "disabled" : ""}>${icon("arrowDown", 14)}</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--danger);" id="btnQDelete" ${total <= 1 ? "disabled" : ""}>${icon("trash", 14)} Xóa câu</button>
         </div>
       </div>
 
@@ -611,8 +903,10 @@
           <input type="number" min="0" max="600" id="edQTime" class="input" value="${q.timeLimit ?? 30}" />
         </div>
         <div>
-          <label class="field-label">Điểm tối đa (khi bật chế độ tính điểm)</label>
-          <input type="number" min="100" max="5000" step="100" id="edQPoints" class="input" value="${q.points ?? 1000}" />
+          <label class="field-label">Thang điểm tự động</label>
+          <div class="input" style="background:var(--surface-subtle); color:var(--text-secondary); font-weight:600;">
+            Đúng nhanh nhất: 20.0 đ → chậm nhất: 10.0 đ
+          </div>
         </div>
       </div>
 
@@ -625,7 +919,7 @@
       ${typeFieldsHtml}
 
       <div style="margin-top:18px;">
-        <label class="field-label">💡 Nội dung Giải thích của Giáo viên (hiện lên màn hình chiếu khi thầy/cô giảng bài)</label>
+        <label class="field-label" style="display:flex; align-items:center; gap:6px;">${icon("bulb", 15)} Nội dung Giải thích của Giáo viên</label>
         <textarea id="edQExpl" class="textarea" placeholder="Nhập lời giải, phân tích lỗi sai phổ biến để giảng cho cả lớp...">${escapeHtml(q.explanation || "")}</textarea>
         <div class="math-preview-box" id="edQExplPreview"></div>
       </div>
@@ -641,15 +935,8 @@
     updatePreview("edQExplPreview", q.explanation);
 
     document.getElementById("edQTime").oninput = (e) => { q.timeLimit = Math.max(0, parseInt(e.target.value || "0", 10)); };
-    document.getElementById("edQPoints").oninput = (e) => { q.points = Math.max(100, parseInt(e.target.value || "1000", 10)); };
-    document.getElementById("edQPrompt").oninput = (e) => {
-      q.prompt = e.target.value;
-      updatePreview("edQPromptPreview", q.prompt);
-    };
-    document.getElementById("edQExpl").oninput = (e) => {
-      q.explanation = e.target.value;
-      updatePreview("edQExplPreview", q.explanation);
-    };
+    document.getElementById("edQPrompt").oninput = (e) => { q.prompt = e.target.value; updatePreview("edQPromptPreview", q.prompt); };
+    document.getElementById("edQExpl").oninput = (e) => { q.explanation = e.target.value; updatePreview("edQExplPreview", q.explanation); };
 
     document.getElementById("btnQMoveUp").onclick = () => {
       const arr = app.editSet.questions;
@@ -669,32 +956,16 @@
       renderEditor();
     };
 
-    // Type-specific bindings
     if (q.type === "mcq") {
-      wrap.querySelectorAll('input[name="mcqCorrect"]').forEach((r) => {
-        r.onchange = () => { q.data.correctIndex = Number(r.value); };
-      });
-      wrap.querySelectorAll("[data-mcq-opt]").forEach((inp) => {
-        inp.oninput = () => { q.data.options[Number(inp.dataset.mcqOpt)] = inp.value; };
-      });
+      wrap.querySelectorAll('input[name="mcqCorrect"]').forEach((r) => { r.onchange = () => { q.data.correctIndex = Number(r.value); }; });
+      wrap.querySelectorAll("[data-mcq-opt]").forEach((inp) => { inp.oninput = () => { q.data.options[Number(inp.dataset.mcqOpt)] = inp.value; }; });
     } else if (q.type === "true_false") {
-      document.getElementById("btnAddTfStmt").onclick = () => {
-        q.data.statements.push({ text: "", answer: true });
-        renderEditor();
-      };
-      wrap.querySelectorAll("[data-tf-text]").forEach((inp) => {
-        inp.oninput = () => { q.data.statements[Number(inp.dataset.tfText)].text = inp.value; };
-      });
-      wrap.querySelectorAll("[data-tf-ans]").forEach((sel) => {
-        sel.onchange = () => { q.data.statements[Number(sel.dataset.tfAns)].answer = sel.value === "true"; };
-      });
-      wrap.querySelectorAll("[data-tf-del]").forEach((btn) => {
-        btn.onclick = () => { q.data.statements.splice(Number(btn.dataset.tfDel), 1); renderEditor(); };
-      });
+      document.getElementById("btnAddTfStmt").onclick = () => { q.data.statements.push({ text: "", answer: true }); renderEditor(); };
+      wrap.querySelectorAll("[data-tf-text]").forEach((inp) => { inp.oninput = () => { q.data.statements[Number(inp.dataset.tfText)].text = inp.value; }; });
+      wrap.querySelectorAll("[data-tf-ans]").forEach((sel) => { sel.onchange = () => { q.data.statements[Number(sel.dataset.tfAns)].answer = sel.value === "true"; }; });
+      wrap.querySelectorAll("[data-tf-del]").forEach((btn) => { btn.onclick = () => { q.data.statements.splice(Number(btn.dataset.tfDel), 1); renderEditor(); }; });
     } else if (q.type === "short_answer") {
-      document.getElementById("edShortAcc").oninput = (e) => {
-        q.data.acceptedAnswers = e.target.value.split("|").map((s) => s.trim()).filter(Boolean);
-      };
+      document.getElementById("edShortAcc").oninput = (e) => { q.data.acceptedAnswers = e.target.value.split("|").map((s) => s.trim()).filter(Boolean); };
       document.getElementById("edShortPh").oninput = (e) => { q.data.placeholder = e.target.value; };
     } else if (q.type === "fill_blank") {
       const syncCloze = () => {
@@ -716,23 +987,13 @@
       document.getElementById("edClozeWb").oninput = syncCloze;
     } else if (q.type === "drag_order") {
       document.getElementById("btnAddOrderItem").onclick = () => { q.data.items.push(""); renderEditor(); };
-      wrap.querySelectorAll("[data-ord-item]").forEach((inp) => {
-        inp.oninput = () => { q.data.items[Number(inp.dataset.ordItem)] = inp.value; };
-      });
-      wrap.querySelectorAll("[data-ord-del]").forEach((btn) => {
-        btn.onclick = () => { q.data.items.splice(Number(btn.dataset.ordDel), 1); renderEditor(); };
-      });
+      wrap.querySelectorAll("[data-ord-item]").forEach((inp) => { inp.oninput = () => { q.data.items[Number(inp.dataset.ordItem)] = inp.value; }; });
+      wrap.querySelectorAll("[data-ord-del]").forEach((btn) => { btn.onclick = () => { q.data.items.splice(Number(btn.dataset.ordDel), 1); renderEditor(); }; });
     } else if (q.type === "drag_match") {
       document.getElementById("btnAddMatchPair").onclick = () => { q.data.pairs.push({ left: "", right: "" }); renderEditor(); };
-      wrap.querySelectorAll("[data-match-left]").forEach((inp) => {
-        inp.oninput = () => { q.data.pairs[Number(inp.dataset.matchLeft)].left = inp.value; };
-      });
-      wrap.querySelectorAll("[data-match-right]").forEach((inp) => {
-        inp.oninput = () => { q.data.pairs[Number(inp.dataset.matchRight)].right = inp.value; };
-      });
-      wrap.querySelectorAll("[data-match-del]").forEach((btn) => {
-        btn.onclick = () => { q.data.pairs.splice(Number(btn.dataset.matchDel), 1); renderEditor(); };
-      });
+      wrap.querySelectorAll("[data-match-left]").forEach((inp) => { inp.oninput = () => { q.data.pairs[Number(inp.dataset.matchLeft)].left = inp.value; }; });
+      wrap.querySelectorAll("[data-match-right]").forEach((inp) => { inp.oninput = () => { q.data.pairs[Number(inp.dataset.matchRight)].right = inp.value; }; });
+      wrap.querySelectorAll("[data-match-del]").forEach((btn) => { btn.onclick = () => { q.data.pairs.splice(Number(btn.dataset.matchDel), 1); renderEditor(); }; });
     }
   }
 
@@ -740,17 +1001,11 @@
     try {
       const set = app.editSet;
       let res;
-      if (set.id) {
-        res = await api(`/api/live/sets/${set.id}`, { method: "PUT", body: JSON.stringify(set) });
-      } else {
-        res = await api("/api/live/sets", { method: "POST", body: JSON.stringify(set) });
-      }
+      if (set.id) res = await api(`/api/live/sets/${set.id}`, { method: "PUT", body: JSON.stringify(set) });
+      else res = await api("/api/live/sets", { method: "POST", body: JSON.stringify(set) });
       toast("Đã lưu bộ câu hỏi!", "success");
-      if (andLaunch) {
-        launchRoom(res.set.id);
-      } else {
-        goLibrary();
-      }
+      if (andLaunch) openModePickerModal(res.set.id);
+      else goLibrary();
     } catch (err) {
       toast(err.message, "error");
     }
@@ -759,12 +1014,64 @@
   // =========================================================================
   // VIEW 3: LIVE ROOM (LOBBY + PROJECTOR STAGE)
   // =========================================================================
-  async function launchRoom(setId) {
+  function openModePickerModal(setId, isSwitchingInLobby = false) {
+    const modeList = [
+      GAME_MODES.bomb_defusal,
+      GAME_MODES.math_impostor,
+      GAME_MODES.glass_bridge,
+      GAME_MODES.classic,
+    ];
+    const currentMode = isSwitchingInLobby && app.roomState ? app.roomState.gameMode : null;
+    openModal({
+      title: isSwitchingInLobby ? "Đổi chế độ trò chơi" : "Chọn chế độ chơi cho lớp học",
+      iconName: "play",
+      wide: true,
+      bodyHtml: `
+        <p style="margin:0 0 14px; font-size:0.9rem; color:var(--text-secondary);">
+          Tất cả chế độ đều chạy trực tiếp trên bộ câu hỏi hiện có của thầy — không cần soạn lại dữ liệu.
+        </p>
+        <div class="mode-picker-grid">
+          ${modeList
+            .map(
+              (m) => `
+              <button type="button" class="mode-pick-card accent-${m.accent} ${currentMode === m.id ? "is-selected" : ""}" data-pick-mode="${m.id}">
+                <div class="mode-pick-top">
+                  <span class="mode-pick-ico accent-${m.accent}">${icon(m.icon, 24)}</span>
+                  <span class="badge badge-${m.accent}">${escapeHtml(m.badge)}</span>
+                </div>
+                <div class="mode-pick-title">${escapeHtml(m.title)}</div>
+                <div class="mode-pick-desc">${escapeHtml(m.desc)}</div>
+              </button>
+            `
+            )
+            .join("")}
+        </div>
+      `,
+      footerHtml: `<button type="button" class="btn btn-outline" id="btnCancelModePick">Đóng</button>`,
+      onMount: () => {
+        document.getElementById("btnCancelModePick").onclick = closeModal;
+        document.querySelectorAll("[data-pick-mode]").forEach((card) => {
+          card.onclick = () => {
+            const chosen = card.dataset.pickMode;
+            closeModal();
+            if (isSwitchingInLobby) {
+              sendAction("set_mode", { gameMode: chosen });
+            } else {
+              launchRoom(setId, chosen);
+            }
+          };
+        });
+      },
+    });
+  }
+
+  async function launchRoom(setId, gameMode = "classic") {
     try {
       const res = await api("/api/live/rooms", {
         method: "POST",
         body: JSON.stringify({
           setId,
+          gameMode,
           settings: {
             scoringEnabled: true,
             showLiveChart: false,
@@ -776,10 +1083,13 @@
       app.roomCode = res.roomCode;
       app.hostToken = res.hostToken;
       app.roomState = res.state;
+      app.lastSeenRankSeq = res.state.rankChangeSeq || 0;
+      app.podiumRevealedKey = null;
       app.view = "room";
       connectHostStream();
       render();
-      toast(`Đã mở phòng ${res.roomCode}! Học sinh có thể quét mã QR ngay.`, "success");
+      const gm = GAME_MODES[gameMode] || GAME_MODES.classic;
+      toast(`Đã mở phòng ${res.roomCode} (${gm.title})!`, "success");
     } catch (err) {
       toast(err.message, "error");
     }
@@ -792,63 +1102,96 @@
     const sseUrl = `/api/live/rooms/${app.roomCode}/events?role=host&token=${encodeURIComponent(app.hostToken)}`;
     const es = new EventSource(sseUrl);
     es.addEventListener("state", (ev) => {
-      try {
-        const next = JSON.parse(ev.data);
-        applyRoomState(next);
-      } catch (_) {}
+      try { applyRoomState(JSON.parse(ev.data)); } catch (_) {}
     });
     app.sse = es;
 
-    // Gentle fallback poll every 3.5s in case proxy interrupts SSE
     app.pollTimer = setInterval(async () => {
       if (app.view !== "room" || !app.roomCode) return;
       try {
         const st = await api(`/api/live/rooms/${app.roomCode}/host?token=${encodeURIComponent(app.hostToken)}`);
-        if (!app.roomState || st.version !== app.roomState.version) {
-          applyRoomState(st);
-        }
+        if (!app.roomState || st.version !== app.roomState.version) applyRoomState(st);
       } catch (_) {}
-    }, 3500);
+    }, 3200);
 
-    // Smooth 0.5s visual countdown tick
     app.countdownTimer = setInterval(() => {
-      if (app.view !== "room" || !app.roomState || app.roomState.phase !== "answering") return;
+      if (app.view !== "room" || !app.roomState) return;
+      if (!["answering", "bridge_debate", "impostor_vote"].includes(app.roomState.phase)) return;
       if (app.localRemaining === null) return;
       app.localRemaining = Math.max(0, +(app.localRemaining - 0.5).toFixed(1));
       const badge = document.getElementById("liveTimerBadge");
       if (badge) {
         const sec = Math.ceil(app.localRemaining);
-        badge.textContent = sec > 0 ? `⏱ ${sec}s` : "⏱ Hết giờ";
+        badge.innerHTML = `${icon("clock", 18)} <span>${sec > 0 ? `${sec}s` : "Hết giờ"}</span>`;
         badge.classList.toggle("urgent", sec <= 5);
       }
     }, 500);
   }
 
   function applyRoomState(next) {
-    const prevPhase = app.roomState ? app.roomState.phase : null;
-    const prevQ = app.roomState ? app.roomState.questionIndex : -1;
+    const prev = app.roomState;
+    const prevPhase = prev ? prev.phase : null;
+    const prevQ = prev ? prev.questionIndex : -1;
+    const prevExpl = prev ? prev.showExplanation : false;
+    const prevSub = prev && prev.analytics ? prev.analytics.totalSubmitted : -1;
+
     app.roomState = next;
     app.localRemaining = next.remainingSeconds;
-    // Avoid stealing focus if teacher is typing inside board note input unless phase/question changed
-    const activeEl = document.activeElement;
-    if (activeEl && activeEl.id === "teacherBoardNoteInput" && prevPhase === next.phase && prevQ === next.questionIndex) {
-      updateLiveCountersOnly();
-      return;
-    }
-    renderRoom();
-  }
 
-  function updateLiveCountersOnly() {
-    const st = app.roomState;
-    if (!st) return;
-    const subEl = document.getElementById("liveSubmittedLabel");
-    if (subEl && st.analytics) {
-      subEl.textContent = `${st.analytics.totalSubmitted || 0} / ${st.playerCount} học sinh đã nộp`;
+    // Keep giant QR lightbox live student count updated without closing it!
+    const lbCount = document.getElementById("qrLightboxCount");
+    if (lbCount) {
+      lbCount.innerHTML = `${icon("users", 14)} ${next.playerCount} học sinh đã vào phòng`;
     }
+
+    // Trigger slide-in BXH delta popup when all students submitted OR host clicked Kết thúc!
+    if ((next.rankChangeSeq || 0) > app.lastSeenRankSeq) {
+      app.lastSeenRankSeq = next.rankChangeSeq;
+      if (next.phase === "review") {
+        showRankChangeDrawer(next);
+      }
+    }
+
+    // 60fps smooth CSS Grid 1fr <-> 0fr toggle when opening/closing Lời giải!
+    const nextSub = next.analytics ? next.analytics.totalSubmitted : -1;
+    if (
+      prev &&
+      prevPhase === "review" &&
+      next.phase === "review" &&
+      prevQ === next.questionIndex &&
+      prevSub === nextSub &&
+      prevExpl !== next.showExplanation
+    ) {
+      const card = document.getElementById("analyticsCardRoot");
+      if (card) {
+        card.querySelectorAll(".mcq-bar-slot[data-is-correct='0']").forEach((slot) => {
+          slot.classList.toggle("is-collapsed-wrong", Boolean(next.showExplanation));
+        });
+        const explSlot = document.getElementById("inlineExplSlot");
+        if (explSlot) {
+          explSlot.classList.toggle("is-open", Boolean(next.showExplanation));
+        }
+        const bulbBtn = document.querySelector('.dock-icon-btn[data-act="toggle_explanation"]');
+        if (bulbBtn) {
+          bulbBtn.classList.toggle("is-active", Boolean(next.showExplanation));
+          bulbBtn.setAttribute("data-tip", next.showExplanation ? "Ẩn lời giải (E)" : "Lời giải (E)");
+        }
+        return;
+      }
+    }
+
+    renderRoom();
   }
 
   async function sendAction(action, extra = {}) {
     if (!app.roomCode || !app.hostToken) return;
+    if (action === "next" || action === "goto" || action === "start" || action === "finish" || action === "show_leaderboard") {
+      hideRankDrawer();
+    }
+    if (action === "start") {
+      app.podiumRevealedKey = null;
+      clearPodiumEffects();
+    }
     try {
       const res = await api(`/api/live/rooms/${app.roomCode}/action`, {
         method: "POST",
@@ -882,77 +1225,111 @@
           .map(
             (p) => `
             <div class="player-chip">
-              <span>${escapeHtml(p.avatar)}</span>
+              ${avatarBadge(p.name, p.avatar, 26)}
               <span>${escapeHtml(p.name)}</span>
               ${p.className ? `<span style="font-size:0.76rem; color:var(--text-muted);">(${escapeHtml(p.className)})</span>` : ""}
-              <button class="kick-btn" data-kick="${escapeHtml(p.id)}" title="Mời ra khỏi phòng">×</button>
+              <button class="kick-btn" data-kick="${escapeHtml(p.id)}" title="Mời ra khỏi phòng">${icon("close", 13)}</button>
             </div>
           `
           )
           .join("")
       : `<div style="color:var(--text-muted); padding:28px 10px; text-align:center; width:100%;">
           Chưa có học sinh nào vào phòng.<br>
-          Hãy chiếu màn hình này lên máy chiếu để học sinh quét mã QR, hoặc bấm <strong>"+40 HS ảo"</strong> để test thử ngay!
+          Hãy chiếu màn hình này lên bảng để học sinh quét mã QR, hoặc bấm <strong>"+40 HS ảo"</strong> để chạy thử ngay.
         </div>`;
+
+    const gm = GAME_MODES[st.gameMode] || GAME_MODES.classic;
+    const bombSquadsLobbyHtml =
+      st.gameMode === "bomb_defusal" && st.modeData?.squads?.length
+        ? `
+          <div class="card">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+              <h3 style="margin:0; font-size:0.98rem; display:inline-flex; align-items:center; gap:7px;">${icon("shield", 16)} Phân đội Gỡ Bom (${st.modeData.squads.length} đội)</h3>
+              <button type="button" class="btn btn-outline btn-sm" id="btnShuffleSquads">${icon("refresh", 14)} Trộn lại đội</button>
+            </div>
+            <div class="lobby-squads-grid">
+              ${st.modeData.squads
+                .map(
+                  (sq) => `
+                  <div class="lobby-squad-card">
+                    <div style="font-weight:800; font-size:0.86rem; color:var(--primary); margin-bottom:6px;">${escapeHtml(sq.name)} (${sq.members.length})</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                      ${sq.members.map((m) => `<span class="badge badge-blue" style="font-weight:600;">${escapeHtml(m.name)}</span>`).join("") || '<span style="font-size:0.78rem; color:var(--text-muted);">Chưa có HS</span>'}
+                    </div>
+                  </div>
+                `
+                )
+                .join("")}
+            </div>
+          </div>
+        `
+        : "";
 
     root.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
         <div>
-          <span class="badge badge-blue">${escapeHtml(st.subject || "Phòng chơi trực tiếp")}</span>
-          <h1 style="margin:6px 0 0; font-size:1.45rem;">${escapeHtml(st.setTitle)}</h1>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="badge badge-blue">${escapeHtml(st.subject || "Phòng chơi trực tiếp")}</span>
+            <span class="badge badge-${gm.accent}">${icon(gm.icon, 14)} ${escapeHtml(gm.title)}</span>
+            <button type="button" class="btn btn-outline btn-sm" id="btnSwitchModeLobby" style="padding:3px 10px; font-size:0.78rem;">Đổi chế độ</button>
+          </div>
+          <h1 style="margin:6px 0 0; font-size:1.42rem;">${escapeHtml(st.setTitle)}</h1>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" id="btnLobbyExit">← Thoát phòng</button>
-          <a class="btn btn-soft btn-sm" href="${escapeHtml(joinUrl)}" target="_blank" rel="noopener">Mở thử tab Học sinh ↗</a>
+          <button class="btn btn-outline btn-sm" id="btnLobbyExit">${icon("back", 15)} Thoát phòng</button>
+          <a class="btn btn-soft btn-sm" href="${escapeHtml(joinUrl)}" target="_blank" rel="noopener">Mở thử tab Học sinh ${icon("externalLink", 14)}</a>
         </div>
       </div>
 
       <div class="lobby-grid">
-        <section class="qr-hero-card">
-          <div style="font-size:0.88rem; text-transform:uppercase; letter-spacing:0.08em; opacity:0.85; font-weight:700;">Quét mã QR bằng điện thoại</div>
-          <div class="room-code-display">${escapeHtml(st.code)}</div>
-          <div>
-            <div class="qr-frame" id="lobbyQrContainer"></div>
-          </div>
-          <div class="join-url-pill">${escapeHtml(joinUrl)}</div>
-          <div style="display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap;">
-            <button class="btn btn-sm" style="background:rgba(255,255,255,0.18); color:#fff;" id="btnCopyJoinLink">📋 Sao chép link</button>
-            <button class="btn btn-sm" style="background:rgba(255,255,255,0.18); color:#fff;" id="btnEditJoinDomain">⚙ Đổi địa chỉ QR</button>
-          </div>
-        </section>
-
-        <section style="display:flex; flex-direction:column; gap:16px;">
-          <div class="card">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
-              <h2 style="margin:0; font-size:1.12rem;">Cài đặt buổi tương tác (${st.totalQuestions} câu hỏi)</h2>
-              <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="btn btn-outline btn-sm" id="btnSim15">🤖 +15 HS ảo</button>
-                <button class="btn btn-soft btn-sm" id="btnSim40">🤖 Test lớp 40 HS ảo</button>
+        <div>
+          <section class="qr-hero-card">
+            <div style="font-size:0.86rem; text-transform:uppercase; letter-spacing:0.08em; opacity:0.86; font-weight:700;">Quét mã QR bằng điện thoại</div>
+            <div class="room-code-display">${escapeHtml(st.code)}</div>
+            <div>
+              <div class="qr-frame u478-qr-frame" id="lobbyQrFrame" title="Bấm để phóng to mã QR">
+                <span class="u478-corner tl" aria-hidden="true"></span>
+                <span class="u478-corner tr" aria-hidden="true"></span>
+                <span class="u478-corner bl" aria-hidden="true"></span>
+                <span class="u478-corner br" aria-hidden="true"></span>
+                <span class="u478-beam" aria-hidden="true"></span>
+                <div id="lobbyQrContainer"></div>
+                <div class="qr-zoom-overlay">
+                  <button type="button" class="qr-zoom-btn" id="btnZoomLobbyQr">${icon("fullscreen", 15)} Phóng to mã QR</button>
+                </div>
               </div>
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
-              <button class="toggle-pill ${st.settings.scoringEnabled ? "active" : ""}" data-toggle="scoringEnabled">
-                <span class="toggle-dot"></span> Tính điểm &amp; Bảng xếp hạng
-              </button>
-              <button class="toggle-pill ${st.settings.showLiveChart ? "active" : ""}" data-toggle="showLiveChart">
-                <span class="toggle-dot"></span> Hiện biểu đồ ngay khi đang trả lời
-              </button>
-              <button class="toggle-pill ${st.settings.allowChangeAnswer ? "active" : ""}" data-toggle="allowChangeAnswer">
-                <span class="toggle-dot"></span> Cho phép sửa đáp án trước khi khóa
-              </button>
+            <div class="join-url-pill">${escapeHtml(joinUrl)}</div>
+            <div style="display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap;">
+              <button class="btn btn-sm u478-copy-btn" style="background:rgba(255,255,255,0.18); color:#fff;" id="btnCopyJoinLink">${icon("copy", 14)} <span>Sao chép link</span></button>
+              <button class="btn btn-sm" style="background:rgba(255,255,255,0.18); color:#fff;" id="btnEditJoinDomain">${icon("settings", 14)} Đổi địa chỉ QR</button>
             </div>
-            <button class="btn btn-success btn-lg" style="width:100%; font-size:1.1rem;" id="btnStartGame">
-              🚀 Bắt đầu câu hỏi số 1 (${st.playerCount} học sinh sẵn sàng)
-            </button>
+          </section>
+
+          <!-- DEV TEST BOTS (xóa khối này khi lên web chính thức) -->
+          <div class="dev-bot-box" id="devBotBox">
+            <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Mô phỏng test nhanh:</span>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-outline btn-sm" id="btnSim15">${icon("cpu", 14)} +15 HS ảo</button>
+              <button class="btn btn-soft btn-sm" id="btnSim40">${icon("cpu", 14)} +40 HS ảo</button>
+            </div>
           </div>
+        </div>
+
+        <section style="display:flex; flex-direction:column; gap:16px;">
+          <button class="btn btn-success" style="width:100%; padding:20px 26px; font-size:1.3rem; font-weight:800; border-radius:18px; letter-spacing:-0.01em;" id="btnStartGame">
+            ${icon("play", 22)} Bắt đầu
+          </button>
 
           <div class="card">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-              <h3 style="margin:0; font-size:1.05rem;">Học sinh đã vào phòng</h3>
-              <span class="badge badge-success" style="font-size:0.9rem;">${st.playerCount} học sinh</span>
+              <h3 style="margin:0; font-size:1.02rem; display:inline-flex; align-items:center; gap:7px;">${icon("users", 17)} Học sinh đã vào phòng</h3>
+              <span class="badge badge-success" style="font-size:0.88rem;">${st.playerCount} học sinh</span>
             </div>
             <div class="roster-grid">${playersHtml}</div>
           </div>
+
+          ${bombSquadsLobbyHtml}
 
           ${lanChips ? `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:0.82rem; color:var(--text-muted);">
             <span>Mạng nội bộ phát hiện:</span> ${lanChips}
@@ -962,25 +1339,46 @@
     `;
 
     window.LiveQR.renderSvg(document.getElementById("lobbyQrContainer"), joinUrl, 240);
+    document.getElementById("lobbyQrFrame").onclick = openQrLightbox;
+    document.getElementById("btnZoomLobbyQr").onclick = (e) => { e.stopPropagation(); openQrLightbox(); };
 
-    document.getElementById("btnLobbyExit").onclick = goLibrary;
+    document.getElementById("btnLobbyExit").onclick = promptCloseRoomAndExit;
+    document.getElementById("btnSwitchModeLobby").onclick = () => openModePickerModal(st.setId, true);
+    const shufBtn = document.getElementById("btnShuffleSquads");
+    if (shufBtn) shufBtn.onclick = () => sendAction("shuffle_squads");
     document.getElementById("btnStartGame").onclick = () => sendAction("start");
     document.getElementById("btnSim15").onclick = () => sendAction("simulate_bots", { count: 15 });
     document.getElementById("btnSim40").onclick = () => sendAction("simulate_bots", { count: 40 });
     document.getElementById("btnCopyJoinLink").onclick = async () => {
+      const btn = document.getElementById("btnCopyJoinLink");
       try {
         await navigator.clipboard.writeText(joinUrl);
+        if (btn) {
+          btn.classList.add("is-copied");
+          btn.innerHTML = `<svg class="u478-chk" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5 L8.2 14.2 L15.5 6.5"/></svg> <span>Đã sao chép!</span>`;
+          clearTimeout(btn._ct);
+          btn._ct = setTimeout(() => {
+            if (!btn.isConnected) return;
+            btn.classList.remove("is-copied");
+            btn.innerHTML = `${icon("copy", 14)} <span>Sao chép link</span>`;
+          }, 1800);
+        }
         toast("Đã sao chép đường dẫn phòng chơi!", "success");
       } catch (_) {
         toast(joinUrl);
       }
     };
     document.getElementById("btnEditJoinDomain").onclick = () => {
-      const val = prompt("Nhập địa chỉ gốc cho mã QR (ví dụ https://lop-toan-thay-hoang.onrender.com hoặc http://192.168.1.10:8090):", getJoinBaseUrl());
-      if (val !== null) {
-        app.customJoinBaseUrl = val.trim();
-        renderRoom();
-      }
+      openPromptModal({
+        title: "Đổi địa chỉ gốc cho mã QR",
+        label: "Nhập đường dẫn máy chủ (ví dụ https://lop-toan-thay-hoang.onrender.com hoặc http://192.168.1.10:8085)",
+        value: getJoinBaseUrl(),
+        confirmLabel: "Cập nhật QR",
+        onSubmit: (v) => {
+          app.customJoinBaseUrl = v;
+          renderRoom();
+        },
+      });
     };
 
     root.querySelectorAll("[data-toggle]").forEach((btn) => {
@@ -990,22 +1388,21 @@
       btn.onclick = () => sendAction("kick_player", { playerId: btn.dataset.kick });
     });
     root.querySelectorAll("[data-set-base]").forEach((btn) => {
-      btn.onclick = () => {
-        app.customJoinBaseUrl = btn.dataset.setBase;
-        renderRoom();
-      };
+      btn.onclick = () => { app.customJoinBaseUrl = btn.dataset.setBase; renderRoom(); };
     });
   }
 
   // =========================================================================
-  // LIVE PROJECTOR STAGE (ANSWERING / REVIEW / LEADERBOARD / FINISHED)
+  // LIVE PROJECTOR STAGE
   // =========================================================================
   function renderStage(st) {
     const q = st.question;
+    const gm = GAME_MODES[st.gameMode] || GAME_MODES.classic;
     const meta = q ? getTypeMeta(q.type) : getTypeMeta("mcq");
     const analytics = st.analytics || {};
     const totalSub = analytics.totalSubmitted || 0;
-    const pctSub = st.playerCount > 0 ? Math.min(100, Math.round((totalSub / st.playerCount) * 100)) : 0;
+    const totalTarget = analytics.totalPlayers || st.playerCount || 0;
+    const pctSub = totalTarget > 0 ? Math.min(100, Math.round((totalSub / totalTarget) * 100)) : 0;
 
     const qOptionsHtml = (st.questionOutline || [])
       .map(
@@ -1017,82 +1414,84 @@
 
     if (st.phase === "finished" || st.phase === "leaderboard") {
       mainBodyHtml = renderLeaderboardView(st);
+    } else if (st.gameMode === "bomb_defusal" && q) {
+      mainBodyHtml = renderBombStage(st, q, analytics);
+    } else if (st.gameMode === "math_impostor" && q) {
+      mainBodyHtml = renderImpostorStage(st, q, analytics);
+    } else if (st.gameMode === "glass_bridge" && q) {
+      mainBodyHtml = renderGlassBridgeStage(st, q, analytics);
     } else if (q) {
       const remSec = app.localRemaining === null ? null : Math.ceil(app.localRemaining);
       const timerHtml =
         st.phase === "answering"
-          ? `<div class="timer-badge ${remSec !== null && remSec <= 5 ? "urgent" : ""}" id="liveTimerBadge">
-              ${remSec === null ? "∞ Tự do" : remSec > 0 ? `⏱ ${remSec}s` : "⏱ Hết giờ"}
+          ? `<div class="timer-badge ${remSec !== null && remSec <= 5 ? "urgent" : ""}" id="liveTimerBadge" style="display:inline-flex; align-items:center; gap:6px;">
+              ${icon("clock", 18)} <span>${remSec === null ? "Tự do" : remSec > 0 ? `${remSec}s` : "Hết giờ"}</span>
             </div>`
-          : `<span class="badge badge-amber" style="font-size:0.92rem; padding:7px 14px;">🔒 Đã khóa nhận bài • Chế độ Tổng hợp &amp; Giải thích</span>`;
-
+          : "";
       const showAnalytics = st.phase === "review" || st.settings.showLiveChart;
 
       mainBodyHtml = `
         <section class="stage-question-card">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span class="badge badge-${meta.color}" style="font-size:0.86rem;">Câu ${st.questionIndex + 1} / ${st.totalQuestions} • ${meta.label}</span>
-              ${st.revealAnswer ? `<span class="badge badge-success">✓ Đã công bố đáp án</span>` : ""}
-            </div>
+            <span class="badge badge-${meta.color}" style="font-size:0.86rem;">Câu ${st.questionIndex + 1} / ${st.totalQuestions} • ${meta.label}</span>
             ${timerHtml}
           </div>
 
           <div class="stage-prompt" id="stagePromptEl">${formatRichText(q.prompt)}</div>
 
           <div class="stage-metrics-row">
-            <div style="font-weight:800; font-size:0.96rem; color:var(--primary);" id="liveSubmittedLabel">
-              👥 ${totalSub} / ${st.playerCount} học sinh đã nộp (${pctSub}%)
+            <div style="font-weight:800; font-size:0.95rem; color:var(--primary); display:inline-flex; align-items:center; gap:6px;" id="liveSubmittedLabel">
+              ${icon("users", 16)} ${totalSub} / ${st.playerCount} học sinh đã nộp (${pctSub}%)
             </div>
             <div class="progress-track">
               <div class="progress-fill" style="width:${pctSub}%;"></div>
             </div>
-            ${st.phase === "review" && totalSub > 0 ? `<span class="badge badge-success" style="font-size:0.88rem;">Độ chính xác trung bình: ${analytics.avgAccuracyPct}%</span>` : ""}
+            ${st.phase === "review" && totalSub > 0 ? `<span class="badge badge-success" style="font-size:0.86rem;">Chính xác TB: ${analytics.avgAccuracyPct}%</span>` : ""}
           </div>
         </section>
 
-        ${showAnalytics ? renderAnalyticsCard(q, analytics, st.revealAnswer, st.settings.showNamesOnProjector) : renderHiddenLiveCard(st, totalSub)}
-
-        ${st.showExplanation ? renderExplanationCard(q, st.teacherNote) : ""}
+        ${showAnalytics ? renderAnalyticsCard(q, analytics, st.revealAnswer, st.showExplanation) : renderHiddenLiveCard(st, totalSub)}
       `;
     }
 
     root.innerHTML = `
       <div class="stage-header-bar">
-        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" id="btnStageExit">← Thoát</button>
-          <span class="badge badge-blue" style="font-family:var(--font-mono); font-size:0.88rem;">PHÒNG: ${escapeHtml(st.code)}</span>
-          <button class="btn btn-soft btn-sm" id="btnToggleMiniQr">📱 Mã QR</button>
-          <select class="select" id="selJumpQ" style="width:auto; padding:6px 12px; font-size:0.86rem;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="btnStageExit">${icon("back", 15)} Thoát</button>
+          <span class="badge badge-blue" style="font-family:var(--font-mono); font-size:0.84rem;">PHÒNG: ${escapeHtml(st.code)}</span>
+          <span class="badge badge-${gm.accent}">${icon(gm.icon, 13)} ${escapeHtml(gm.title)}</span>
+          <button class="btn btn-soft btn-sm" id="btnToggleMiniQr">${icon("qr", 15)} Mã QR</button>
+          <select class="select" id="selJumpQ" style="width:auto; padding:6px 10px; font-size:0.84rem;">
             ${qOptionsHtml}
           </select>
         </div>
 
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <button class="toggle-pill ${st.settings.scoringEnabled ? "active" : ""}" id="btnStageScoringToggle" style="padding:5px 11px;">
-            <span class="toggle-dot"></span> Tính điểm
-          </button>
-          <button class="btn btn-outline btn-sm" id="btnOpenPlayersModal">👥 Chi tiết HS (${st.playerCount})</button>
-          <a class="btn btn-outline btn-sm" href="/api/live/rooms/${encodeURIComponent(st.code)}/report.csv?token=${encodeURIComponent(app.hostToken)}">⬇ Xuất CSV</a>
-          <button class="btn btn-outline btn-sm" id="btnFullscreen">⛶ Toàn màn hình</button>
+        <div style="display:flex; align-items:center; gap:7px; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="btnOpenPlayersModal">${icon("users", 15)} ${st.playerCount} HS</button>
+          <button class="btn btn-outline btn-sm" id="btnFullscreen" title="Toàn màn hình">${icon("fullscreen", 15)}</button>
         </div>
       </div>
 
       ${app.showMiniQr ? `
         <div class="card" style="margin-bottom:16px; display:flex; align-items:center; gap:20px; flex-wrap:wrap; background:linear-gradient(135deg,#eff6ff,#fff);">
-          <div id="miniQrBox"></div>
-          <div>
-            <div style="font-weight:800; font-size:1.1rem;">Học sinh vào muộn có thể quét mã QR này bất cứ lúc nào</div>
-            <div style="font-family:var(--font-mono); font-size:1.35rem; font-weight:800; color:var(--primary); margin:4px 0;">Mã phòng: ${escapeHtml(st.code)}</div>
-            <div style="font-size:0.86rem; color:var(--text-secondary);">${escapeHtml(getJoinUrl())}</div>
+          <div class="qr-frame" id="miniQrFrame" style="margin:0; padding:8px; border-radius:14px; box-shadow:var(--shadow-sm);" title="Bấm để phóng to mã QR">
+            <div id="miniQrBox"></div>
+            <div class="qr-zoom-overlay" style="border-radius:14px;">
+              <button type="button" class="qr-zoom-btn" id="btnZoomMiniQr" style="padding:7px 11px; font-size:0.78rem;">${icon("fullscreen", 13)} Phóng to</button>
+            </div>
           </div>
-          <button class="btn btn-ghost btn-sm" style="margin-left:auto;" id="btnCloseMiniQr">Đóng ✕</button>
+          <div>
+            <div style="font-weight:800; font-size:1.06rem;">Học sinh vào muộn có thể quét mã QR này bất cứ lúc nào</div>
+            <div style="font-family:var(--font-mono); font-size:1.3rem; font-weight:800; color:var(--primary); margin:4px 0;">Mã phòng: ${escapeHtml(st.code)}</div>
+            <div style="font-size:0.85rem; color:var(--text-secondary);">${escapeHtml(getJoinUrl())}</div>
+          </div>
+          <button class="icon-btn" style="margin-left:auto;" id="btnCloseMiniQr" aria-label="Đóng">${icon("close", 18)}</button>
         </div>
       ` : ""}
 
       <div id="stageContentRoot">${mainBodyHtml}</div>
 
-      ${renderStageDock(st)}
+      ${renderIconDock(st)}
     `;
 
     renderMathIn(document.getElementById("stageContentRoot"));
@@ -1100,34 +1499,25 @@
     if (app.showMiniQr) {
       window.LiveQR.renderSvg(document.getElementById("miniQrBox"), getJoinUrl(), 132);
       document.getElementById("btnCloseMiniQr").onclick = () => { app.showMiniQr = false; renderRoom(); };
+      document.getElementById("miniQrFrame").onclick = openQrLightbox;
+      document.getElementById("btnZoomMiniQr").onclick = (e) => { e.stopPropagation(); openQrLightbox(); };
     }
 
-    document.getElementById("btnStageExit").onclick = () => {
-      if (confirm("Thoát khỏi phòng chơi hiện tại?")) goLibrary();
-    };
-    document.getElementById("btnToggleMiniQr").onclick = () => {
-      app.showMiniQr = !app.showMiniQr;
-      renderRoom();
-    };
+    if (st.phase === "finished") {
+      mountQuizizzFinalPodium(st);
+    } else if (st.phase === "leaderboard") {
+      mountBarRaceLeaderboard(st);
+    }
+
+    document.getElementById("btnStageExit").onclick = promptCloseRoomAndExit;
+    document.getElementById("btnToggleMiniQr").onclick = () => { app.showMiniQr = !app.showMiniQr; renderRoom(); };
     document.getElementById("selJumpQ").onchange = (e) => sendAction("goto", { questionIndex: Number(e.target.value) });
-    document.getElementById("btnStageScoringToggle").onclick = () => sendAction("toggle_setting", { key: "scoringEnabled" });
     document.getElementById("btnOpenPlayersModal").onclick = () => openPlayersModal(st);
     document.getElementById("btnFullscreen").onclick = () => {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
       else document.exitFullscreen?.();
     };
 
-    // Board note save handler
-    const noteBtn = document.getElementById("btnSaveBoardNote");
-    if (noteBtn) {
-      noteBtn.onclick = () => {
-        const val = document.getElementById("teacherBoardNoteInput").value;
-        sendAction("set_note", { note: val });
-        toast("Đã cập nhật ghi chú lên màn hình chiếu & điện thoại HS!", "success");
-      };
-    }
-
-    // Dock handlers
     root.querySelectorAll("[data-act]").forEach((btn) => {
       btn.onclick = () => sendAction(btn.dataset.act);
     });
@@ -1135,28 +1525,393 @@
     if (extBtn) extBtn.onclick = () => sendAction("extend_time", { seconds: 15 });
     const liveChartBtn = document.getElementById("btnToggleLiveChart");
     if (liveChartBtn) liveChartBtn.onclick = () => sendAction("toggle_setting", { key: "showLiveChart" });
-    const simMoreBtn = document.getElementById("btnStageSimBots");
-    if (simMoreBtn) simMoreBtn.onclick = () => sendAction("simulate_bots", { count: 40 });
   }
 
+  // =========================================================================
+  // SPECIALIZED PROJECTOR STAGES FOR THE 3 COLLABORATIVE GAME MODES
+  // =========================================================================
+
+  // Shared countdown badge for the 3 collaborative modes (auto-ticked by app.countdownTimer)
+  function renderLiveFlipTimerHtml(remSec) {
+    return `<div class="timer-badge ${remSec !== null && remSec <= 5 ? "urgent" : ""}" id="liveTimerBadge" style="display:inline-flex; align-items:center; gap:6px;">
+      ${icon("clock", 18)} <span>${remSec === null ? "Tự do" : remSec > 0 ? `${remSec}s` : "Hết giờ"}</span>
+    </div>`;
+  }
+
+  function renderBombStage(st, q, analytics) {
+    const remSec = app.localRemaining === null ? null : Math.ceil(app.localRemaining);
+    const timerHtml = st.phase === "answering" ? renderLiveFlipTimerHtml(remSec) : "";
+    const squads = st.modeData?.squads || [];
+    const defusedCnt = squads.filter((s) => s.status === "defused").length;
+    const doneCnt = squads.filter((s) => s.status !== "ticking" && s.status !== "idle").length;
+
+    const squadCardsHtml = squads
+      .map((sq) => {
+        const shieldPips = [0, 1, 2]
+          .map(
+            (i) =>
+              `<span class="bomb-shield-pip ${i < sq.shield ? "is-intact" : "is-broken"}">${icon("shield", 14)}</span>`
+          )
+          .join("");
+
+        let statusBadge = `<span class="badge badge-amber">${icon("clock", 13)} Đang thảo luận &amp; gỡ dây...</span>`;
+        let wireVisual = wireSvg("#f59e0b", false);
+        if (sq.status === "defused") {
+          statusBadge = `<span class="badge badge-success">${icon("checkCircle", 13)} Đã gỡ thành công (+${fmtScore(sq.pointsEarned)}đ)</span>`;
+          wireVisual = wireSvg(sq.cutWireHex || "#059669", true);
+        } else if (sq.status === "exploded") {
+          statusBadge = `<span class="badge badge-rose">${icon("xCircle", 13)} Cắt nhầm ${escapeHtml(sq.cutWireLabel)} (-1 Khiên)</span>`;
+          wireVisual = wireSvg(sq.cutWireHex || "#e11d48", true);
+        }
+
+        return `
+          <article class="squad-bomb-card status-${sq.status}">
+            <div class="squad-bomb-head">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="bomb-mod-icon">${icon("bombModule", 18)}</span>
+                <div>
+                  <div style="font-weight:800; font-size:0.98rem;">${escapeHtml(sq.name)}</div>
+                  <div style="font-size:0.75rem; color:var(--text-muted);">Thợ cắt dây: <strong>${escapeHtml(sq.cutterName || "...")}</strong></div>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div class="bomb-shield-row" title="Khiên bảo vệ của đội">${shieldPips}</div>
+                <div style="font-family:var(--font-mono); font-weight:800; font-size:0.86rem; color:var(--primary); margin-top:2px;">${fmtScore(sq.score)} đ</div>
+              </div>
+            </div>
+            <div class="squad-wire-box">${wireVisual}</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              ${statusBadge}
+              <div style="display:flex; gap:4px;">
+                ${sq.members.map((m) => avatarBadge(m.name, m.avatar, 24)).join("")}
+              </div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+
+    if (st.phase === "answering") {
+      return `
+        <section class="stage-question-card bomb-command-banner">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div>
+              <span class="badge badge-amber" style="font-size:0.86rem;">${icon("bombModule", 14)} GỠ BOM MẢNH GHÉP • CÂU ${st.questionIndex + 1} / ${st.totalQuestions}</span>
+              <h2 style="margin:10px 0 4px; font-size:1.36rem; font-weight:800;">Đề bài &amp; Mã dây đã chia nhỏ về từng máy trong đội!</h2>
+              <p style="margin:0; color:var(--text-secondary); font-size:0.94rem;">
+                Người giữ đề đọc to bài toán — Người giữ bảng mã đối chiếu màu dây — Báo cho <strong>Thợ Gỡ Bom</strong> dùng kìm cắt đúng sợi dây trước khi hết giờ!
+              </p>
+            </div>
+            ${timerHtml}
+          </div>
+          <div class="stage-metrics-row">
+            <div style="font-weight:800; color:var(--primary); display:inline-flex; align-items:center; gap:6px;">
+              ${icon("wireCutter", 16)} Đã cắt dây: ${doneCnt} / ${squads.length} đội
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width:${squads.length ? Math.round((doneCnt / squads.length) * 100) : 0}%;"></div>
+            </div>
+            <button class="btn btn-primary" data-act="lock">${icon("checkCircle", 17)} Kết thúc</button>
+          </div>
+        </section>
+
+        <section class="squads-bomb-grid">${squadCardsHtml}</section>
+      `;
+    }
+
+    // Review phase: show question + squad results + answer & smooth Lời giải!
+    return `
+      <section class="stage-question-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <span class="badge badge-amber" style="font-size:0.86rem;">${icon("bombModule", 14)} Kết quả Gỡ Bom • Câu ${st.questionIndex + 1} / ${st.totalQuestions}</span>
+          <span class="badge badge-success" style="font-size:0.88rem;">${defusedCnt} / ${squads.length} đội gỡ thành công</span>
+        </div>
+        <div class="stage-prompt">${formatRichText(q.prompt)}</div>
+      </section>
+
+      <section class="squads-bomb-grid" style="margin-bottom:18px;">${squadCardsHtml}</section>
+
+      ${renderAnalyticsCard(q, analytics, true, st.showExplanation)}
+    `;
+  }
+
+  function renderImpostorStage(st, q, analytics) {
+    const md = st.modeData || {};
+    const power = md.reactorPower ?? 55;
+    const delta = md.lastReactorDelta || 0;
+    const remSec = app.localRemaining === null ? null : Math.ceil(app.localRemaining);
+    const timerHtml = ["answering", "impostor_vote"].includes(st.phase) ? renderLiveFlipTimerHtml(remSec) : "";
+    const barColor = power >= 65 ? "#059669" : power >= 35 ? "#d97706" : "#e11d48";
+
+    const reactorBarHtml = `
+      <section class="reactor-hud-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:9px;">
+            <span class="reactor-core-ico" style="color:${barColor};">${icon("reactor", 22)}</span>
+            <div>
+              <div style="font-weight:800; font-size:0.98rem;">Lò Phản Ứng Toán Học: <span style="font-family:var(--font-mono); color:${barColor};">${power}%</span></div>
+              <div style="font-size:0.78rem; color:var(--text-secondary);">Mục tiêu Kỹ sư: giữ năng lượng &ge; 60% hoặc tìm hết Kẻ Phá Hoại</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            ${st.phase === "review" && delta !== 0 ? `<span class="badge ${delta > 0 ? "badge-success" : "badge-rose"}">${delta > 0 ? `+${delta}% năng lượng` : `${delta}% năng lượng`}</span>` : ""}
+            <span class="badge badge-purple">${icon("impostorVisor", 14)} Còn ${md.remainingImpostors ?? "?"} Kẻ Phá Hoại ẩn danh</span>
+          </div>
+        </div>
+        <div class="progress-track" style="height:14px;">
+          <div class="progress-fill" style="width:${power}%; background:${barColor};"></div>
+        </div>
+      </section>
+    `;
+
+    if (st.phase === "impostor_vote") {
+      const suspects = (md.suspects || []).filter((s) => !s.ejected);
+      const tallies = md.voteTallies || {};
+      const skipCnt = tallies.skip || 0;
+      return `
+        ${reactorBarHtml}
+        <section class="stage-question-card">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+            <span class="badge badge-purple" style="font-size:0.88rem;">${icon("voteBox", 15)} HỌP KHẨN CẤP — BỎ PHIẾU TRỤC XUẤT</span>
+            ${timerHtml}
+          </div>
+          ${(md.clues || []).length ? `
+            <div class="radar-clue-box" style="margin-bottom:16px;">
+              <div style="font-weight:800; color:#5b21b6; display:flex; align-items:center; gap:7px; margin-bottom:6px;">
+                ${icon("radar", 18)} Dữ liệu Radar Truy Vết:
+              </div>
+              ${md.clues.map((c) => `<div style="font-size:0.95rem; margin-bottom:4px;">• ${escapeHtml(c)}</div>`).join("")}
+            </div>
+          ` : ""}
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+            <div style="font-weight:700; color:var(--text-secondary);">
+              Đã bỏ phiếu: <strong>${md.votesCast || 0} / ${md.eligibleVoters || 0}</strong> • Phiếu bỏ qua: <strong>${skipCnt}</strong>
+            </div>
+            <button class="btn btn-purple" data-act="resolve_vote">${icon("checkCircle", 17)} Công bố kết quả bỏ phiếu</button>
+          </div>
+          <div class="suspect-vote-grid">
+            ${suspects
+              .map((s) => {
+                const v = tallies[s.id] || 0;
+                return `
+                  <div class="suspect-vote-card ${v > 0 ? "has-votes" : ""}">
+                    ${avatarBadge(s.name, s.avatar, 34)}
+                    <div style="min-width:0; flex:1; font-weight:700; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.name)}</div>
+                    ${v > 0 ? `<span class="badge badge-rose" style="font-family:var(--font-mono);">${v} phiếu</span>` : ""}
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        </section>
+      `;
+    }
+
+    if (st.phase === "impostor_vote_result") {
+      const vr = md.lastVoteResult || {};
+      let verdictHtml = "";
+      if (!vr.ejectedId) {
+        verdictHtml = `
+          <div class="icon-emblem" style="background:var(--surface-subtle); color:var(--text-secondary); border-color:var(--border-strong);">${icon("shield", 28)}</div>
+          <h2 style="margin:6px 0 6px; font-size:1.45rem;">Không ai bị trục xuất ở vòng này</h2>
+          <p style="margin:0; color:var(--text-secondary);">${vr.tie ? "Số phiếu cao nhất bị hòa nhau." : "Đa số lớp đã chọn Bỏ qua phiếu."} Kẻ Phá Hoại vẫn đang ẩn mình trong lớp!</p>
+        `;
+      } else if (vr.wasImpostor) {
+        verdictHtml = `
+          <div class="icon-emblem" style="background:var(--success-soft); color:var(--success); border-color:var(--success-border);">${icon("checkCircle", 28)}</div>
+          <span class="badge badge-success" style="margin-bottom:8px;">TRỤC XUẤT CHÍNH XÁC (+15% Lò phản ứng)</span>
+          <h2 style="margin:4px 0 6px; font-size:1.5rem; color:var(--success);">${escapeHtml(vr.ejectedName)} ĐÚNG LÀ KẺ PHÁ HOẠI!</h2>
+          <p style="margin:0; color:var(--text-secondary);">Còn lại <strong>${vr.remainingImpostors}</strong> Kẻ Phá Hoại đang ẩn danh.</p>
+        `;
+      } else {
+        verdictHtml = `
+          <div class="icon-emblem" style="background:var(--danger-soft); color:var(--danger); border-color:var(--danger-border);">${icon("sabotage", 28)}</div>
+          <span class="badge badge-rose" style="margin-bottom:8px;">TRỤC XUẤT NHẦM NGƯỜI</span>
+          <h2 style="margin:4px 0 6px; font-size:1.5rem; color:var(--danger);">${escapeHtml(vr.ejectedName)} là Kỹ Sư Vô Tội!</h2>
+          <p style="margin:0; color:var(--text-secondary);">Còn nguyên <strong>${vr.remainingImpostors}</strong> Kẻ Phá Hoại vẫn đang trà trộn trong lớp.</p>
+        `;
+      }
+      return `
+        ${reactorBarHtml}
+        <section class="analytics-card" style="text-align:center; padding:42px 24px;">
+          ${verdictHtml}
+        </section>
+      `;
+    }
+
+    const totalSub = analytics.totalSubmitted || 0;
+    const pctSub = st.playerCount > 0 ? Math.min(100, Math.round((totalSub / st.playerCount) * 100)) : 0;
+
+    return `
+      ${reactorBarHtml}
+      <section class="stage-question-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <span class="badge badge-purple" style="font-size:0.86rem;">Câu ${st.questionIndex + 1} / ${st.totalQuestions} • Nhiệm vụ Sửa Lò Phản Ứng</span>
+          ${timerHtml}
+        </div>
+        <div class="stage-prompt">${formatRichText(q.prompt)}</div>
+        <div class="stage-metrics-row">
+          <div style="font-weight:800; font-size:0.95rem; color:var(--primary); display:inline-flex; align-items:center; gap:6px;" id="liveSubmittedLabel">
+            ${icon("users", 16)} ${totalSub} / ${st.playerCount} học sinh đã nộp (${pctSub}%)
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:${pctSub}%;"></div></div>
+        </div>
+      </section>
+
+      ${st.phase === "review" && (md.clues || []).length ? `
+        <section class="radar-clue-box" style="margin-bottom:16px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:800; color:#5b21b6; display:flex; align-items:center; gap:7px; margin-bottom:4px;">
+                ${icon("radar", 18)} Báo cáo Radar sau Câu ${st.questionIndex + 1}:
+              </div>
+              ${md.clues.map((c) => `<div style="font-size:0.95rem; color:var(--text);">• ${escapeHtml(c)}</div>`).join("")}
+            </div>
+            ${(md.remainingImpostors || 0) > 0 ? `
+              <button class="btn btn-purple" data-act="start_meeting">${icon("voteBox", 17)} Mở Họp Khẩn &amp; Bỏ Phiếu</button>
+            ` : ""}
+          </div>
+        </section>
+      ` : ""}
+
+      ${st.phase === "review" || st.settings.showLiveChart
+        ? renderAnalyticsCard(q, analytics, st.revealAnswer, st.showExplanation)
+        : renderHiddenLiveCard(st, totalSub)}
+    `;
+  }
+
+  function renderGlassBridgeStage(st, q, analytics) {
+    const remSec = app.localRemaining === null ? null : Math.ceil(app.localRemaining);
+    const timerHtml = ["answering", "bridge_debate"].includes(st.phase) ? renderLiveFlipTimerHtml(remSec) : "";
+    const totalSub = analytics.totalSubmitted || 0;
+    const stats = analytics.optionStats || [];
+    const totalSwitches = st.modeData?.totalSwitches || 0;
+
+    const stepDots = Array.from({ length: st.totalQuestions }, (_, i) => {
+      const stateCls = i < st.questionIndex ? "done" : i === st.questionIndex ? "current" : "";
+      return `<span class="bridge-step-dot ${stateCls}">${i + 1}</span>`;
+    }).join("");
+
+    let phaseBanner = "";
+    if (st.phase === "answering") {
+      phaseBanner = `
+        <div class="bridge-phase-bar is-stepping">
+          <div>
+            <strong>Pha 1 — Bí mật chọn tấm kính:</strong> Đã có <strong>${totalSub} / ${st.playerCount}</strong> học sinh bước lên cầu (đang ẩn vị trí để tự suy nghĩ).
+          </div>
+          <button class="btn btn-primary" data-act="start_debate">${icon("debate", 17)} Mở 15s Tranh Luận</button>
+        </div>
+      `;
+    } else if (st.phase === "bridge_debate") {
+      phaseBanner = `
+        <div class="bridge-phase-bar is-debating">
+          <div>
+            <strong>Pha 2 — 15 GIÂY TRANH LUẬN &amp; ĐỔI PHE!</strong> Cả lớp đang nhìn thấy nhau trên 4 tấm kính (Đã có <strong>${totalSwitches}</strong> lượt nhảy đổi ô trực tiếp!).
+          </div>
+          <button class="btn btn-danger" data-act="shatter_glass">${icon("hammer", 17)} Thử độ bền kính!</button>
+        </div>
+      `;
+    } else {
+      phaseBanner = `
+        <div class="bridge-phase-bar is-shattered-phase">
+          <div>
+            <strong>Kết quả Nhịp cầu #${st.questionIndex + 1}:</strong> Có <strong>${analytics.fullCorrectCount || 0} / ${totalSub}</strong> học sinh đứng đúng tấm kính cường lực!
+          </div>
+        </div>
+      `;
+    }
+
+    const panelsHtml = stats
+      .map((s, i) => {
+        const col = OPT_COLORS[i % OPT_COLORS.length];
+        const showAvatars = st.phase === "bridge_debate" || st.phase === "review";
+        const isShattered = st.phase === "review" && !s.isCorrect;
+        const isSafe = st.phase === "review" && s.isCorrect;
+        const badges = (s.playerBadges || [])
+          .slice(0, 32)
+          .map((pb) => `<span class="bridge-avatar-token" title="${escapeHtml(pb.name)}">${avatarBadge(pb.name, pb.avatar, 28)}</span>`)
+          .join("");
+        const overflow = (s.playerBadges || []).length > 32 ? `<span class="badge badge-blue">+${s.playerBadges.length - 32}</span>` : "";
+
+        return `
+          <div class="glass-panel-tile ${isShattered ? "is-shattered" : ""} ${isSafe ? "is-tempered-safe" : ""}">
+            ${isShattered ? glassCrackSvg() : ""}
+            <div class="glass-panel-top">
+              <span class="opt-letter-badge" style="background:${isSafe ? "#059669" : col};">${s.label}</span>
+              <span class="glass-panel-count">${showAvatars ? `${s.count} HS (${s.pct}%)` : "Đang ẩn"}</span>
+            </div>
+            <div class="glass-panel-formula">${formatRichText(s.text)}</div>
+            <div class="glass-panel-avatars">
+              ${showAvatars
+                ? badges + overflow || '<span style="font-size:0.8rem; color:var(--text-muted);">Không có ai đứng ở ô này</span>'
+                : '<span style="font-size:0.8rem; color:var(--text-muted);">Vị trí sẽ lộ diện ở Pha Tranh Luận</span>'}
+            </div>
+            ${isSafe ? `<div class="glass-safe-tag">${icon("shieldCheck", 15)} KÍNH CƯỜNG LỰC AN TOÀN</div>` : ""}
+            ${isShattered ? `<div class="glass-broken-tag">${icon("xCircle", 15)} KÍNH VỠ!</div>` : ""}
+          </div>
+        `;
+      })
+      .join("");
+
+    return `
+      <section class="stage-question-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="badge badge-teal" style="font-size:0.86rem;">${icon("glassBridge", 14)} Nhịp cầu ${st.questionIndex + 1} / ${st.totalQuestions}</span>
+            <div class="bridge-steps-strip">${stepDots}</div>
+          </div>
+          ${timerHtml}
+        </div>
+        <div class="stage-prompt">${formatRichText(q.prompt)}</div>
+      </section>
+
+      ${phaseBanner}
+
+      <section class="glass-bridge-grid" id="analyticsCardRoot">
+        <div class="glass-panels-4">${panelsHtml}</div>
+        ${renderInlineExplanationHtml(q, st.phase === "review" && st.showExplanation)}
+      </section>
+    `;
+  }
+
+  // Single "Kết thúc" button with clean checkCircle icon
   function renderHiddenLiveCard(st, totalSub) {
     return `
-      <section class="analytics-card" style="text-align:center; padding:38px 24px;">
-        <div style="font-size:2.4rem; margin-bottom:8px;">📡</div>
-        <h3 style="margin:0 0 6px; font-size:1.2rem;">Học sinh đang trả lời trên điện thoại...</h3>
-        <p style="margin:0 0 18px; color:var(--text-secondary); max-width:560px; margin-inline:auto;">
-          Biểu đồ phân bố đáp án đang tạm ẩn để học sinh tự suy nghĩ độc lập, không chọn theo số đông.
+      <section class="analytics-card" style="text-align:center; padding:42px 24px;">
+        <div class="icon-emblem">${icon("radio", 28)}</div>
+        <h3 style="margin:0 0 6px; font-size:1.22rem;">Học sinh đang trả lời trên điện thoại...</h3>
+        <p style="margin:0 0 22px; color:var(--text-secondary); max-width:540px; margin-inline:auto;">
+          Biểu đồ sẽ tự động tổng hợp ngay khi tất cả học sinh nộp xong, hoặc khi giáo viên bấm Kết thúc.
           Đã nhận <strong>${totalSub} / ${st.playerCount}</strong> bài nộp.
         </p>
-        <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-outline" id="btnToggleLiveChart">👁 Hiện biểu đồ trực tiếp</button>
-          <button class="btn btn-primary" data-act="lock">🔒 Khóa nhận bài &amp; Tổng hợp ngay</button>
+        <div>
+          <button class="btn btn-primary btn-lg" data-act="lock" style="min-width:190px;">
+            ${icon("checkCircle", 18)} Kết thúc
+          </button>
         </div>
       </section>
     `;
   }
 
-  function renderAnalyticsCard(q, a, reveal, showNames) {
+  function renderInlineExplanationHtml(q, isOpen) {
+    return `
+      <div class="inline-expl-slot ${isOpen ? "is-open" : ""}" id="inlineExplSlot">
+        <div class="inline-expl-inner">
+          <div class="inline-explanation-box" id="inlineExplanationBox">
+            <div class="explanation-title" style="margin-bottom:8px;">
+              ${icon("bulb", 19)}
+              <span>Lời giải</span>
+            </div>
+            <div class="explanation-body">
+              ${q.explanation ? formatRichText(q.explanation) : '<em style="color:var(--text-secondary);">Câu hỏi này chưa có nội dung lời giải.</em>'}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAnalyticsCard(q, a, reveal, showExplanation) {
     let body = "";
 
     if (q.type === "mcq") {
@@ -1167,18 +1922,23 @@
             .map((s, i) => {
               const col = OPT_COLORS[i % OPT_COLORS.length];
               const cls = reveal ? (s.isCorrect ? "is-correct-revealed" : "is-dimmed") : "";
+              const collapsed = showExplanation && !s.isCorrect ? "is-collapsed-wrong" : "";
               return `
-                <div class="mcq-bar-row ${cls}">
-                  <div class="mcq-bar-bg" style="width:${s.pct}%; background:${reveal && s.isCorrect ? "#059669" : col};"></div>
-                  <div class="mcq-bar-content">
-                    <div class="mcq-bar-left">
-                      <span class="opt-letter-badge" style="background:${reveal && s.isCorrect ? "#059669" : col};">${s.label}</span>
-                      <div>${formatRichText(s.text)}</div>
-                    </div>
-                    <div class="mcq-bar-stat">
-                      ${reveal && s.isCorrect ? '<span class="badge badge-success">✓ ĐÁP ÁN ĐÚNG</span>' : ""}
-                      <span>${s.count} HS</span>
-                      <span style="color:var(--text-muted); font-size:0.95rem;">(${s.pct}%)</span>
+                <div class="mcq-bar-slot ${collapsed}" data-is-correct="${s.isCorrect ? "1" : "0"}">
+                  <div class="mcq-bar-slot-inner">
+                    <div class="mcq-bar-row ${cls}">
+                      <div class="mcq-bar-bg" style="width:${s.pct}%; background:${reveal && s.isCorrect ? "#059669" : col};"></div>
+                      <div class="mcq-bar-content">
+                        <div class="mcq-bar-left">
+                          <span class="opt-letter-badge" style="background:${reveal && s.isCorrect ? "#059669" : col};">${s.label}</span>
+                          <div>${formatRichText(s.text)}</div>
+                        </div>
+                        <div class="mcq-bar-stat">
+                          ${reveal && s.isCorrect ? `<span class="badge badge-success">${icon("check", 13)} ĐÁP ÁN ĐÚNG</span>` : ""}
+                          <span>${s.count} HS</span>
+                          <span style="color:var(--text-muted); font-size:0.95rem;">(${s.pct}%)</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1221,8 +1981,9 @@
       const groups = a.groups || [];
       body = `
         ${reveal ? `
-          <div style="margin-bottom:14px; padding:12px 16px; border-radius:12px; background:var(--success-soft); border:1.5px solid var(--success);">
-            <strong>✓ Đáp án chuẩn:</strong> ${(a.acceptedAnswers || []).map((x) => `<span class="badge badge-success" style="margin-left:6px; font-size:0.95rem;">${escapeHtml(x)}</span>`).join("")}
+          <div style="margin-bottom:14px; padding:12px 16px; border-radius:12px; background:var(--success-soft); border:1.5px solid var(--success); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong style="color:var(--success); display:inline-flex; align-items:center; gap:5px;">${icon("checkCircle", 16)} Đáp án chuẩn:</strong>
+            ${(a.acceptedAnswers || []).map((x) => `<span class="badge badge-success" style="font-size:0.94rem;">${escapeHtml(x)}</span>`).join("")}
           </div>
         ` : ""}
         <div class="answer-cloud">
@@ -1230,12 +1991,7 @@
             ? groups
                 .map((g) => {
                   const cls = reveal ? (g.isCorrect ? "is-correct" : "is-wrong") : "";
-                  return `
-                    <div class="cloud-chip ${cls}">
-                      <span>${escapeHtml(g.label)}</span>
-                      <span class="cloud-count">${g.count} HS (${g.pct}%)</span>
-                    </div>
-                  `;
+                  return `<div class="cloud-chip ${cls}"><span>${escapeHtml(g.label)}</span><span class="cloud-count">${g.count} HS (${g.pct}%)</span></div>`;
                 })
                 .join("")
             : '<div style="color:var(--text-muted);">Chưa có câu trả lời nào được nộp.</div>'}
@@ -1246,11 +2002,11 @@
       let renderedTpl = formatRichText(a.template || "");
       blanks.forEach((b) => {
         const display = reveal ? escapeHtml((b.accepted || [""])[0]) : `Ô #${b.index + 1}`;
-        const pill = `<span class="badge ${reveal ? "badge-success" : "badge-amber"}" style="font-size:1rem; padding:4px 12px; margin:0 4px;">${display} (${b.accuracyPct}% đúng)</span>`;
+        const pill = `<span class="badge ${reveal ? "badge-success" : "badge-amber"}" style="font-size:0.98rem; padding:4px 12px; margin:0 4px;">${display} (${b.accuracyPct}% đúng)</span>`;
         renderedTpl = renderedTpl.replace(`{{${b.index}}}`, pill);
       });
       body = `
-        <div style="font-size:1.18rem; line-height:2.1; padding:16px 20px; border-radius:14px; background:var(--surface-subtle); border:1.5px solid var(--border); margin-bottom:16px;">
+        <div style="font-size:1.15rem; line-height:2.1; padding:16px 20px; border-radius:14px; background:var(--surface-subtle); border:1.5px solid var(--border); margin-bottom:16px;">
           ${renderedTpl}
         </div>
         <div class="form-grid-2">
@@ -1260,13 +2016,11 @@
               <div class="tf-stat-row" style="margin:0;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                   <strong>Chỗ trống #${b.index + 1}</strong>
-                  <span class="badge badge-blue">${b.accuracyPct}% trả lời đúng</span>
+                  <span class="badge badge-blue">${b.accuracyPct}% đúng</span>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; gap:6px;">
                   ${(b.topAnswers || [])
-                    .map(
-                      (ta) => `<span class="badge ${reveal ? (ta.isCorrect ? "badge-success" : "badge-rose") : "badge-amber"}">${escapeHtml(ta.text)} × ${ta.count}</span>`
-                    )
+                    .map((ta) => `<span class="badge ${reveal ? (ta.isCorrect ? "badge-success" : "badge-rose") : "badge-amber"}">${escapeHtml(ta.text)} × ${ta.count}</span>`)
                     .join("") || '<span style="color:var(--text-muted); font-size:0.86rem;">Chưa có dữ liệu</span>'}
                 </div>
               </div>
@@ -1279,7 +2033,7 @@
       const posStats = a.positionStats || [];
       const topSeqs = a.topSequences || [];
       body = `
-        <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap;">
+        <div style="margin-bottom:14px;">
           <span class="badge badge-success" style="font-size:0.9rem;">Xếp đúng toàn bộ thứ tự: ${a.fullCorrectCount || 0} HS (${a.fullCorrectPct || 0}%)</span>
         </div>
         <div class="mcq-bars" style="margin-bottom:16px;">
@@ -1291,11 +2045,9 @@
                 <div class="mcq-bar-content">
                   <div class="mcq-bar-left">
                     <span class="opt-letter-badge" style="background:#4338ca;">#${ps.slot}</span>
-                    <div>${reveal ? formatRichText(ps.correctText) : `Vị trí thứ ${ps.slot} (Bấm "Hiện đáp án" để công bố)`}</div>
+                    <div>${reveal ? formatRichText(ps.correctText) : `Vị trí thứ ${ps.slot}`}</div>
                   </div>
-                  <div class="mcq-bar-stat">
-                    <span>${ps.accuracyPct}% chọn đúng vị trí</span>
-                  </div>
+                  <div class="mcq-bar-stat"><span>${ps.accuracyPct}% đúng vị trí</span></div>
                 </div>
               </div>
             `
@@ -1306,11 +2058,7 @@
           <div style="font-size:0.88rem; color:var(--text-secondary);">
             <strong>Các thứ tự học sinh hay xếp nhất:</strong>
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
-              ${topSeqs
-                .map(
-                  (sq) => `<span class="badge ${reveal ? (sq.isCorrect ? "badge-success" : "badge-amber") : "badge-blue"}">${sq.labels.join(" → ")} : ${sq.count} HS (${sq.pct}%)</span>`
-                )
-                .join("")}
+              ${topSeqs.map((sq) => `<span class="badge ${reveal ? (sq.isCorrect ? "badge-success" : "badge-amber") : "badge-blue"}">${sq.labels.join(" → ")} : ${sq.count} HS (${sq.pct}%)</span>`).join("")}
             </div>
           </div>
         ` : ""}
@@ -1330,12 +2078,10 @@
                 <div class="mcq-bar-content" style="flex-wrap:wrap;">
                   <div class="mcq-bar-left">
                     <span>${formatRichText(ps.left)}</span>
-                    <span style="color:var(--primary); font-weight:800;">⇄</span>
+                    <span style="color:var(--primary);">${icon("link", 16)}</span>
                     <span>${reveal ? formatRichText(ps.correctRight) : "???"}</span>
                   </div>
-                  <div class="mcq-bar-stat">
-                    <span class="badge ${ps.accuracyPct >= 70 ? "badge-success" : "badge-amber"}">${ps.accuracyPct}% ghép đúng</span>
-                  </div>
+                  <div class="mcq-bar-stat"><span class="badge ${ps.accuracyPct >= 70 ? "badge-success" : "badge-amber"}">${ps.accuracyPct}% ghép đúng</span></div>
                 </div>
                 ${ps.wrongMatches && ps.wrongMatches.length ? `
                   <div style="position:relative; z-index:1; margin-top:6px; font-size:0.84rem; color:var(--danger);">
@@ -1351,36 +2097,12 @@
     }
 
     return `
-      <section class="analytics-card">
+      <section class="analytics-card" id="analyticsCardRoot">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-          <h3 style="margin:0; font-size:1.06rem;">📊 Tổng hợp câu trả lời của cả lớp</h3>
-          <span style="font-size:0.84rem; color:var(--text-muted);">Thời gian phản hồi TB: ${((a.avgResponseMs || 0) / 1000).toFixed(1)}s</span>
+          <h3 style="margin:0; font-size:1.05rem; display:inline-flex; align-items:center; gap:8px;">${icon("barChart", 18)} Câu trả lời</h3>
         </div>
         ${body}
-      </section>
-    `;
-  }
-
-  function renderExplanationCard(q, teacherNote) {
-    return `
-      <section class="explanation-card">
-        <div class="explanation-title">
-          <span>💡</span>
-          <span>Giải thích ý nghĩa &amp; Điểm cần lưu ý cho cả lớp</span>
-        </div>
-        <div class="explanation-body">
-          ${q.explanation ? formatRichText(q.explanation) : '<em style="color:var(--text-secondary);">Câu hỏi này chưa có nội dung giải thích sẵn. Thầy/cô có thể nhập ghi chú nhanh bên dưới để chiếu lên màn hình!</em>'}
-        </div>
-        ${teacherNote ? `
-          <div style="margin-top:14px; padding:12px 16px; border-radius:12px; background:#fff; border:1.5px solid #93c5fd;">
-            <strong style="color:var(--primary);">📝 Ghi chú trực tiếp của giáo viên:</strong>
-            <div style="margin-top:4px;">${formatRichText(teacherNote)}</div>
-          </div>
-        ` : ""}
-        <div style="display:flex; gap:8px; margin-top:14px;">
-          <input id="teacherBoardNoteInput" class="input" value="${escapeHtml(teacherNote || "")}" placeholder="Gõ thêm ghi chú ngắn hoặc nhắc nhở lỗi sai để hiện ngay trên bảng & điện thoại HS..." />
-          <button class="btn btn-primary btn-sm" id="btnSaveBoardNote">Ghim lên bảng</button>
-        </div>
+        ${renderInlineExplanationHtml(q, showExplanation)}
       </section>
     `;
   }
@@ -1390,54 +2112,86 @@
     const top3 = lb.slice(0, 3);
     const isEnd = st.phase === "finished";
     const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
-    const medals = { 1: "🥇", 2: "🥈", 3: "🥉" };
+    const rankColors = { 1: "#d97706", 2: "#64748b", 3: "#c2410c" };
 
-    return `
-      <section class="analytics-card" style="text-align:center;">
-        <span class="badge ${isEnd ? "badge-success" : "badge-purple"}" style="font-size:0.9rem;">
-          ${isEnd ? "🏆 KẾT THÚC BUỔI TƯƠNG TÁC" : "📊 BẢNG XẾP HẠNG HIỆN TẠI"}
-        </span>
-        <h2 style="margin:10px 0 4px; font-size:1.6rem;">${escapeHtml(st.setTitle)}</h2>
-        <p style="margin:0; color:var(--text-secondary);">${st.playerCount} học sinh tham gia • ${st.totalQuestions} câu hỏi</p>
-
-        ${st.settings.scoringEnabled ? `
-          <div class="podium-row">
-            ${podiumOrder
-              .map(
-                (p) => `
-                <div class="podium-slot rank-${p.rank}">
-                  <div style="font-size:2.1rem;">${medals[p.rank] || ""} ${escapeHtml(p.avatar)}</div>
-                  <div style="font-weight:800; font-size:1.05rem; margin-top:6px;">${escapeHtml(p.name)}</div>
-                  ${p.className ? `<div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(p.className)}</div>` : ""}
-                  <div style="font-family:var(--font-mono); font-size:1.3rem; font-weight:800; color:var(--primary); margin-top:8px;">${p.score.toLocaleString("vi-VN")} đ</div>
-                  <div style="font-size:0.8rem; color:var(--success); font-weight:700;">Đúng trọn vẹn ${p.correctCount} câu</div>
-                </div>
-              `
-              )
-              .join("")}
+    // Quizizz-style Top-3 Shuffle -> #1 Slam -> #2 & #3 Drop (clean academic theme!)
+    if (isEnd) {
+      const alreadyDone = app.podiumRevealedKey === `${st.code}-finished`;
+      const finalSlotForRank = (rk) => (rk === 1 ? 1 : rk === 2 ? 0 : 2);
+      const impWinner = st.gameMode === "math_impostor" ? st.modeData?.winner : null;
+      const impNames = (st.modeData?.impostorNames || []).join(", ");
+      const modeFinaleBanner = impWinner
+        ? `
+          <div class="card" style="margin-bottom:16px; border-width:2px; border-color:${impWinner === "crew" ? "var(--success)" : "var(--danger)"}; background:${impWinner === "crew" ? "var(--success-soft)" : "var(--danger-soft)"}; text-align:center;">
+            <div style="font-weight:800; font-size:1.2rem; color:${impWinner === "crew" ? "var(--success)" : "var(--danger)"}; display:inline-flex; align-items:center; gap:8px;">
+              ${icon(impWinner === "crew" ? "shieldCheck" : "impostorVisor", 22)}
+              <span>${impWinner === "crew" ? "ĐỘI KỸ SƯ TOÁN HỌC CHIẾN THẮNG! ĐÃ BẢO VỆ LÒ PHẢN ỨNG!" : "KẺ PHÁ HOẠI CHIẾN THẮNG! LÒ PHẢN ỨNG ĐÃ TÊ LIỆT!"}</span>
+            </div>
+            ${impNames ? `<div style="margin-top:6px; font-size:0.9rem; color:var(--text-secondary);">Danh tính Kẻ Phá Hoại trong ván này: <strong>${escapeHtml(impNames)}</strong></div>` : ""}
           </div>
+        `
+        : "";
+      return `
+        ${modeFinaleBanner}
+        <section class="podium-stage-card" id="quizizzPodiumStage">
+          <canvas class="podium-confetti-canvas" id="podiumConfettiCanvas"></canvas>
+          <div class="podium-stage-inner">
+            <div class="podium-suspense-banner" id="podiumStatusBanner">
+              ${icon("trophy", 15)} <span>${alreadyDone ? "Vinh danh Top 3 chung cuộc" : "Top 3 xuất sắc nhất — Ai sẽ là Quán quân?"}</span>
+            </div>
+            <h2 style="margin:2px 0 4px; font-size:1.52rem; font-weight:800; color:var(--text);">${escapeHtml(st.setTitle)}</h2>
+            <p style="margin:0; color:var(--text-secondary); font-size:0.9rem;">${st.playerCount} học sinh tham gia • ${st.totalQuestions} câu hỏi</p>
 
+            <div class="qp-arena" id="qpArena">
+              ${top3
+                .map((p, idx) => {
+                  const slot = alreadyDone ? finalSlotForRank(p.rank) : idx;
+                  const cardCls = alreadyDone
+                    ? p.rank === 1
+                      ? "is-revealed-1"
+                      : ""
+                    : "is-shuffling";
+                  return `
+                    <div class="qp-card ${cardCls}" data-qp-rank="${p.rank}" data-slot="${slot}" data-target-score="${Number(p.score || 0)}">
+                      <div class="qp-player-pill">
+                        <div class="qp-crown ${alreadyDone && p.rank === 1 ? "" : "hidden"}" data-qp-crown="${p.rank}">${icon("trophy", 20)}</div>
+                        ${avatarBadge(p.name, p.avatar, p.rank === 1 && alreadyDone ? 48 : 42)}
+                        <div class="qp-name">${escapeHtml(p.name)}</div>
+                        <div class="qp-score" data-score-counter="${p.rank}">${alreadyDone ? `${fmtScore(p.score)} đ` : "???"}</div>
+                      </div>
+                      <div class="qp-pedestal p-${p.rank} ${alreadyDone ? "" : "is-hidden-ped"}" data-qp-ped="${p.rank}">
+                        <div class="qp-rank-num">#${p.rank}</div>
+                        <div class="qp-sub-acc">Đúng ${p.correctCount}/${st.totalQuestions} câu</div>
+                      </div>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+
+            <div style="display:flex; justify-content:center; gap:10px; margin-top:12px;">
+              <button type="button" class="btn btn-outline btn-sm" id="btnReplayPodium">${icon("refresh", 14)} Phát lại vinh danh</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="analytics-card final-table-card ${alreadyDone ? "is-revealed" : ""}" id="finalTableCard">
+          <h3 style="margin:0 0 12px; font-size:1.05rem; display:inline-flex; align-items:center; gap:8px;">${icon("barChart", 18)} Bảng xếp hạng chung cuộc</h3>
           <div style="overflow-x:auto; text-align:left;">
             <table class="lb-table">
               <thead>
-                <tr>
-                  <th>Hạng</th>
-                  <th>Học sinh</th>
-                  <th>Lớp</th>
-                  <th>Số câu đúng</th>
-                  <th>Tổng điểm</th>
-                </tr>
+                <tr><th>Hạng</th><th>Học sinh</th><th>Lớp</th><th>Số câu đúng</th><th>Tổng điểm</th></tr>
               </thead>
               <tbody>
                 ${lb
                   .map(
                     (p) => `
                     <tr>
-                      <td style="font-weight:800;">#${p.rank}</td>
-                      <td style="font-weight:700;">${escapeHtml(p.avatar)} ${escapeHtml(p.name)}</td>
+                      <td style="font-family:var(--font-mono); font-weight:800;">#${p.rank}</td>
+                      <td style="font-weight:700; display:flex; align-items:center; gap:9px;">${avatarBadge(p.name, p.avatar, 28)} <span>${escapeHtml(p.name)}</span></td>
                       <td>${escapeHtml(p.className || "-")}</td>
                       <td>${p.correctCount} / ${st.totalQuestions}</td>
-                      <td style="font-family:var(--font-mono); font-weight:800; color:var(--primary);">${p.score.toLocaleString("vi-VN")}</td>
+                      <td style="font-family:var(--font-mono); font-weight:800; color:var(--primary);">${fmtScore(p.score)}</td>
                     </tr>
                   `
                   )
@@ -1445,60 +2199,385 @@
               </tbody>
             </table>
           </div>
-        ` : `
-          <div style="padding:30px 16px; color:var(--text-secondary);">
-            Chế độ tính điểm đang tắt (Chế độ giảng dạy thuần tương tác). Thầy/cô có thể tải file CSV để xem thống kê chi tiết từng câu của cả lớp!
-          </div>
-        `}
+        </section>
+      `;
+    }
+
+    // Mid-game leaderboard view with Lucian #246 Rank-Swapping Bar Race
+    const topRace = lb.slice(0, 8);
+    const raceH = Math.max(52, topRace.length * 46);
+    return `
+      <section class="analytics-card" style="text-align:center;">
+        <span class="badge badge-purple" style="font-size:0.88rem;">
+          ${icon("trophy", 14)} BẢNG XẾP HẠNG HIỆN TẠI
+        </span>
+        <h2 style="margin:10px 0 4px; font-size:1.5rem;">${escapeHtml(st.setTitle)}</h2>
+        <p style="margin:0; color:var(--text-secondary);">${st.playerCount} học sinh tham gia • ${st.totalQuestions} câu hỏi</p>
+
+        ${
+          topRace.length > 0
+            ? `
+              <div class="u246-race-wrap" style="text-align:left;">
+                <div class="u246-race-head">
+                  <strong>Đua top trực tiếp (Top ${topRace.length})</strong>
+                  <span class="u246-race-sub">Câu ${st.questionIndex + 1} / ${st.totalQuestions}</span>
+                </div>
+                <div class="u246-race-board" id="u246RaceBoard" style="height:${raceH}px;"></div>
+              </div>
+            `
+            : ""
+        }
+
+        <div class="podium-row">
+          ${podiumOrder
+            .map(
+              (p) => `
+              <div class="podium-slot rank-${p.rank}">
+                <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:6px;">
+                  <span style="color:${rankColors[p.rank] || "var(--primary)"};">${icon("award", 22)}</span>
+                  ${avatarBadge(p.name, p.avatar, 42)}
+                </div>
+                <div style="font-size:0.78rem; font-weight:800; color:${rankColors[p.rank] || "var(--text-muted)"};">HẠNG #${p.rank}</div>
+                <div style="font-weight:800; font-size:1.04rem; margin-top:2px;">${escapeHtml(p.name)}</div>
+                ${p.className ? `<div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(p.className)}</div>` : ""}
+                <div style="font-family:var(--font-mono); font-size:1.35rem; font-weight:800; color:var(--primary); margin-top:8px;">${fmtScore(p.score)} đ</div>
+                <div style="font-size:0.8rem; color:var(--success); font-weight:700;">Đúng trọn vẹn ${p.correctCount} câu</div>
+              </div>
+            `
+            )
+            .join("")}
+        </div>
+
+        <div style="overflow-x:auto; text-align:left;">
+          <table class="lb-table">
+            <thead>
+              <tr><th>Hạng</th><th>Học sinh</th><th>Lớp</th><th>Số câu đúng</th><th>Tổng điểm</th></tr>
+            </thead>
+            <tbody>
+              ${lb
+                .map(
+                  (p) => `
+                  <tr>
+                    <td style="font-family:var(--font-mono); font-weight:800;">#${p.rank}</td>
+                    <td style="font-weight:700; display:flex; align-items:center; gap:9px;">${avatarBadge(p.name, p.avatar, 28)} <span>${escapeHtml(p.name)}</span></td>
+                    <td>${escapeHtml(p.className || "-")}</td>
+                    <td>${p.correctCount} / ${st.totalQuestions}</td>
+                    <td style="font-family:var(--font-mono); font-weight:800; color:var(--primary);">${fmtScore(p.score)}</td>
+                  </tr>
+                `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
       </section>
     `;
   }
 
-  function renderStageDock(st) {
+  function mountBarRaceLeaderboard(st) {
+    const board = document.getElementById("u246RaceBoard");
+    if (!board) return;
+    const lb = (st.leaderboard || []).slice(0, 8);
+    if (!lb.length) return;
+
+    const ROW_H = 46;
+    const palette = ["#2563eb", "#0d9488", "#d97706", "#7c3aed", "#e11d48", "#0284c7", "#16a34a", "#ea580c"];
+    const maxScore = Math.max(10, ...lb.map((p) => Number(p.score || 0)));
+    const prevMap = app.prevRaceSnapshot || new Map();
+
+    // Build rows keyed by player id at their previous rank (or bottom) so overtaking glides visibly!
+    const items = lb.map((p, newIdx) => {
+      const key = p.id || p.name;
+      const prev = prevMap.get(key);
+      const startIdx = prev ? Math.min(lb.length - 1, prev.idx) : newIdx;
+      const startPct = prev ? prev.pct : 0;
+      const targetPct = Math.max(8, Math.round((Number(p.score || 0) / maxScore) * 100));
+      const movedUp = prev && newIdx < prev.idx;
+      const color = palette[newIdx % palette.length];
+      return { p, key, newIdx, startIdx, startPct, targetPct, movedUp, color };
+    });
+
+    board.innerHTML = items
+      .map(
+        ({ p, key, startIdx, startPct, movedUp, color }) => `
+        <div
+          class="u246-row ${p.rank === 1 ? "is-first" : ""} ${movedUp ? "is-rising" : ""}"
+          data-race-id="${escapeHtml(key)}"
+          style="transform:translate3d(0, ${startIdx * ROW_H}px, 0);"
+        >
+          <span class="u246-rank">#${p.rank}</span>
+          <div class="u246-who">
+            ${avatarBadge(p.name, p.avatar, 26)}
+            <span class="u246-name">${escapeHtml(p.name)}</span>
+          </div>
+          <div class="u246-track">
+            <div class="u246-fill" style="width:${startPct}%; background:${color};"></div>
+          </div>
+          <span class="u246-score" data-target="${Number(p.score || 0)}">${fmtScore(prevMap.get(key)?.score ?? 0)} đ</span>
+        </div>
+      `
+      )
+      .join("");
+
+    // Glide to target rank + target width + count up scores on next frame
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!board.isConnected) return;
+        items.forEach(({ key, newIdx, targetPct, p }) => {
+          const row = board.querySelector(`[data-race-id="${CSS.escape(key)}"]`);
+          if (!row) return;
+          row.style.transform = `translate3d(0, ${newIdx * ROW_H}px, 0)`;
+          const fill = row.querySelector(".u246-fill");
+          if (fill) fill.style.width = `${targetPct}%`;
+          const scoreEl = row.querySelector(".u246-score");
+          if (scoreEl) {
+            const from = Number(prevMap.get(key)?.score ?? 0);
+            const to = Number(p.score || 0);
+            const t0 = performance.now();
+            const dur = 580;
+            const tick = (now) => {
+              if (!scoreEl.isConnected) return;
+              const k = Math.min(1, (now - t0) / dur);
+              const eased = 1 - Math.pow(1 - k, 3);
+              scoreEl.textContent = `${fmtScore(from + (to - from) * eased)} đ`;
+              if (k < 1) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }
+        });
+      });
+    });
+
+    // Save snapshot for next question's rank swap
+    const nextSnap = new Map();
+    items.forEach(({ key, newIdx, targetPct, p }) => {
+      nextSnap.set(key, { idx: newIdx, pct: targetPct, score: Number(p.score || 0) });
+    });
+    app.prevRaceSnapshot = nextSnap;
+  }
+
+  function animateScoreCounter(rank, target) {
+    const el = document.querySelector(`[data-score-counter="${rank}"]`);
+    if (!el) return;
+    const start = performance.now();
+    const dur = 750;
+    const step = (now) => {
+      const p = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = `${fmtScore(target * eased)} đ`;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function firePodiumConfetti() {
+    const canvas = document.getElementById("podiumConfettiCanvas");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width || 800;
+    canvas.height = rect.height || 420;
+    const ctx = canvas.getContext("2d");
+    const colors = ["#fbbf24", "#38bdf8", "#34d399", "#a78bfa", "#fb7185", "#ffffff"];
+    const parts = Array.from({ length: 110 }, () => ({
+      x: canvas.width * (0.2 + Math.random() * 0.6),
+      y: canvas.height * 0.42,
+      vx: (Math.random() - 0.5) * 11,
+      vy: -5 - Math.random() * 9.5,
+      size: 5 + Math.random() * 6,
+      rot: Math.random() * Math.PI * 2,
+      vrot: (Math.random() - 0.5) * 0.25,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      alpha: 1,
+    }));
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = 0;
+      for (const p of parts) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.24;
+        p.vx *= 0.99;
+        p.rot += p.vrot;
+        if (p.y > canvas.height * 0.82) p.alpha -= 0.025;
+        if (p.alpha <= 0) continue;
+        alive++;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 3, p.size, p.size * 0.65);
+        ctx.restore();
+      }
+      if (alive > 0) app.confettiRaf = requestAnimationFrame(draw);
+      else app.confettiRaf = null;
+    };
+    if (app.confettiRaf) cancelAnimationFrame(app.confettiRaf);
+    app.confettiRaf = requestAnimationFrame(draw);
+  }
+
+  function mountQuizizzFinalPodium(st, forceReplay = false) {
+    const replayBtn = document.getElementById("btnReplayPodium");
+    if (replayBtn) {
+      replayBtn.onclick = () => {
+        app.podiumRevealedKey = null;
+        renderRoom();
+      };
+    }
+
+    const key = `${st.code}-finished`;
+    if (!forceReplay && app.podiumRevealedKey === key) return;
+    app.podiumRevealedKey = key;
+    clearPodiumEffects();
+
+    const banner = document.getElementById("podiumStatusBanner");
+    const c1 = document.querySelector('[data-qp-rank="1"]');
+    const c2 = document.querySelector('[data-qp-rank="2"]');
+    const c3 = document.querySelector('[data-qp-rank="3"]');
+    const cards = [c1, c2, c3].filter(Boolean);
+    const tbl = document.getElementById("finalTableCard");
+
+    const setBanner = (txt) => {
+      if (banner) banner.innerHTML = `${icon("trophy", 15)} <span>${escapeHtml(txt)}</span>`;
+    };
+
+    // Phase 1: 3 finalists weave/shuffle left-center-right so nobody knows who is #1!
+    const perms = [
+      [0, 1, 2],
+      [2, 0, 1],
+      [1, 2, 0],
+      [0, 2, 1],
+      [2, 1, 0],
+      [1, 0, 2],
+    ];
+    perms.forEach((perm, step) => {
+      app.podiumTimers.push(
+        setTimeout(() => {
+          cards.forEach((el, i) => {
+            el.setAttribute("data-slot", String(perm[i] ?? i));
+          });
+        }, 120 + step * 330)
+      );
+    });
+
+    // Phase 2: Top 1 SLAMS straight into Center (#1) first!
+    app.podiumTimers.push(
+      setTimeout(() => {
+        if (c2) {
+          c2.classList.remove("is-shuffling");
+          c2.setAttribute("data-slot", "0");
+          c2.classList.add("is-waiting-drop");
+        }
+        if (c3) {
+          c3.classList.remove("is-shuffling");
+          c3.setAttribute("data-slot", "2");
+          c3.classList.add("is-waiting-drop");
+        }
+        if (c1) {
+          c1.classList.remove("is-shuffling");
+          c1.setAttribute("data-slot", "1");
+          c1.classList.add("is-slam-1", "is-revealed-1");
+          const ped1 = document.querySelector('[data-qp-ped="1"]');
+          const cr1 = document.querySelector('[data-qp-crown="1"]');
+          if (ped1) ped1.classList.remove("is-hidden-ped");
+          if (cr1) cr1.classList.remove("hidden");
+          const topName = st.leaderboard && st.leaderboard[0] ? st.leaderboard[0].name : "";
+          setBanner(topName ? `Quán quân: ${topName}!` : "Chúc mừng Quán quân!");
+          animateScoreCounter(1, Number(c1.dataset.targetScore || 0));
+          firePodiumConfetti();
+        }
+      }, 2250)
+    );
+
+    // Phase 3: Then #2 and #3 drop cleanly into Left & Right pedestals!
+    app.podiumTimers.push(
+      setTimeout(() => {
+        if (c2) {
+          c2.classList.remove("is-waiting-drop");
+          c2.classList.add("is-slam-side");
+          const ped2 = document.querySelector('[data-qp-ped="2"]');
+          if (ped2) ped2.classList.remove("is-hidden-ped");
+          animateScoreCounter(2, Number(c2.dataset.targetScore || 0));
+        }
+      }, 3050)
+    );
+
+    app.podiumTimers.push(
+      setTimeout(() => {
+        if (c3) {
+          c3.classList.remove("is-waiting-drop");
+          c3.classList.add("is-slam-side");
+          const ped3 = document.querySelector('[data-qp-ped="3"]');
+          if (ped3) ped3.classList.remove("is-hidden-ped");
+          animateScoreCounter(3, Number(c3.dataset.targetScore || 0));
+        }
+      }, 3400)
+    );
+
+    // Phase 4: Reveal full leaderboard table underneath
+    app.podiumTimers.push(
+      setTimeout(() => {
+        if (tbl) tbl.classList.add("is-revealed");
+      }, 3950)
+    );
+  }
+
+  // Fixed icon dock order: Slot 1 = Lời giải, Slot 2 = BXH, | Slot 3 = Next (NEVER swaps!)
+  function renderIconDock(st) {
     const isLast = st.questionIndex >= st.totalQuestions - 1;
-    let controls = "";
+    let buttons = "";
 
     if (st.phase === "answering") {
-      controls = `
-        <button class="btn btn-dock" id="btnExtend15">+15 giây</button>
-        <button class="btn btn-dock ${st.settings.showLiveChart ? "active" : ""}" id="btnToggleLiveChart">
-          ${st.settings.showLiveChart ? "🙈 Ẩn biểu đồ" : "📊 Hiện biểu đồ"}
-        </button>
-        ${st.playerCount === 0 ? `<button class="btn btn-dock" id="btnStageSimBots">🤖 +40 HS ảo</button>` : ""}
-        <button class="btn btn-warning" data-act="lock">🔒 Khóa bài &amp; Tổng hợp (L)</button>
+      const lockTip = st.gameMode === "glass_bridge" ? "Mở 15s Tranh luận & Đổi phe" : "Kết thúc câu & Tổng hợp (L)";
+      const lockIco = st.gameMode === "glass_bridge" ? "debate" : "checkCircle";
+      buttons = `
+        <button class="dock-icon-btn" id="btnExtend15" data-tip="Thêm 15 giây">${icon("clock", 20)}</button>
+        ${st.gameMode === "classic" ? `<button class="dock-icon-btn ${st.settings.showLiveChart ? "is-active" : ""}" id="btnToggleLiveChart" data-tip="${st.settings.showLiveChart ? "Ẩn biểu đồ trực tiếp" : "Hiện biểu đồ trực tiếp"}">${icon(st.settings.showLiveChart ? "eyeOff" : "eye", 20)}</button>` : ""}
+        <span class="dock-sep"></span>
+        <button class="dock-icon-btn is-primary" data-act="lock" data-tip="${lockTip}">${icon(lockIco, 21)}</button>
       `;
-    } else if (st.phase === "review") {
-      controls = `
-        <button class="btn btn-dock" data-act="reopen">↺ Mở lại nhận bài</button>
-        <button class="btn ${st.revealAnswer ? "btn-success" : "btn-primary"}" data-act="reveal">
-          ${st.revealAnswer ? "✓ Đang hiện Đáp án (R)" : "🎯 Hiện Đáp án đúng (R)"}
-        </button>
-        <button class="btn ${st.showExplanation ? "btn-purple" : "btn-dock"}" data-act="toggle_explanation">
-          ${st.showExplanation ? "💡 Đang hiện Giải thích (E)" : "💡 Mở Giải thích (E)"}
-        </button>
-        ${st.settings.scoringEnabled ? `<button class="btn btn-dock" data-act="show_leaderboard">🏆 Bảng xếp hạng</button>` : ""}
-        <button class="btn btn-success" data-act="next">${isLast ? "🏁 Kết thúc buổi chơi →" : "Câu tiếp theo →"}</button>
+    } else if (st.phase === "bridge_debate") {
+      buttons = `
+        <button class="dock-icon-btn" id="btnExtend15" data-tip="Thêm 15 giây tranh luận">${icon("clock", 20)}</button>
+        <span class="dock-sep"></span>
+        <button class="dock-icon-btn is-primary" style="background:var(--danger); border-color:var(--danger);" data-act="shatter_glass" data-tip="Thử độ bền kính!">${icon("hammer", 20)}</button>
       `;
-    } else if (st.phase === "leaderboard") {
-      controls = `
-        <button class="btn btn-dock" data-act="show_leaderboard">← Quay lại biểu đồ</button>
-        <button class="btn btn-success" data-act="next">${isLast ? "🏁 Tổng kết buổi chơi →" : "Câu tiếp theo →"}</button>
+    } else if (st.phase === "impostor_vote") {
+      buttons = `
+        <button class="dock-icon-btn" id="btnExtend15" data-tip="Thêm 15 giây bỏ phiếu">${icon("clock", 20)}</button>
+        <span class="dock-sep"></span>
+        <button class="dock-icon-btn is-primary" data-act="resolve_vote" data-tip="Công bố kết quả bỏ phiếu">${icon("checkCircle", 21)}</button>
+      `;
+    } else if (st.phase === "impostor_vote_result") {
+      buttons = `
+        <button class="dock-icon-btn" data-act="toggle_explanation" data-tip="Xem lại lời giải">${icon("bulb", 20)}</button>
+        <button class="dock-icon-btn" data-act="show_leaderboard" data-tip="Bảng xếp hạng">${icon("trophy", 20)}</button>
+        <span class="dock-sep"></span>
+        <button class="dock-icon-btn is-success" data-act="next" data-tip="${isLast ? "Kết thúc buổi chơi" : "Câu tiếp theo (→)"}">${icon(isLast ? "flag" : "next", 21)}</button>
+      `;
+    } else if (st.phase === "review" || st.phase === "leaderboard") {
+      const isLb = st.phase === "leaderboard";
+      const explActive = st.phase === "review" && st.showExplanation;
+      const canVote = st.gameMode === "math_impostor" && (st.modeData?.remainingImpostors || 0) > 0;
+      buttons = `
+        <button class="dock-icon-btn ${explActive ? "is-active" : ""}" data-act="toggle_explanation" data-tip="${explActive ? "Ẩn lời giải (E)" : "Lời giải (E)"}">${icon("bulb", 20)}</button>
+        <button class="dock-icon-btn ${isLb ? "is-active" : ""}" data-act="show_leaderboard" data-tip="${isLb ? "Quay lại câu trả lời" : "Bảng xếp hạng"}">${icon("trophy", 20)}</button>
+        ${canVote ? `<button class="dock-icon-btn" data-act="start_meeting" data-tip="Họp khẩn & Bỏ phiếu trục xuất" style="color:var(--purple); border-color:var(--purple-border);">${icon("voteBox", 20)}</button>` : ""}
+        <span class="dock-sep"></span>
+        <button class="dock-icon-btn is-success" data-act="next" data-tip="${isLast ? "Kết thúc buổi chơi" : "Câu tiếp theo (→)"}">${icon(isLast ? "flag" : "next", 21)}</button>
       `;
     } else if (st.phase === "finished") {
-      controls = `
-        <button class="btn btn-dock" data-act="start">↺ Chơi lại từ Câu 1</button>
-        <a class="btn btn-success" href="/api/live/rooms/${encodeURIComponent(st.code)}/report.csv?token=${encodeURIComponent(app.hostToken)}">⬇ Tải báo cáo kết quả CSV</a>
+      buttons = `
+        <button class="dock-icon-btn is-primary" data-act="start" data-tip="Chơi lại từ Câu 1">${icon("refresh", 20)}</button>
       `;
     }
 
     return `
-      <div class="stage-dock">
-        <div style="font-size:0.84rem; opacity:0.85;">
-          Phím tắt: <strong>L</strong> Khóa • <strong>R</strong> Đáp án • <strong>E</strong> Giải thích • <strong>→</strong> Câu tiếp
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          ${controls}
-        </div>
+      <div class="icon-dock-wrap">
+        <nav class="icon-dock" aria-label="Điều khiển trình chiếu">
+          ${buttons}
+        </nav>
       </div>
     `;
   }
@@ -1508,35 +2587,50 @@
       .map(
         (p) => `
         <tr>
-          <td style="font-weight:700;">${escapeHtml(p.avatar)} ${escapeHtml(p.name)}</td>
+          <td style="font-weight:700; display:flex; align-items:center; gap:8px;">${avatarBadge(p.name, p.avatar, 26)} <span>${escapeHtml(p.name)}</span></td>
           <td>${escapeHtml(p.className || "-")}</td>
           <td>${p.submitted ? '<span class="badge badge-success">Đã nộp</span>' : '<span class="badge badge-amber">Chưa nộp</span>'}</td>
-          <td>${p.accuracy !== null ? `${Math.round(p.accuracy * 100)}%` : "-"}</td>
-          <td style="font-family:var(--font-mono); font-weight:700;">${p.score}</td>
+          <td style="font-family:var(--font-mono); font-weight:700; color:var(--success);">${p.pointsEarned ? `+${fmtScore(p.pointsEarned)}` : "0.0"}</td>
+          <td style="font-family:var(--font-mono); font-weight:800; color:var(--primary);">${fmtScore(p.score)}</td>
         </tr>
       `
       )
       .join("");
 
-    modalRoot.innerHTML = `
-      <div class="modal-backdrop" id="playersBackdrop">
-        <div class="modal-box" style="max-width:760px;">
-          <div class="modal-head">
-            <h3 style="margin:0;">👥 Chi tiết học sinh (${st.playerCount})</h3>
-            <button class="btn btn-ghost btn-sm" id="btnClosePlayers">✕</button>
+    const leftList = st.leftPlayers || [];
+    const leftHtml = leftList.length
+      ? `
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+          <div style="font-size:0.84rem; font-weight:800; color:var(--danger); margin-bottom:8px;">
+            Học sinh đã rời khỏi phòng / thoát màn hình (${leftList.length}):
           </div>
-          <div style="overflow-x:auto;">
-            <table class="lb-table">
-              <thead><tr><th>Họ tên</th><th>Lớp</th><th>Câu hiện tại</th><th>Độ đúng</th><th>Điểm</th></tr></thead>
-              <tbody>${rows || '<tr><td colspan="5" style="text-align:center;">Chưa có học sinh nào.</td></tr>'}</tbody>
-            </table>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            ${leftList
+              .map(
+                (lp) => `<span class="badge badge-rose">${escapeHtml(lp.name)}${lp.reason === "left_screen" ? " (thoát màn hình)" : " (tự thoát)"}</span>`
+              )
+              .join("")}
           </div>
         </div>
-      </div>
-    `;
-    const close = () => { modalRoot.innerHTML = ""; };
-    document.getElementById("btnClosePlayers").onclick = close;
-    document.getElementById("playersBackdrop").onclick = (e) => { if (e.target.id === "playersBackdrop") close(); };
+      `
+      : "";
+
+    openModal({
+      title: `Chi tiết học sinh (${st.playerCount})`,
+      iconName: "users",
+      wide: true,
+      bodyHtml: `
+        <div style="overflow-x:auto;">
+          <table class="lb-table">
+            <thead><tr><th>Họ tên</th><th>Lớp</th><th>Câu hiện tại</th><th>Điểm câu này</th><th>Tổng điểm</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="text-align:center;">Chưa có học sinh nào.</td></tr>'}</tbody>
+          </table>
+        </div>
+        ${leftHtml}
+      `,
+      footerHtml: `<button type="button" class="btn btn-outline" id="btnClosePlayersOk">Đóng</button>`,
+      onMount: () => { document.getElementById("btnClosePlayersOk").onclick = closeModal; },
+    });
   }
 
   init();
