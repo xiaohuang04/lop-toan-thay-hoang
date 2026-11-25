@@ -22,7 +22,7 @@ import {
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261125j';
+} from './classroom-feed.js?v=20261125k';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -1222,7 +1222,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             </div>
             <div class="form-group">
               <label>Nhãn nút nộp bài (tùy chọn)</label>
-              <input id="asgExtLabel" class="input-control" placeholder="Mở link nộp bài (Google Form)" value="${escapeAttr(existing?.externalLabel || '')}" />
+              <input id="asgExtLabel" class="input-control" placeholder="Nộp bài" value="${escapeAttr(existing?.externalLabel || '')}" />
             </div>
           </div>
           <div class="form-group">

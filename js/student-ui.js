@@ -7,7 +7,7 @@ import {
   formatDateTimeVN,
   getDeadlineStatus,
 } from './exam-engine.js?v=20261123d';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261125j';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261125k';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -388,7 +388,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
             if (isExternal) {
               const isChecked = Boolean(asg.isManuallyChecked);
               const checkedAt = asg.myManualCheck?.checkedAt ? formatDateTimeVN(asg.myManualCheck.checkedAt) : '';
-              const rawLbl = (asg.externalLabel || '').trim() || 'Mở link nộp bài (Google Form)';
+              const rawLbl = (asg.externalLabel || '').trim() || 'Nộp bài';
               const btnLbl = rawLbl.includes('↗') ? rawLbl : `${rawLbl} ↗`;
               return `
                 <article class="exam-card is-external-asg ${isChecked ? 'is-checked-asg' : ''}" style="cursor:default;">
@@ -405,7 +405,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                         ${
                           asg.note
                             ? escapeHtml(asg.note)
-                            : 'Bấm vào nút bên dưới để mở link nộp bài. Giáo viên sẽ kiểm tra và xác nhận trạng thái đã nộp.'
+                            : 'Bấm vào nút bên cạnh để mở link nộp bài'
                         }
                       </p>
                     </div>

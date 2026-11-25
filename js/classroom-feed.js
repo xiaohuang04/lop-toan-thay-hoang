@@ -147,7 +147,7 @@ function renderPostLinkedAssignmentZone(post, { isAdmin = false, assignmentsById
         : 'badge-p1';
 
   if (isExternal) {
-    const rawLabel = (asg.externalLabel || '').trim() || 'Mở link nộp bài (Google Form)';
+    const rawLabel = (asg.externalLabel || '').trim() || 'Nộp bài';
     const btnLabel = rawLabel.includes('↗') ? rawLabel : `${rawLabel} ↗`;
     const domain = extractDomain(asg.externalUrl || '');
 
@@ -211,7 +211,7 @@ function renderPostLinkedAssignmentZone(post, { isAdmin = false, assignmentsById
             ${
               asg.note
                 ? escapeHtml(asg.note)
-                : 'Bấm vào nút bên cạnh để mở link nộp bài. Giáo viên sẽ kiểm tra và xác nhận trạng thái đã nộp cho bạn.'
+                : 'Bấm vào nút bên cạnh để mở link nộp bài'
             }
             ${asg.dueAt ? ` • Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(asg.dueAt))}</strong>` : ''}
           </div>
@@ -1190,7 +1190,7 @@ export function openPostComposerModal({
             <div class="form-row-2">
               <div class="form-group" style="margin-bottom:10px;">
                 <label>Nhãn nút nộp bài (tùy chọn)</label>
-                <input id="postAsgExtLabel" class="input-control" placeholder="Mở link nộp bài (Google Form)" value="${escapeAttr(linkedAssignment?.externalLabel || '')}" />
+                <input id="postAsgExtLabel" class="input-control" placeholder="Nộp bài" value="${escapeAttr(linkedAssignment?.externalLabel || '')}" />
               </div>
               <div class="form-group" style="margin-bottom:10px;">
                 <label>Hạn nộp (dd/mm/yyyy — để trống nếu không giới hạn)</label>
