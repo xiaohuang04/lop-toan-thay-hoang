@@ -8,7 +8,7 @@ import {
   prepareExamInstance,
   gradeExam,
 } from './exam-engine.js';
-import { renderFlipClockHtml, updateFlipClock } from './ux-effects.js?v=20261125g';
+import { renderFlipClockHtml, updateFlipClock } from './ux-effects.js?v=20261125l';
 
 export function createExamRunner({ rootEl, uiHelpers }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;

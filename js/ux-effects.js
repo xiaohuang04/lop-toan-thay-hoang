@@ -705,6 +705,15 @@ function enhanceCheckbox(input) {
   if (!input || input.tagName !== 'INPUT' || input.type !== 'checkbox') return;
   if (input.dataset.auiChk === '1' || input.dataset.auiSkip === '1') return;
   if (!input.parentNode) return;
+  // Never wrap custom pill toggle switches (<label class="switch"><input><span class="slider">)
+  if (
+    input.closest('.switch, .toggle-switch') ||
+    input.nextElementSibling?.classList.contains('slider') ||
+    input.nextElementSibling?.classList.contains('toggle-slider')
+  ) {
+    input.dataset.auiSkip = '1';
+    return;
+  }
   input.dataset.auiChk = '1';
 
   const host = document.createElement('span');

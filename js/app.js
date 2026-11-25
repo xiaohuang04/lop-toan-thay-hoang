@@ -1,10 +1,10 @@
 import { api, setToken } from './api.js?v=20261125j';
-import { createExamRunner } from './exam-runner.js?v=20261125g';
+import { createExamRunner } from './exam-runner.js?v=20261125l';
 import { createTeacherController } from './teacher-ui.js?v=20261125k';
 import { createStudentController } from './student-ui.js?v=20261125k';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
-import { createGradebookController } from './gradebook.js?v=20261125g';
+import { createGradebookController } from './gradebook.js?v=20261125l';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
@@ -15,7 +15,7 @@ import {
   bindSegmentedStorageMeter,
   initAnimateUiPrimitives,
   scanAnimateUiPrimitives,
-} from './ux-effects.js?v=20261125g';
+} from './ux-effects.js?v=20261125l';
 
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');

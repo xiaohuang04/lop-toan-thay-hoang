@@ -2,7 +2,7 @@ import { api } from './api.js?v=20261124m';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 import { extractGradebookFromPdfFile, formatDobVNAdmin } from './pdf-reader.js?v=20261124o';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
-import { renderMorphBarChartHtml, bindMorphBarChart } from './ux-effects.js?v=20261125g';
+import { renderMorphBarChartHtml, bindMorphBarChart } from './ux-effects.js?v=20261125l';
 
 function getColumnsForTerm(term) {
   const numTx = Number(term) === 2 ? 5 : 4;
