@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261124z2';
+import { api } from './api.js?v=20261125j';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
@@ -21,7 +21,8 @@ import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
-} from './classroom-feed.js?v=20261124z4';
+  getTargetStudentsForAssignment,
+} from './classroom-feed.js?v=20261125j';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -276,6 +277,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         ${renderFeedList({
           posts: filtered,
           isAdmin: true,
+          assignments: state.data.assignments || [],
+          exams: state.data.exams || [],
+          students: state.data.students || [],
+          submissions: state.data.submissions || [],
           emptyTitle: posts.length ? 'Không tìm thấy bài viết phù hợp' : 'Chưa có bài đăng nào trong lớp học',
           emptyText: posts.length
             ? 'Thử chọn lớp khác hoặc đổi từ khóa tìm kiếm.'
@@ -759,13 +764,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
   // SUB-TAB 2: ASSIGNMENTS & DEADLINES
   // =========================================================
   function renderAssignmentsSection() {
-    const { assignments, exams, students, submissions } = state.data;
+    const { assignments, exams, students, submissions, posts } = state.data;
     const examsById = new Map(exams.map((e) => [e.id, e]));
+    const postsById = new Map((posts || []).map((p) => [p.id, p]));
 
     return `
       <div class="section-toolbar">
         <p style="margin:0; font-size:0.88rem; color:var(--text-secondary);">
-          Chọn đề thi, thiết lập <strong>hạn nộp bài tập</strong> và chỉ định học sinh hoặc cả lớp cần làm bài.
+          Quản lý cả <strong>bài làm Online</strong> (từ Ngân hàng đề) và <strong>bài nộp qua Link / Google Form</strong> (tự động đồng bộ từ Bảng tin).
         </p>
         <button class="btn btn-primary" id="btnNewAssignment">+ Giao bài tập mới</button>
       </div>
@@ -774,19 +780,16 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         ${
           assignments.length === 0
             ? `<div class="card panel-card" style="text-align:center; padding:40px; color:var(--text-muted);">
-                Chưa có đợt giao bài nào. Nhấn <strong>"+ Giao bài tập mới"</strong> để giao bài cho học sinh.
+                Chưa có đợt giao bài nào. Nhấn <strong>"+ Giao bài tập mới"</strong> hoặc tích chọn bài tập khi đăng bài ở Bảng tin.
               </div>`
             : assignments
                 .map((asg) => {
-                  const exam = examsById.get(asg.examId);
+                  const isExternal = asg.submissionMode === 'external_link';
+                  const exam = !isExternal ? examsById.get(asg.examId) : null;
+                  const linkedPost = asg.linkedPostId ? postsById.get(asg.linkedPostId) : null;
                   const asgType = asg.assignmentType === 'test' ? 'test' : 'homework';
                   const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
-                  const targetStudents = asg.assignAll
-                    ? students
-                    : students.filter((s) => (asg.studentIds || []).includes(s.id));
-                  const submittedStudentIds = new Set(
-                    submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId)
-                  );
+                  const targetStudents = getTargetStudentsForAssignment(asg, students);
                   const statusBadgeCls = dl.expired
                     ? 'badge-danger'
                     : dl.notOpen
@@ -794,14 +797,84 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                       : dl.urgent
                         ? 'badge-warning'
                         : 'badge-success';
+
+                  if (isExternal) {
+                    const checks = asg.manualChecks && typeof asg.manualChecks === 'object' ? asg.manualChecks : {};
+                    const checkedCount = targetStudents.filter((s) => Boolean(checks[s.id]?.checked)).length;
+                    const allDone = targetStudents.length > 0 && checkedCount === targetStudents.length;
+                    const targetSummary = asg.assignAll
+                      ? 'Toàn bộ học sinh'
+                      : asg.targetClasses?.length
+                        ? `Các lớp: ${asg.targetClasses.map((c) => `Lớp ${c}`).join(', ')} (${targetStudents.length} HS)`
+                        : targetStudents.map((s) => `${s.fullName} (${s.className})`).join(', ') || 'Chưa chọn';
+
+                    return `
+                      <article class="exam-card is-external-asg" style="cursor:default;" data-asg-card="${escapeAttr(asg.id)}">
+                        <div class="exam-card-top">
+                          <div>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                              <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+                                ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
+                              </span>
+                              <span class="badge badge-p3">Nộp qua Link / Form</span>
+                              ${linkedPost ? `<span class="badge badge-neutral">Liên kết Bảng tin</span>` : ''}
+                              <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
+                            </div>
+                            <p class="exam-card-desc">
+                              Link nộp bài: <a href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer" class="feed-inline-link">${escapeHtml(asg.externalUrl)}</a>
+                              ${asg.note ? ` • ${escapeHtml(asg.note)}` : ''}
+                            </p>
+                          </div>
+                          ${
+                            asg.dueAt
+                              ? `<span class="badge ${statusBadgeCls}">${escapeHtml(dl.label)}</span>`
+                              : `<span class="badge badge-success">Đang mở</span>`
+                          }
+                        </div>
+
+                        <div class="exam-card-badges">
+                          ${asg.dueAt ? `<span class="badge badge-p1">Hạn nộp: ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>` : `<span class="badge badge-neutral">Không giới hạn hạn nộp</span>`}
+                          <span class="badge ${allDone ? 'badge-success' : 'badge-p2'}">GV đã tick nộp: ${checkedCount} / ${targetStudents.length} HS</span>
+                          <span class="badge badge-neutral">${asg.assignAll ? 'Giao tất cả HS' : `${targetStudents.length} HS được giao`}</span>
+                        </div>
+
+                        <div class="exam-card-footer">
+                          <div class="exam-meta-inline" style="flex-wrap:wrap;">
+                            <span>Đối tượng: ${escapeHtml(targetSummary)}</span>
+                          </div>
+                          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-primary btn-sm" data-manual-check-asg="${escapeAttr(asg.id)}">
+                              ✓ Tick đã nộp (${checkedCount}/${targetStudents.length})
+                            </button>
+                            <a class="btn btn-secondary btn-sm" href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer">
+                              Mở link ↗
+                            </a>
+                            ${
+                              linkedPost
+                                ? `<button class="btn btn-ghost btn-sm" data-goto-post="${escapeAttr(linkedPost.id)}">Xem bài viết</button>`
+                                : ''
+                            }
+                            <button class="btn btn-secondary btn-sm" data-edit-asg="${escapeAttr(asg.id)}">Sửa</button>
+                            <button class="btn btn-danger-outline btn-sm" data-del-asg="${escapeAttr(asg.id)}">Xóa</button>
+                          </div>
+                        </div>
+                      </article>
+                    `;
+                  }
+
+                  const submittedStudentIds = new Set(
+                    submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId)
+                  );
                   return `
-                    <article class="exam-card" style="cursor:default;">
+                    <article class="exam-card" style="cursor:default;" data-asg-card="${escapeAttr(asg.id)}">
                       <div class="exam-card-top">
                         <div>
                           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
                             <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
                               ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
                             </span>
+                            <span class="badge badge-p2">Làm Online</span>
+                            ${linkedPost ? `<span class="badge badge-neutral">Liên kết Bảng tin</span>` : ''}
                             <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
                           </div>
                           <p class="exam-card-desc">
@@ -832,9 +905,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                           }</span>
                         </div>
                         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                          <button class="btn btn-secondary btn-sm" data-view-asg-subs="${asg.id}">Xem bài nộp</button>
-                          <button class="btn btn-secondary btn-sm" data-edit-asg="${asg.id}">Sửa hạn nộp / HS</button>
-                          <button class="btn btn-danger-outline btn-sm" data-del-asg="${asg.id}">Xóa</button>
+                          <button class="btn btn-secondary btn-sm" data-view-asg-subs="${escapeAttr(asg.id)}">Xem bài nộp</button>
+                          ${
+                            linkedPost
+                              ? `<button class="btn btn-ghost btn-sm" data-goto-post="${escapeAttr(linkedPost.id)}">Xem bài viết</button>`
+                              : ''
+                          }
+                          <button class="btn btn-secondary btn-sm" data-edit-asg="${escapeAttr(asg.id)}">Sửa hạn nộp / HS</button>
+                          <button class="btn btn-danger-outline btn-sm" data-del-asg="${escapeAttr(asg.id)}">Xóa</button>
                         </div>
                       </div>
                     </article>
@@ -846,33 +924,275 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     `;
   }
 
+  function openManualCheckModal(asgId) {
+    const asg = state.data.assignments.find((a) => a.id === asgId);
+    if (!asg) return;
+    const students = state.data.students || [];
+    const targets = getTargetStudentsForAssignment(asg, students);
+    const classList = [...new Set(targets.map((s) => s.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    let checks = { ...(asg.manualChecks && typeof asg.manualChecks === 'object' ? asg.manualChecks : {}) };
+    let filterClass = 'all';
+    let filterStatus = 'all'; // 'all' | 'checked' | 'unchecked'
+    let searchTerm = '';
+    let changedAny = false;
+
+    const getFiltered = () =>
+      targets.filter((s) => {
+        if (filterClass !== 'all' && s.className !== filterClass) return false;
+        const isDone = Boolean(checks[s.id]?.checked);
+        if (filterStatus === 'checked' && !isDone) return false;
+        if (filterStatus === 'unchecked' && isDone) return false;
+        if (searchTerm) {
+          const hay = `${s.fullName} ${s.username} ${s.className || ''}`.toLowerCase();
+          if (!hay.includes(searchTerm)) return false;
+        }
+        return true;
+      });
+
+    openModal({
+      title: `Kiểm tra nộp bài — ${asg.title}`,
+      wide: true,
+      bodyHtml: `
+        <div class="mc-top-bar">
+          <div class="mc-summary-left">
+            <span class="badge badge-p1" id="mcProgressBadge">Đã nộp: 0 / ${targets.length} HS</span>
+            ${asg.dueAt ? `<span class="badge badge-neutral">Hạn: ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>` : ''}
+          </div>
+          ${
+            asg.externalUrl
+              ? `<a class="btn btn-secondary btn-sm" href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer">Mở link Google Form ↗</a>`
+              : ''
+          }
+        </div>
+
+        <div class="mc-filter-bar">
+          <input id="mcSearchInp" type="search" class="input-control input-compact" placeholder="Tìm tên hoặc tài khoản học sinh..." style="flex:1; min-width:180px;" />
+          <div class="mc-pills" id="mcStatusPills">
+            <button type="button" class="btn btn-sm btn-primary" data-mc-status="all">Tất cả</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-mc-status="checked">Đã nộp</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-mc-status="unchecked">Chưa nộp</button>
+          </div>
+        </div>
+
+        ${
+          classList.length > 1
+            ? `
+              <div class="mc-pills" id="mcClassPills" style="margin-bottom:10px;">
+                <button type="button" class="btn btn-sm btn-primary" data-mc-class="all">Tất cả lớp</button>
+                ${classList.map((c) => `<button type="button" class="btn btn-sm btn-secondary" data-mc-class="${escapeAttr(c)}">Lớp ${escapeHtml(c)}</button>`).join('')}
+              </div>
+            `
+            : ''
+        }
+
+        <div class="mc-list" id="mcStudentList"></div>
+      `,
+      footerHtml: `
+        <div style="flex:1; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-ghost btn-sm" id="mcCheckVisibleBtn">Tick tất cả đang hiện</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="mcUncheckVisibleBtn">Bỏ tick đang hiện</button>
+        </div>
+        <button type="button" class="btn btn-primary" id="mcCloseBtn">Xong</button>
+      `,
+      onMount: (m) => {
+        const listEl = m.querySelector('#mcStudentList');
+        const badgeEl = m.querySelector('#mcProgressBadge');
+
+        function updateSummary() {
+          const doneCount = targets.filter((s) => Boolean(checks[s.id]?.checked)).length;
+          badgeEl.textContent = `Đã nộp: ${doneCount} / ${targets.length} HS`;
+          badgeEl.className = `badge ${targets.length > 0 && doneCount === targets.length ? 'badge-success' : 'badge-p1'}`;
+        }
+
+        function renderRows() {
+          updateSummary();
+          const rows = getFiltered();
+          if (targets.length === 0) {
+            listEl.innerHTML = `<div class="mc-empty">Chưa có học sinh nào thuộc đối tượng bài tập này.</div>`;
+            return;
+          }
+          if (rows.length === 0) {
+            listEl.innerHTML = `<div class="mc-empty">Không tìm thấy học sinh phù hợp bộ lọc.</div>`;
+            return;
+          }
+          listEl.innerHTML = rows
+            .map((s) => {
+              const rec = checks[s.id];
+              const isDone = Boolean(rec?.checked);
+              const atStr = rec?.checkedAt ? formatDateTimeVN(rec.checkedAt) : '';
+              return `
+                <label class="mc-row ${isDone ? 'is-checked' : ''}" data-mc-row="${escapeAttr(s.id)}">
+                  <input type="checkbox" class="mc-stu-chk" data-mc-sid="${escapeAttr(s.id)}" ${isDone ? 'checked' : ''} />
+                  <div class="mc-row-info">
+                    <div class="mc-row-name">
+                      <strong>${escapeHtml(s.fullName)}</strong>
+                      ${s.className ? `<span class="badge badge-neutral">Lớp ${escapeHtml(s.className)}</span>` : ''}
+                    </div>
+                    <div class="mc-row-sub">@${escapeHtml(s.username)}${atStr ? ` • Xác nhận: ${escapeHtml(atStr)}` : ''}</div>
+                  </div>
+                  <span class="badge ${isDone ? 'badge-success' : 'badge-warning'} mc-row-status">
+                    ${isDone ? '✓ Đã nộp' : 'Chưa nộp'}
+                  </span>
+                </label>
+              `;
+            })
+            .join('');
+
+          listEl.querySelectorAll('.mc-stu-chk').forEach((chk) => {
+            chk.addEventListener('change', async () => {
+              const sid = chk.dataset.mcSid;
+              const nextChecked = chk.checked;
+              const prevRec = checks[sid];
+              if (nextChecked) {
+                checks[sid] = { checked: true, checkedAt: new Date().toISOString(), note: '' };
+              } else {
+                delete checks[sid];
+              }
+              const rowEl = chk.closest('.mc-row');
+              if (rowEl) {
+                rowEl.classList.toggle('is-checked', nextChecked);
+                const statusEl = rowEl.querySelector('.mc-row-status');
+                if (statusEl) {
+                  statusEl.className = `badge ${nextChecked ? 'badge-success' : 'badge-warning'} mc-row-status`;
+                  statusEl.textContent = nextChecked ? '✓ Đã nộp' : 'Chưa nộp';
+                }
+              }
+              updateSummary();
+              try {
+                const res = await api.setAssignmentManualCheck(asg.id, { studentId: sid, checked: nextChecked });
+                if (res?.assignment?.manualChecks) {
+                  checks = { ...res.assignment.manualChecks };
+                  asg.manualChecks = res.assignment.manualChecks;
+                }
+                changedAny = true;
+              } catch (err) {
+                if (prevRec) checks[sid] = prevRec;
+                else delete checks[sid];
+                chk.checked = !nextChecked;
+                showToast(err.message || 'Không thể lưu trạng thái nộp bài.', 'error');
+                renderRows();
+              }
+            });
+          });
+        }
+
+        renderRows();
+
+        m.querySelector('#mcSearchInp')?.addEventListener('input', (e) => {
+          searchTerm = e.target.value.trim().toLowerCase();
+          renderRows();
+        });
+
+        m.querySelectorAll('[data-mc-status]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            filterStatus = btn.dataset.mcStatus;
+            m.querySelectorAll('[data-mc-status]').forEach((b) => {
+              b.className = `btn btn-sm ${b === btn ? 'btn-primary' : 'btn-secondary'}`;
+            });
+            renderRows();
+          });
+        });
+
+        m.querySelectorAll('[data-mc-class]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            filterClass = btn.dataset.mcClass;
+            m.querySelectorAll('[data-mc-class]').forEach((b) => {
+              b.className = `btn btn-sm ${b === btn ? 'btn-primary' : 'btn-secondary'}`;
+            });
+            renderRows();
+          });
+        });
+
+        async function bulkSetVisible(nextChecked) {
+          const visible = getFiltered();
+          if (!visible.length) return;
+          const updates = visible.map((s) => ({ studentId: s.id, checked: nextChecked }));
+          try {
+            const res = await api.setAssignmentManualCheck(asg.id, { updates });
+            if (res?.assignment?.manualChecks) {
+              checks = { ...res.assignment.manualChecks };
+              asg.manualChecks = res.assignment.manualChecks;
+            }
+            changedAny = true;
+            renderRows();
+            showToast(
+              nextChecked
+                ? `Đã đánh dấu ${visible.length} học sinh đã nộp.`
+                : `Đã bỏ đánh dấu ${visible.length} học sinh.`,
+              'success'
+            );
+          } catch (err) {
+            showToast(err.message || 'Lỗi cập nhật hàng loạt.', 'error');
+          }
+        }
+
+        m.querySelector('#mcCheckVisibleBtn')?.addEventListener('click', () => bulkSetVisible(true));
+        m.querySelector('#mcUncheckVisibleBtn')?.addEventListener('click', () => bulkSetVisible(false));
+        m.querySelector('#mcCloseBtn')?.addEventListener('click', () => {
+          closeModal();
+          if (changedAny) render();
+        });
+      },
+    });
+  }
+
   function openAssignmentModal({ existing = null, preselectExamId = null } = {}) {
     const { exams, students } = state.data;
-    if (exams.length === 0) {
-      showToast('Hãy tạo ít nhất 1 đề thi trước khi giao bài.', 'error');
-      return;
-    }
+    const initSubMode =
+      existing?.submissionMode === 'external_link'
+        ? 'external_link'
+        : preselectExamId
+          ? 'online'
+          : exams.length === 0
+            ? 'external_link'
+            : 'online';
 
     const classes = [...new Set(students.map((s) => s.className).filter(Boolean))];
-    const selExamId = existing?.examId || preselectExamId || exams[0].id;
-    const selExam = exams.find((e) => e.id === selExamId) || exams[0];
+    const selExamId = existing?.examId || preselectExamId || exams[0]?.id || '';
+    const selExam = exams.find((e) => e.id === selExamId) || exams[0] || null;
     const initType = existing?.assignmentType === 'test' ? 'test' : 'homework';
     const initTimed = initType === 'test' ? true : Boolean(existing?.timedMode);
-    const initDuration = existing?.durationMinutes || selExam.durationMinutes || 45;
+    const initDuration = existing?.durationMinutes || selExam?.durationMinutes || 45;
     const assignAll = existing ? Boolean(existing.assignAll) : false;
-    const chosenIds = new Set(existing ? existing.studentIds || [] : students.map((s) => s.id));
+    const chosenIds = new Set(
+      existing
+        ? getTargetStudentsForAssignment(existing, students).map((s) => s.id)
+        : students.map((s) => s.id)
+    );
 
     const openParts = existing?.openAt
       ? splitIsoToVnDateTime(existing.openAt)
       : defaultVnDateTime(0, '08:00');
     const dueParts = existing?.dueAt
       ? splitIsoToVnDateTime(existing.dueAt)
-      : defaultVnDateTime(5, '23:59');
+      : initSubMode === 'external_link'
+        ? { date: '', time: '23:59' }
+        : defaultVnDateTime(5, '23:59');
 
     openModal({
       title: existing ? 'Chỉnh sửa đợt giao bài' : 'Giao bài tập / bài kiểm tra cho học sinh',
       wide: true,
       bodyHtml: `
+        <div class="form-group">
+          <label>Hình thức làm &amp; nộp bài *</label>
+          <div class="asg-type-switch" id="asgSubModeSwitch">
+            <label class="asg-type-opt ${initSubMode === 'online' ? 'active' : ''}">
+              <input type="radio" name="asgSubMode" value="online" ${initSubMode === 'online' ? 'checked' : ''} ${existing ? 'disabled' : ''} />
+              <div>
+                <strong>Làm bài Online (Từ đề thi)</strong>
+                <small>Chọn từ Ngân hàng đề thi, HS làm trực tiếp trên web &amp; tự động chấm điểm</small>
+              </div>
+            </label>
+            <label class="asg-type-opt ${initSubMode === 'external_link' ? 'active' : ''}">
+              <input type="radio" name="asgSubMode" value="external_link" ${initSubMode === 'external_link' ? 'checked' : ''} ${existing ? 'disabled' : ''} />
+              <div>
+                <strong>Nộp qua Link / Google Form</strong>
+                <small>Gửi link nộp bài ngoài (Google Form...); giáo viên kiểm tra và tick xác nhận đã nộp</small>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <div class="form-group">
           <label>Loại hình giao bài *</label>
           <div class="asg-type-switch" id="asgTypeSwitch">
@@ -880,78 +1200,112 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
               <input type="radio" name="asgType" value="homework" ${initType === 'homework' ? 'checked' : ''} />
               <div>
                 <strong>Bài tập</strong>
-                <small>Tùy chọn tính giờ, linh hoạt thời gian làm bài trước hạn nộp</small>
+                <small>Linh hoạt thời gian làm bài trước hạn nộp</small>
               </div>
             </label>
             <label class="asg-type-opt ${initType === 'test' ? 'active' : ''}">
               <input type="radio" name="asgType" value="test" ${initType === 'test' ? 'checked' : ''} />
               <div>
                 <strong>Bài kiểm tra</strong>
-                <small>Mặc định có thời gian làm bài, quy định rõ giờ mở đề &amp; giờ nộp bài</small>
+                <small>Phân loại kiểm tra, quy định rõ khung thời gian làm bài</small>
               </div>
             </label>
           </div>
         </div>
 
-        <div class="form-row-2">
-          <div class="form-group">
-            <label>Chọn đề thi *</label>
-            <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
-              ${exams
-                .map(
-                  (e) =>
-                    `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
-                )
-                .join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Tiêu đề hiển thị cho HS</label>
-            <input id="asgTitle" class="input-control" value="${escapeAttr(existing?.title || selExam.title)}" />
-          </div>
-        </div>
-
-        <div class="form-row-2">
-          <div class="form-group" id="openAtGroup">
-            <label id="openAtLabel">
-              ${initType === 'test' ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn — để trống mở ngay)'}
-            </label>
-            <div class="vn-datetime-pair">
-              <input id="asgOpenDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.date : '')}" />
-              <input id="asgOpenTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.time : '08:00')}" />
+        <!-- External Link Mode Fields -->
+        <div id="asgExternalFields" class="${initSubMode === 'external_link' ? '' : 'hidden'}">
+          <div class="form-row-2">
+            <div class="form-group">
+              <label>Tiêu đề bài tập *</label>
+              <input id="asgExtTitle" class="input-control" placeholder="VD: Bài tập tuần 1 — Nộp qua Google Form" value="${escapeAttr(existing?.title || '')}" />
+            </div>
+            <div class="form-group">
+              <label>Nhãn nút nộp bài (tùy chọn)</label>
+              <input id="asgExtLabel" class="input-control" placeholder="Mở link nộp bài (Google Form)" value="${escapeAttr(existing?.externalLabel || '')}" />
             </div>
           </div>
-
           <div class="form-group">
-            <label id="dueAtLabel">
-              ${initType === 'test' ? 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *' : 'Hạn nộp bài tập (dd/mm/yyyy) *'}
-            </label>
-            <div class="vn-datetime-pair">
-              <input id="asgDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(dueParts.date)}" />
-              <input id="asgDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(dueParts.time)}" />
+            <label>Link nộp bài (Google Form / Link ngoài) *</label>
+            <input id="asgExtUrl" class="input-control" placeholder="https://docs.google.com/forms/d/e/..." value="${escapeAttr(existing?.externalUrl || '')}" />
+          </div>
+          <div class="form-group">
+            <label>Hạn nộp (dd/mm/yyyy — để trống nếu không giới hạn)</label>
+            <div class="vn-datetime-pair" style="max-width:320px;">
+              <input id="asgExtDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(existing?.dueAt ? dueParts.date : '')}" />
+              <input id="asgExtDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(dueParts.time || '23:59')}" />
             </div>
           </div>
         </div>
 
-        <div class="asg-options-box">
-          <div class="asg-opt-row">
-            <label class="checkbox-pill" style="margin:0;">
-              <input type="checkbox" id="asgTimed" ${initTimed ? 'checked' : ''} ${initType === 'test' ? 'disabled' : ''} />
-              <span>Tính thời gian làm bài</span>
-            </label>
-            <div id="asgDurationWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
-              <span>Làm trong</span>
-              <input id="asgDurationMinutes" type="number" min="1" max="300" class="input-control input-compact" style="width:82px; text-align:center;" value="${initDuration}" />
-              <span>phút</span>
-            </div>
-          </div>
+        <!-- Online Exam Mode Fields -->
+        <div id="asgOnlineFields" class="${initSubMode === 'online' ? '' : 'hidden'}">
+          ${
+            exams.length === 0
+              ? `<div class="composer-att-empty" style="color:var(--danger); margin-bottom:12px;">Chưa có đề thi nào trong Ngân hàng đề thi. Thầy hãy tạo đề trước hoặc chọn hình thức Nộp qua Link / Google Form.</div>`
+              : `
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label>Chọn đề thi *</label>
+                    <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
+                      ${exams
+                        .map(
+                          (e) =>
+                            `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
+                        )
+                        .join('')}
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Tiêu đề hiển thị cho HS</label>
+                    <input id="asgTitle" class="input-control" value="${escapeAttr(existing?.title || selExam?.title || '')}" />
+                  </div>
+                </div>
 
-          <div class="asg-opt-row" style="margin-top:10px;">
-            <label class="checkbox-pill" style="margin:0;">
-              <input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} />
-              <span>Trộn câu hỏi</span>
-            </label>
-          </div>
+                <div class="form-row-2">
+                  <div class="form-group" id="openAtGroup">
+                    <label id="openAtLabel">
+                      ${initType === 'test' ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn — để trống mở ngay)'}
+                    </label>
+                    <div class="vn-datetime-pair">
+                      <input id="asgOpenDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.date : '')}" />
+                      <input id="asgOpenTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.time : '08:00')}" />
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label id="dueAtLabel">
+                      ${initType === 'test' ? 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *' : 'Hạn nộp bài tập (dd/mm/yyyy) *'}
+                    </label>
+                    <div class="vn-datetime-pair">
+                      <input id="asgDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(dueParts.date || defaultVnDateTime(5, '23:59').date)}" />
+                      <input id="asgDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(dueParts.time || '23:59')}" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="asg-options-box">
+                  <div class="asg-opt-row">
+                    <label class="checkbox-pill" style="margin:0;">
+                      <input type="checkbox" id="asgTimed" ${initTimed ? 'checked' : ''} ${initType === 'test' ? 'disabled' : ''} />
+                      <span>Tính thời gian làm bài</span>
+                    </label>
+                    <div id="asgDurationWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
+                      <span>Làm trong</span>
+                      <input id="asgDurationMinutes" type="number" min="1" max="300" class="input-control input-compact" style="width:82px; text-align:center;" value="${initDuration}" />
+                      <span>phút</span>
+                    </div>
+                  </div>
+
+                  <div class="asg-opt-row" style="margin-top:10px;">
+                    <label class="checkbox-pill" style="margin:0;">
+                      <input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} />
+                      <span>Trộn câu hỏi</span>
+                    </label>
+                  </div>
+                </div>
+              `
+          }
         </div>
 
         <div class="form-group" style="margin-top:12px;">
@@ -1004,6 +1358,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       onMount: (modalEl) => {
         modalEl.querySelector('#modalCancelAsg').addEventListener('click', closeModal);
 
+        const extFields = modalEl.querySelector('#asgExternalFields');
+        const onlineFields = modalEl.querySelector('#asgOnlineFields');
         const examSel = modalEl.querySelector('#asgExamId');
         const titleInp = modalEl.querySelector('#asgTitle');
         const durInp = modalEl.querySelector('#asgDurationMinutes');
@@ -1014,21 +1370,35 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         const openLabel = modalEl.querySelector('#openAtLabel');
         const dueLabel = modalEl.querySelector('#dueAtLabel');
 
+        const getSubMode = () => modalEl.querySelector('input[name="asgSubMode"]:checked')?.value || initSubMode;
+
+        modalEl.querySelectorAll('input[name="asgSubMode"]').forEach((rad) => {
+          rad.addEventListener('change', () => {
+            const mode = getSubMode();
+            modalEl.querySelectorAll('#asgSubModeSwitch .asg-type-opt').forEach((lbl) => {
+              lbl.classList.toggle('active', lbl.querySelector('input')?.value === mode);
+            });
+            extFields.classList.toggle('hidden', mode !== 'external_link');
+            onlineFields.classList.toggle('hidden', mode !== 'online');
+          });
+        });
+
         function syncTypeUi(type) {
-          modalEl.querySelectorAll('.asg-type-opt').forEach((lbl) => {
+          modalEl.querySelectorAll('#asgTypeSwitch .asg-type-opt').forEach((lbl) => {
             const rad = lbl.querySelector('input[type="radio"]');
             lbl.classList.toggle('active', rad.value === type);
           });
+          if (!timedChk || !durWrap || !openLabel || !dueLabel) return;
           if (type === 'test') {
             timedChk.checked = true;
             timedChk.disabled = true;
             durWrap.classList.remove('hidden');
             openLabel.textContent = 'Thời gian mở đề (dd/mm/yyyy) *';
             dueLabel.textContent = 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *';
-            if (!openDateInp.value.trim()) {
+            if (openDateInp && !openDateInp.value.trim()) {
               const defOpen = defaultVnDateTime(0, '08:00');
               openDateInp.value = defOpen.date;
-              openTimeInp.value = defOpen.time;
+              if (openTimeInp) openTimeInp.value = defOpen.time;
             }
           } else {
             timedChk.disabled = false;
@@ -1042,11 +1412,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
           rad.addEventListener('change', () => syncTypeUi(rad.value));
         });
 
-        timedChk.addEventListener('change', () => {
-          durWrap.classList.toggle('hidden', !timedChk.checked);
-        });
+        if (timedChk && durWrap) {
+          timedChk.addEventListener('change', () => {
+            durWrap.classList.toggle('hidden', !timedChk.checked);
+          });
+        }
 
-        if (!existing) {
+        if (!existing && examSel && titleInp && durInp) {
           examSel.addEventListener('change', () => {
             const ex = exams.find((e) => e.id === examSel.value);
             if (ex) {
@@ -1076,51 +1448,100 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         });
 
         modalEl.querySelector('#modalSaveAsg').addEventListener('click', async () => {
+          const subMode = getSubMode();
           const asgType = modalEl.querySelector('input[name="asgType"]:checked')?.value || 'homework';
-          let openAtIso = '';
-          let dueAtIso = '';
-          try {
-            const openDateVal = openDateInp.value.trim();
-            if (asgType === 'test' && !openDateVal) {
-              throw new Error('Bài kiểm tra bắt buộc phải nhập Thời gian mở đề (dd/mm/yyyy).');
+          const selectedStudentIds = Array.from(modalEl.querySelectorAll('.asg-stu-chk:checked')).map((c) => c.value);
+
+          let payload;
+          if (subMode === 'external_link') {
+            const extTitle = modalEl.querySelector('#asgExtTitle').value.trim();
+            const extUrl = modalEl.querySelector('#asgExtUrl').value.trim();
+            if (!extTitle) {
+              showToast('Vui lòng nhập tiêu đề bài tập.', 'error');
+              return;
             }
-            if (openDateVal) {
-              openAtIso = parseVnDateTimeToIso(openDateVal, openTimeInp.value.trim() || '00:00', 'Thời gian mở đề');
+            if (!extUrl) {
+              showToast('Vui lòng nhập link nộp bài (Google Form / link ngoài).', 'error');
+              return;
             }
-            const dueDateVal = modalEl.querySelector('#asgDueDate').value.trim();
-            if (!dueDateVal) {
-              throw new Error('Vui lòng nhập ngày nộp bài theo định dạng dd/mm/yyyy.');
+            let dueAtIso = '';
+            const extDueDateVal = modalEl.querySelector('#asgExtDueDate').value.trim();
+            if (extDueDateVal) {
+              try {
+                dueAtIso = parseVnDateTimeToIso(
+                  extDueDateVal,
+                  modalEl.querySelector('#asgExtDueTime').value.trim() || '23:59',
+                  'Hạn nộp bài tập'
+                );
+              } catch (err) {
+                showToast(err.message, 'error');
+                return;
+              }
             }
-            dueAtIso = parseVnDateTimeToIso(
-              dueDateVal,
-              modalEl.querySelector('#asgDueTime').value.trim() || '23:59',
-              asgType === 'test' ? 'Thời gian nộp bài' : 'Hạn nộp bài tập'
-            );
-            if (openAtIso && new Date(dueAtIso) <= new Date(openAtIso)) {
-              throw new Error('Thời gian nộp bài phải sau thời gian mở đề.');
+            payload = {
+              submissionMode: 'external_link',
+              assignmentType: asgType,
+              title: extTitle,
+              externalUrl: extUrl,
+              externalLabel: modalEl.querySelector('#asgExtLabel').value.trim(),
+              dueAt: dueAtIso,
+              note: modalEl.querySelector('#asgNote').value.trim(),
+              assignAll: allChk.checked,
+              targetClasses: [],
+              studentIds: selectedStudentIds,
+            };
+          } else {
+            if (!examSel || !examSel.value) {
+              showToast('Hãy tạo ít nhất 1 đề thi trước khi giao bài Online.', 'error');
+              return;
             }
-          } catch (err) {
-            showToast(err.message, 'error');
-            return;
+            let openAtIso = '';
+            let dueAtIso = '';
+            try {
+              const openDateVal = openDateInp.value.trim();
+              if (asgType === 'test' && !openDateVal) {
+                throw new Error('Bài kiểm tra bắt buộc phải nhập Thời gian mở đề (dd/mm/yyyy).');
+              }
+              if (openDateVal) {
+                openAtIso = parseVnDateTimeToIso(openDateVal, openTimeInp.value.trim() || '00:00', 'Thời gian mở đề');
+              }
+              const dueDateVal = modalEl.querySelector('#asgDueDate').value.trim();
+              if (!dueDateVal) {
+                throw new Error('Vui lòng nhập ngày nộp bài theo định dạng dd/mm/yyyy.');
+              }
+              dueAtIso = parseVnDateTimeToIso(
+                dueDateVal,
+                modalEl.querySelector('#asgDueTime').value.trim() || '23:59',
+                asgType === 'test' ? 'Thời gian nộp bài' : 'Hạn nộp bài tập'
+              );
+              if (openAtIso && new Date(dueAtIso) <= new Date(openAtIso)) {
+                throw new Error('Thời gian nộp bài phải sau thời gian mở đề.');
+              }
+            } catch (err) {
+              showToast(err.message, 'error');
+              return;
+            }
+
+            const timedMode = asgType === 'test' ? true : timedChk.checked;
+            const durationMinutes = Math.max(1, Number(durInp.value) || 45);
+            payload = {
+              submissionMode: 'online',
+              examId: examSel.value,
+              assignmentType: asgType,
+              title: titleInp.value.trim(),
+              openAt: openAtIso,
+              dueAt: dueAtIso,
+              note: modalEl.querySelector('#asgNote').value.trim(),
+              timedMode,
+              durationMinutes: timedMode ? durationMinutes : null,
+              shuffle: modalEl.querySelector('#asgShuffle').checked,
+              allowRetake: false,
+              assignAll: allChk.checked,
+              targetClasses: [],
+              studentIds: selectedStudentIds,
+            };
           }
 
-          const timedMode = asgType === 'test' ? true : timedChk.checked;
-          const durationMinutes = Math.max(1, Number(durInp.value) || 45);
-
-          const payload = {
-            examId: examSel.value,
-            assignmentType: asgType,
-            title: titleInp.value.trim(),
-            openAt: openAtIso,
-            dueAt: dueAtIso,
-            note: modalEl.querySelector('#asgNote').value.trim(),
-            timedMode,
-            durationMinutes: timedMode ? durationMinutes : null,
-            shuffle: modalEl.querySelector('#asgShuffle').checked,
-            allowRetake: false,
-            assignAll: allChk.checked,
-            studentIds: Array.from(modalEl.querySelectorAll('.asg-stu-chk:checked')).map((c) => c.value),
-          };
           try {
             if (existing) {
               await api.updateAssignment(existing.id, payload);
@@ -1206,7 +1627,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                   <tr>
                     <td class="stu-col-user"><code class="username-pill">@${escapeHtml(s.username)}</code></td>
                     <td class="stu-col-name">
-                      <strong>${escapeHtml(s.fullName)}</strong>
+                      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                        <strong>${escapeHtml(s.fullName)}</strong>
+                        ${s.isDemo ? `<span class="badge badge-p3">HS Demo</span>` : ''}
+                      </div>
                       ${
                         s.startDate || s.createdAt
                           ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Vào học: ${escapeHtml(formatDateVNAdmin(s.startDate || (s.createdAt || '').slice(0, 10)))}</div>`
@@ -1298,9 +1722,18 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             <input id="stuPhone" class="input-control" placeholder="Nhập số điện thoại (tùy chọn)" value="${escapeAttr(existing?.phone || '')}" />
           </div>
         </div>
-        <div class="form-group" style="margin-bottom:0;">
+        <div class="form-group" style="margin-bottom:12px;">
           <label>Email</label>
           <input id="stuEmail" type="email" class="input-control" placeholder="Nhập email (tùy chọn)" value="${escapeAttr(existing?.email || '')}" />
+        </div>
+        <div class="stu-demo-toggle-wrap">
+          <label class="stu-demo-toggle-lbl">
+            <input type="checkbox" id="stuIsDemo" ${existing?.isDemo ? 'checked' : ''} />
+            <div>
+              <strong>Đánh dấu là Học sinh Demo</strong>
+              <small>Hệ thống chỉ có duy nhất 1 tài khoản HS Demo. Tích chọn sẽ tự động thay thế HS Demo cũ (nếu có) và cho phép chuyển nhanh sang góc nhìn HS ngay trong menu tài khoản.</small>
+            </div>
+          </label>
         </div>
       `,
       footerHtml: `
@@ -1352,6 +1785,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             dob: dobIso,
             email: modalEl.querySelector('#stuEmail').value.trim(),
             phone: modalEl.querySelector('#stuPhone').value.trim(),
+            isDemo: Boolean(modalEl.querySelector('#stuIsDemo')?.checked),
           };
           const pw = modalEl.querySelector('#stuPassword').value.trim();
           try {
@@ -1495,9 +1929,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         onEdit: (postId) => {
           const post = (state.data.posts || []).find((p) => p.id === postId);
           if (!post) return;
+          const linkedAsg = post.linkedAssignmentId
+            ? (state.data.assignments || []).find((a) => a.id === post.linkedAssignmentId) || null
+            : null;
           openPostComposerModal({
             existing: post,
+            linkedAssignment: linkedAsg,
             classes: getKnownClasses(),
+            exams: state.data.exams || [],
             uiHelpers,
             onSaved: refresh,
           });
@@ -1505,9 +1944,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         onDelete: (postId) => {
           const post = (state.data.posts || []).find((p) => p.id === postId);
           if (!post) return;
+          const hasLinkedAsg = Boolean(post.linkedAssignmentId);
           openModal({
             title: 'Xác nhận xóa bài viết',
-            bodyHtml: `<p style="margin:0;">Thầy có chắc muốn xóa bài <strong>${escapeHtml(post.title || 'không tiêu đề')}</strong> và các tệp đính kèm không?</p>`,
+            bodyHtml: `<p style="margin:0;">Thầy có chắc muốn xóa bài <strong>${escapeHtml(post.title || 'không tiêu đề')}</strong>${hasLinkedAsg ? ' cùng bài tập liên kết' : ''} và các tệp đính kèm không?</p>`,
             footerHtml: `
               <button class="btn btn-secondary" id="mCancelDelPost">Hủy</button>
               <button class="btn btn-danger-outline" id="mOkDelPost">Xóa bài viết</button>
@@ -1527,6 +1967,23 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
             },
           });
         },
+        onManualCheck: (asgId) => openManualCheckModal(asgId),
+        onGotoAssignment: (asgId) => {
+          state.subTab = 'assignments';
+          render();
+          const card = rootEl.querySelector(`[data-asg-card="${CSS.escape(asgId)}"]`);
+          if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.classList.add('is-flash-hl');
+            setTimeout(() => card.classList.remove('is-flash-hl'), 1400);
+          }
+        },
+        onViewSubs: (asgId) => {
+          state.subFilterAsg = asgId;
+          state.subTab = 'assignments';
+          render();
+          rootEl.querySelector('#teacherSubmissionsSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
       });
     };
 
@@ -1535,7 +1992,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
     rootEl.querySelector('#btnNewPost')?.addEventListener('click', () => {
       openPostComposerModal({
         existing: null,
+        linkedAssignment: null,
         classes: getKnownClasses(),
+        exams: state.data.exams || [],
         uiHelpers,
         onSaved: refresh,
       });
@@ -1555,6 +2014,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       listEl.innerHTML = renderFeedList({
         posts: filtered,
         isAdmin: true,
+        assignments: state.data.assignments || [],
+        exams: state.data.exams || [],
+        students: state.data.students || [],
+        submissions: state.data.submissions || [],
         emptyTitle: 'Không tìm thấy bài viết phù hợp',
         emptyText: 'Thử chọn lớp khác hoặc đổi từ khóa tìm kiếm.',
       });
@@ -1622,6 +2085,24 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
     // Assignments tab events
     rootEl.querySelector('#btnNewAssignment')?.addEventListener('click', () => openAssignmentModal());
+    rootEl.querySelectorAll('[data-manual-check-asg]').forEach((btn) => {
+      btn.addEventListener('click', () => openManualCheckModal(btn.dataset.manualCheckAsg));
+    });
+    rootEl.querySelectorAll('[data-goto-post]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.gotoPost;
+        state.subTab = 'feed';
+        state.feedClassFilter = 'all';
+        state.feedSearch = '';
+        render();
+        const postEl = rootEl.querySelector(`[data-post-id="${CSS.escape(postId)}"]`);
+        if (postEl) {
+          postEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          postEl.classList.add('is-flash-hl');
+          setTimeout(() => postEl.classList.remove('is-flash-hl'), 1400);
+        }
+      });
+    });
     rootEl.querySelectorAll('[data-edit-asg]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const asg = state.data.assignments.find((a) => a.id === btn.dataset.editAsg);
@@ -1637,14 +2118,30 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       });
     });
     rootEl.querySelectorAll('[data-del-asg]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        try {
-          await api.deleteAssignment(btn.dataset.delAsg);
-          showToast('Đã xóa đợt giao bài tập.', 'success');
-          await refresh();
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
+      btn.addEventListener('click', () => {
+        const asg = state.data.assignments.find((a) => a.id === btn.dataset.delAsg);
+        if (!asg) return;
+        openModal({
+          title: 'Xác nhận xóa đợt giao bài',
+          bodyHtml: `<p style="margin:0;">Thầy có chắc muốn xóa bài <strong>${escapeHtml(asg.title)}</strong> không?${asg.linkedPostId ? ' (Bài viết trên Bảng tin vẫn được giữ nguyên, chỉ gỡ phần bài tập liên kết.)' : ''}</p>`,
+          footerHtml: `
+            <button class="btn btn-secondary" id="mCancelDelAsg">Hủy</button>
+            <button class="btn btn-danger-outline" id="mOkDelAsg">Xóa bài tập</button>
+          `,
+          onMount: (m) => {
+            m.querySelector('#mCancelDelAsg').addEventListener('click', closeModal);
+            m.querySelector('#mOkDelAsg').addEventListener('click', async () => {
+              closeModal();
+              try {
+                await api.deleteAssignment(asg.id);
+                showToast('Đã xóa đợt giao bài tập.', 'success');
+                await refresh();
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            });
+          },
+        });
       });
     });
 

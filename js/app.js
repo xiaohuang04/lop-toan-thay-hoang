@@ -1,7 +1,7 @@
-import { api, setToken } from './api.js?v=20261124z2';
+import { api, setToken } from './api.js?v=20261125j';
 import { createExamRunner } from './exam-runner.js?v=20261125g';
-import { createTeacherController } from './teacher-ui.js?v=20261125h';
-import { createStudentController } from './student-ui.js?v=20261125h';
+import { createTeacherController } from './teacher-ui.js?v=20261125j';
+import { createStudentController } from './student-ui.js?v=20261125j';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125g';
@@ -35,10 +35,11 @@ const loginError = document.getElementById('loginError');
 const userRoleBadge = document.getElementById('userRoleBadge');
 const userNameText = document.getElementById('userNameText');
 const userMenuWrap = document.getElementById('userMenuWrap');
-const btnLocalQuickSwitch = document.getElementById('btnLocalQuickSwitch');
 const userMenuTrigger = document.getElementById('userMenuTrigger');
 const userDropdown = document.getElementById('userDropdown');
 const menuItemProfile = document.getElementById('menuItemProfile');
+const menuItemSwitchDemo = document.getElementById('menuItemSwitchDemo');
+const menuItemSwitchAdmin = document.getElementById('menuItemSwitchAdmin');
 const menuItemStorage = document.getElementById('menuItemStorage');
 const menuItemChangePw = document.getElementById('menuItemChangePw');
 const menuItemLogout = document.getElementById('menuItemLogout');
@@ -284,12 +285,7 @@ function syncBrowserUrl(targetPath, { replace = false } = {}) {
 }
 
 let modelsVisibilityMode = 'all_grades';
-let isLocalDevSession = false;
-
-function isLocalhostClient() {
-  const h = window.location.hostname;
-  return h === 'localhost' || h === '127.0.0.1';
-}
+let canSwitchBackToAdmin = false;
 
 const labCtrl = createHtmlLabController({
   rootEl: document.getElementById('labRoot'),
@@ -625,6 +621,12 @@ function updateUserHeader() {
   if (tabExamLabel) {
     tabExamLabel.textContent = isAdmin ? 'Quản lý lớp học' : 'Lớp học của tôi';
   }
+  if (menuItemSwitchDemo) {
+    menuItemSwitchDemo.classList.toggle('hidden', !isAdmin);
+  }
+  if (menuItemSwitchAdmin) {
+    menuItemSwitchAdmin.classList.toggle('hidden', isAdmin || !canSwitchBackToAdmin);
+  }
   if (menuItemStorage) {
     menuItemStorage.classList.toggle('hidden', !isAdmin);
   }
@@ -641,35 +643,41 @@ function updateUserHeader() {
   if (tabBtnLiveGame) {
     tabBtnLiveGame.classList.toggle('hidden', !isAdmin);
   }
-  if (btnLocalQuickSwitch) {
-    const allowQuick = isLocalhostClient() && isLocalDevSession;
-    btnLocalQuickSwitch.classList.toggle('hidden', !allowQuick);
-    if (allowQuick) {
-      btnLocalQuickSwitch.textContent = isAdmin ? '⇄ Xem góc HS' : '⇄ Về Admin';
-    }
-  }
 }
 
-btnLocalQuickSwitch?.addEventListener('click', async () => {
-  if (!isLocalhostClient() || !isLocalDevSession || !currentUser) return;
-  const targetRole = currentUser.role === 'admin' ? 'student' : 'admin';
-  btnLocalQuickSwitch.disabled = true;
+menuItemSwitchDemo?.addEventListener('click', async () => {
+  closeUserDropdown();
+  if (!currentUser || currentUser.role !== 'admin') return;
+  menuItemSwitchDemo.disabled = true;
   try {
-    const res = await api.devQuickSwitch(targetRole);
+    const res = await api.switchToDemoStudent();
     setToken(res.token);
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
-    isLocalDevSession = Boolean(res.isLocalDev);
-    showToast(
-      targetRole === 'admin'
-        ? `Đã chuyển sang Admin (${res.user.fullName}).`
-        : `Đã chuyển sang HS (${res.user.fullName}).`,
-      'info'
-    );
+    canSwitchBackToAdmin = Boolean(res.canSwitchBackToAdmin);
+    showToast(`Đã chuyển sang HS Demo (${res.user.fullName}).`, 'info');
     await enterApp(res.user);
   } catch (err) {
-    showToast(err.message || 'Không thể chuyển tài khoản.', 'error');
+    showToast(err.message || 'Chưa có tài khoản Học sinh Demo.', 'error');
   } finally {
-    btnLocalQuickSwitch.disabled = false;
+    menuItemSwitchDemo.disabled = false;
+  }
+});
+
+menuItemSwitchAdmin?.addEventListener('click', async () => {
+  closeUserDropdown();
+  if (!currentUser || !canSwitchBackToAdmin) return;
+  menuItemSwitchAdmin.disabled = true;
+  try {
+    const res = await api.switchBackToAdmin();
+    setToken(res.token);
+    if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
+    canSwitchBackToAdmin = Boolean(res.canSwitchBackToAdmin);
+    showToast(`Đã chuyển về Giáo viên (${res.user.fullName}).`, 'info');
+    await enterApp(res.user);
+  } catch (err) {
+    showToast(err.message || 'Không thể chuyển về tài khoản Giáo viên.', 'error');
+  } finally {
+    menuItemSwitchAdmin.disabled = false;
   }
 });
 
@@ -1385,7 +1393,7 @@ loginForm.addEventListener('submit', async (e) => {
     const res = await api.login(u, p);
     setToken(res.token);
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
-    isLocalDevSession = Boolean(res.isLocalDev);
+    canSwitchBackToAdmin = Boolean(res.canSwitchBackToAdmin);
 
     if (btnLoginSubmit) {
       btnLoginSubmit.classList.add('u403-ok');
@@ -1420,6 +1428,7 @@ menuItemLogout?.addEventListener('click', async () => {
     // ignore
   }
   setToken('');
+  canSwitchBackToAdmin = false;
   showToast('Đã đăng xuất khỏi hệ thống.');
   showAuthScreen();
 });
@@ -1556,7 +1565,7 @@ async function boot() {
   try {
     const res = await api.me();
     if (res.modelsVisibilityMode) modelsVisibilityMode = res.modelsVisibilityMode;
-    isLocalDevSession = Boolean(res.isLocalDev);
+    canSwitchBackToAdmin = Boolean(res.canSwitchBackToAdmin);
     if (res.user) {
       await enterApp(res.user);
       return;

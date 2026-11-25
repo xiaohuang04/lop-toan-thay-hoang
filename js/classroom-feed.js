@@ -1,5 +1,14 @@
-import { api } from './api.js?v=20261124z2';
-import { escapeHtml, escapeAttr, formatDateTimeVN } from './exam-engine.js?v=20261123d';
+import { api } from './api.js?v=20261125j';
+import {
+  escapeHtml,
+  escapeAttr,
+  formatDateTimeVN,
+  formatScoreVN,
+  splitIsoToVnDateTime,
+  parseVnDateTimeToIso,
+  getDeadlineStatus,
+  defaultVnDateTime,
+} from './exam-engine.js?v=20261123d';
 import { loadPdfJs } from './pdf-reader.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 
@@ -110,6 +119,187 @@ function computeUserInitials(name = '') {
   return (parts[0] || 'U').slice(0, 2).toUpperCase();
 }
 
+export function getTargetStudentsForAssignment(asg, students = []) {
+  if (!asg) return [];
+  if (asg.assignAll) return students;
+  const idSet = new Set(asg.studentIds || []);
+  const clsSet = new Set((asg.targetClasses || []).map((c) => String(c || '').trim().toLowerCase()).filter(Boolean));
+  return students.filter(
+    (s) => idSet.has(s.id) || (clsSet.size > 0 && clsSet.has(String(s.className || '').trim().toLowerCase()))
+  );
+}
+
+function renderPostLinkedAssignmentZone(post, { isAdmin = false, assignmentsById = null, examsById = null, students = [], submissions = [] } = {}) {
+  const asgId = String(post?.linkedAssignmentId || '').trim();
+  if (!asgId || !assignmentsById) return '';
+  const asg = assignmentsById.get(asgId);
+  if (!asg) return '';
+
+  const isExternal = asg.submissionMode === 'external_link';
+  const asgType = asg.assignmentType === 'test' ? 'test' : 'homework';
+  const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
+  const statusBadgeCls = dl.expired
+    ? 'badge-danger'
+    : dl.notOpen
+      ? 'badge-neutral'
+      : dl.urgent
+        ? 'badge-warning'
+        : 'badge-p1';
+
+  if (isExternal) {
+    const rawLabel = (asg.externalLabel || '').trim() || 'Mở link nộp bài (Google Form)';
+    const btnLabel = rawLabel.includes('↗') ? rawLabel : `${rawLabel} ↗`;
+    const domain = extractDomain(asg.externalUrl || '');
+
+    if (isAdmin) {
+      const targets = getTargetStudentsForAssignment(asg, students);
+      const checks = asg.manualChecks && typeof asg.manualChecks === 'object' ? asg.manualChecks : {};
+      const checkedCount = targets.filter((s) => Boolean(checks[s.id]?.checked)).length;
+      const allDone = targets.length > 0 && checkedCount === targets.length;
+      return `
+        <div class="feed-asg-box is-external">
+          <div class="feed-asg-top">
+            <div class="feed-asg-head-meta">
+              <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+                ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'} • Nộp qua link
+              </span>
+              ${asg.dueAt ? `<span class="badge ${statusBadgeCls}">Hạn: ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>` : ''}
+              <span class="badge ${allDone ? 'badge-success' : 'badge-p2'}">
+                Đã nộp: ${checkedCount} / ${targets.length} HS
+              </span>
+            </div>
+            <div class="feed-asg-title">Nộp bài tập qua link ngoài</div>
+            <div class="feed-asg-sub">
+              ${asg.note ? `${escapeHtml(asg.note)} • ` : ''}
+              <span>Nguồn: ${escapeHtml(domain)}</span>
+            </div>
+          </div>
+          <div class="feed-asg-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-feed-manual-check="${escapeAttr(asg.id)}">
+              ✓ Tick đã nộp (${checkedCount}/${targets.length})
+            </button>
+            <a class="btn btn-secondary btn-sm" href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer">
+              Mở link Form ↗
+            </a>
+            <button type="button" class="btn btn-ghost btn-sm" data-feed-goto-asg="${escapeAttr(asg.id)}">
+              Tab Bài tập
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Student view for External Link (Google Form)
+    const isChecked = Boolean(asg.isManuallyChecked);
+    const checkedAtText = asg.myManualCheck?.checkedAt ? formatDateTimeVN(asg.myManualCheck.checkedAt) : '';
+    return `
+      <div class="feed-asg-box is-external ${isChecked ? 'is-checked' : ''}">
+        <div class="feed-asg-top">
+          <div class="feed-asg-head-meta">
+            <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+              ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'} • Nộp qua link
+            </span>
+            ${
+              isChecked
+                ? `<span class="badge badge-success" ${checkedAtText ? `title="Giáo viên xác nhận lúc ${escapeAttr(checkedAtText)}"` : ''}>✓ Giáo viên đã xác nhận nộp bài</span>`
+                : `<span class="badge badge-warning">Chưa xác nhận nộp</span>`
+            }
+            ${asg.dueAt ? `<span class="badge ${statusBadgeCls}">${escapeHtml(dl.label)}</span>` : ''}
+          </div>
+          <div class="feed-asg-title">Nộp bài tập của bài giảng này</div>
+          <div class="feed-asg-sub">
+            ${
+              asg.note
+                ? escapeHtml(asg.note)
+                : 'Bấm vào nút bên cạnh để mở link nộp bài. Giáo viên sẽ kiểm tra và xác nhận trạng thái đã nộp cho bạn.'
+            }
+            ${asg.dueAt ? ` • Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(asg.dueAt))}</strong>` : ''}
+          </div>
+        </div>
+        <div class="feed-asg-actions">
+          <a class="btn btn-primary btn-sm" href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer">
+            ${escapeHtml(btnLabel)}
+          </a>
+        </div>
+      </div>
+    `;
+  }
+
+  // Online Exam Linked Assignment
+  const exam = asg.exam || (examsById ? examsById.get(asg.examId) : null);
+  const durationMins = asg.durationMinutes || exam?.durationMinutes || 45;
+  if (isAdmin) {
+    const targets = getTargetStudentsForAssignment(asg, students);
+    const submittedIds = new Set(submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId));
+    return `
+      <div class="feed-asg-box is-online">
+        <div class="feed-asg-top">
+          <div class="feed-asg-head-meta">
+            <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+              ${asgType === 'test' ? 'Bài kiểm tra Online' : 'Bài tập Online'}
+            </span>
+            <span class="badge ${statusBadgeCls}">${escapeHtml(dl.label)}</span>
+            <span class="badge badge-p2">Đã nộp: ${submittedIds.size} / ${targets.length} HS</span>
+          </div>
+          <div class="feed-asg-title">${escapeHtml(exam?.title || asg.title)}</div>
+          <div class="feed-asg-sub">
+            ${asg.timedMode ? `Tính giờ: ${durationMins} phút` : 'Không giới hạn giờ'}
+            ${asg.dueAt ? ` • Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(asg.dueAt))}</strong>` : ''}
+            ${asg.note ? ` • ${escapeHtml(asg.note)}` : ''}
+          </div>
+        </div>
+        <div class="feed-asg-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-feed-view-subs="${escapeAttr(asg.id)}">
+            Xem bài nộp (${submittedIds.size}/${targets.length})
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" data-feed-goto-asg="${escapeAttr(asg.id)}">
+            Tab Bài tập
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Student view for Online Exam
+  const latestSub = asg.mySubmissions?.[0] || null;
+  const notOpen = Boolean(asg.isNotOpen || dl.notOpen);
+  const expired = Boolean(asg.isExpired || dl.expired);
+  const canStart = !notOpen && !expired && !latestSub;
+  return `
+    <div class="feed-asg-box is-online ${latestSub ? 'is-checked' : ''}">
+      <div class="feed-asg-top">
+        <div class="feed-asg-head-meta">
+          <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+            ${asgType === 'test' ? 'Bài kiểm tra Online' : 'Bài tập Online'}
+          </span>
+          ${
+            latestSub
+              ? `<span class="badge badge-success">Đã nộp • ${formatScoreVN(latestSub.result?.totalScore ?? 0)}/${formatScoreVN(latestSub.result?.maxScore ?? 10)}đ</span>`
+              : `<span class="badge ${statusBadgeCls}">${escapeHtml(dl.label)}</span>`
+          }
+        </div>
+        <div class="feed-asg-title">${escapeHtml(asg.title || exam?.title || 'Đề luyện tập online')}</div>
+        <div class="feed-asg-sub">
+          ${asg.timedMode ? `Thời gian làm: ${durationMins} phút` : 'Không giới hạn giờ'}
+          ${asg.dueAt ? ` • Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(asg.dueAt))}</strong>` : ''}
+          ${asg.note ? ` • ${escapeHtml(asg.note)}` : ''}
+        </div>
+      </div>
+      <div class="feed-asg-actions">
+        ${
+          latestSub
+            ? `<button type="button" class="btn btn-secondary btn-sm" data-feed-review-sub="${escapeAttr(latestSub.id)}">Xem lại bài &amp; Lời giải</button>`
+            : canStart
+              ? `<button type="button" class="btn btn-primary btn-sm" data-feed-take-asg="${escapeAttr(asg.id)}">Bắt đầu làm bài →</button>`
+              : notOpen
+                ? `<span class="badge badge-neutral">Chưa đến giờ mở đề</span>`
+                : `<span class="badge badge-danger">Đã khóa (Quá hạn)</span>`
+        }
+      </div>
+    </div>
+  `;
+}
+
 function renderPostLikeFooter(post, isAdmin) {
   const likeCount = Math.max(0, Number(post.likeCount) || 0);
   const likedByMe = Boolean(post.likedByMe);
@@ -187,7 +377,10 @@ function renderPostLikeFooter(post, isAdmin) {
  * Automatically groups heterogeneous attachments (YouTube videos, images, PDFs/docs, links)
  * into clean, harmonious visual zones regardless of upload order!
  */
-export function renderFeedPostCard(post, { isAdmin = false } = {}) {
+export function renderFeedPostCard(
+  post,
+  { isAdmin = false, assignmentsById = null, examsById = null, students = [], submissions = [] } = {}
+) {
   const atts = Array.isArray(post.attachments) ? post.attachments : [];
 
   const ytVideos = atts.filter((a) => a.type === 'youtube' && a.videoId);
@@ -409,13 +602,25 @@ export function renderFeedPostCard(post, { isAdmin = false } = {}) {
           `
           : ''
       }
+      <!-- ZONE D2: Linked Assignment (Online Exam or External Google Form Link) -->
+      ${renderPostLinkedAssignmentZone(post, { isAdmin, assignmentsById, examsById, students, submissions })}
+
       <!-- ZONE E: Heart Like Footer (#022) -->
       ${renderPostLikeFooter(post, isAdmin)}
     </article>
   `;
 }
 
-export function renderFeedList({ posts = [], isAdmin = false, emptyTitle = 'Chưa có bài viết nào', emptyText = '' } = {}) {
+export function renderFeedList({
+  posts = [],
+  isAdmin = false,
+  assignments = [],
+  exams = [],
+  students = [],
+  submissions = [],
+  emptyTitle = 'Chưa có bài viết nào',
+  emptyText = '',
+} = {}) {
   if (!posts.length) {
     return `
       <div class="card lab-empty-state">
@@ -430,10 +635,29 @@ export function renderFeedList({ posts = [], isAdmin = false, emptyTitle = 'Chư
       </div>
     `;
   }
-  return `<div class="feed-stream">${posts.map((p) => renderFeedPostCard(p, { isAdmin })).join('')}</div>`;
+  const assignmentsById = new Map((assignments || []).map((a) => [a.id, a]));
+  const examsById = new Map((exams || []).map((e) => [e.id, e]));
+  return `<div class="feed-stream">${posts
+    .map((p) => renderFeedPostCard(p, { isAdmin, assignmentsById, examsById, students, submissions }))
+    .join('')}</div>`;
 }
 
-export function bindFeedEvents(container, { uiHelpers, posts = [], isAdmin = false, onEdit, onDelete, onTogglePin } = {}) {
+export function bindFeedEvents(
+  container,
+  {
+    uiHelpers,
+    posts = [],
+    isAdmin = false,
+    onEdit,
+    onDelete,
+    onTogglePin,
+    onManualCheck,
+    onGotoAssignment,
+    onViewSubs,
+    onTakeAssignment,
+    onReviewSubmission,
+  } = {}
+) {
   const { openModal, closeModal, showToast } = uiHelpers;
   const reducedMotion = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
@@ -774,17 +998,61 @@ export function bindFeedEvents(container, { uiHelpers, posts = [], isAdmin = fal
       btn.addEventListener('click', () => onDelete(btn.dataset.delPost));
     });
   }
+  if (onManualCheck) {
+    container.querySelectorAll('[data-feed-manual-check]').forEach((btn) => {
+      btn.addEventListener('click', () => onManualCheck(btn.dataset.feedManualCheck));
+    });
+  }
+  if (onGotoAssignment) {
+    container.querySelectorAll('[data-feed-goto-asg]').forEach((btn) => {
+      btn.addEventListener('click', () => onGotoAssignment(btn.dataset.feedGotoAsg));
+    });
+  }
+  if (onViewSubs) {
+    container.querySelectorAll('[data-feed-view-subs]').forEach((btn) => {
+      btn.addEventListener('click', () => onViewSubs(btn.dataset.feedViewSubs));
+    });
+  }
+  if (onTakeAssignment) {
+    container.querySelectorAll('[data-feed-take-asg]').forEach((btn) => {
+      btn.addEventListener('click', () => onTakeAssignment(btn.dataset.feedTakeAsg));
+    });
+  }
+  if (onReviewSubmission) {
+    container.querySelectorAll('[data-feed-review-sub]').forEach((btn) => {
+      btn.addEventListener('click', () => onReviewSubmission(btn.dataset.feedReviewSub));
+    });
+  }
 }
 
 /**
- * Rich Post Composer Modal for Teacher (supports YouTube embed, PDF/Word/Image uploads, and External Links)
+ * Rich Post Composer Modal for Teacher (supports YouTube embed, PDF/Word/Image uploads,
+ * External Links, and Linked Assignment: Online Exam or External Link / Google Form)
  */
-export function openPostComposerModal({ existing = null, classes = [], uiHelpers, onSaved }) {
+export function openPostComposerModal({
+  existing = null,
+  linkedAssignment = null,
+  classes = [],
+  exams = [],
+  uiHelpers,
+  onSaved,
+}) {
   const { showToast, openModal, closeModal } = uiHelpers;
   const attachments = existing ? structuredClone(existing.attachments || []) : [];
   const initTargetAll = existing ? Boolean(existing.targetAll) : true;
   const chosenClasses = new Set(existing?.targetClasses || []);
   let uploadingCount = 0;
+
+  const initLinkAsg = Boolean(linkedAssignment);
+  const initSubMode = linkedAssignment?.submissionMode === 'online' ? 'online' : 'external_link';
+  const initAsgType = linkedAssignment?.assignmentType === 'test' ? 'test' : 'homework';
+  const initExamId = linkedAssignment?.examId || exams[0]?.id || '';
+  const initExam = exams.find((e) => e.id === initExamId) || exams[0] || null;
+  const initTimed = initAsgType === 'test' ? true : Boolean(linkedAssignment?.timedMode);
+  const initDuration = linkedAssignment?.durationMinutes || initExam?.durationMinutes || 45;
+  const initOpenParts = linkedAssignment?.openAt ? splitIsoToVnDateTime(linkedAssignment.openAt) : defaultVnDateTime(0, '08:00');
+  const initDueParts = linkedAssignment?.dueAt ? splitIsoToVnDateTime(linkedAssignment.dueAt) : defaultVnDateTime(5, '23:59');
+  const initExtDueParts = linkedAssignment?.dueAt ? splitIsoToVnDateTime(linkedAssignment.dueAt) : { date: '', time: '23:59' };
 
   function renderAttachmentsList() {
     if (attachments.length === 0) {
@@ -873,6 +1141,132 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         </div>
       </div>
 
+      <!-- Linked Assignment / Test Config -->
+      <div class="composer-asg-section">
+        <label class="composer-asg-toggle">
+          <input type="checkbox" id="postLinkAsgChk" ${initLinkAsg ? 'checked' : ''} />
+          <div class="composer-asg-toggle-text">
+            <strong>Đây là bài tập / bài kiểm tra (tự động liên kết sang tab Bài tập)</strong>
+            <small>Chọn để gắn nút làm bài online từ ngân hàng đề hoặc link nộp bài (Google Form) ngay trong bài viết</small>
+          </div>
+        </label>
+
+        <div id="postAsgFields" class="composer-asg-body ${initLinkAsg ? '' : 'hidden'}">
+          <div class="asg-type-switch" id="postAsgModeSwitch" style="margin-bottom:12px;">
+            <label class="asg-type-opt ${initSubMode === 'external_link' ? 'active' : ''}">
+              <input type="radio" name="postAsgMode" value="external_link" ${initSubMode === 'external_link' ? 'checked' : ''} />
+              <div>
+                <strong>Nộp qua Link / Google Form</strong>
+                <small>Gắn sẵn link nộp bài trong bài viết; HS bấm link nộp, thầy tick xác nhận đã nộp</small>
+              </div>
+            </label>
+            <label class="asg-type-opt ${initSubMode === 'online' ? 'active' : ''}">
+              <input type="radio" name="postAsgMode" value="online" ${initSubMode === 'online' ? 'checked' : ''} />
+              <div>
+                <strong>Làm bài Online (Từ ngân hàng đề)</strong>
+                <small>Lấy đề từ Ngân hàng đề thi, HS làm trực tiếp trên web và tự động chấm điểm</small>
+              </div>
+            </label>
+          </div>
+
+          <div class="composer-asg-kind-row">
+            <span class="composer-asg-kind-lbl">Phân loại:</span>
+            <label class="checkbox-pill" style="margin:0;">
+              <input type="radio" name="postAsgType" value="homework" ${initAsgType === 'homework' ? 'checked' : ''} />
+              <span>Bài tập</span>
+            </label>
+            <label class="checkbox-pill" style="margin:0;">
+              <input type="radio" name="postAsgType" value="test" ${initAsgType === 'test' ? 'checked' : ''} />
+              <span>Bài kiểm tra</span>
+            </label>
+          </div>
+
+          <!-- Mode A: External Link / Google Form -->
+          <div id="postAsgExtPane" class="${initSubMode === 'external_link' ? '' : 'hidden'}">
+            <div class="form-group" style="margin-bottom:10px;">
+              <label>Link nộp bài (Google Form / link ngoài) *</label>
+              <input id="postAsgExtUrl" class="input-control" placeholder="https://docs.google.com/forms/d/e/..." value="${escapeAttr(linkedAssignment?.externalUrl || '')}" />
+            </div>
+            <div class="form-row-2">
+              <div class="form-group" style="margin-bottom:10px;">
+                <label>Nhãn nút nộp bài (tùy chọn)</label>
+                <input id="postAsgExtLabel" class="input-control" placeholder="Mở link nộp bài (Google Form)" value="${escapeAttr(linkedAssignment?.externalLabel || '')}" />
+              </div>
+              <div class="form-group" style="margin-bottom:10px;">
+                <label>Hạn nộp (dd/mm/yyyy — để trống nếu không giới hạn)</label>
+                <div class="vn-datetime-pair">
+                  <input id="postAsgExtDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(initExtDueParts.date)}" />
+                  <input id="postAsgExtDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(initExtDueParts.time || '23:59')}" />
+                </div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Ghi chú nộp bài (tùy chọn)</label>
+              <input id="postAsgExtNote" class="input-control" placeholder="VD: HS điền đầy đủ họ tên và nộp ảnh bài làm vào form trước 21h tối..." value="${escapeAttr(linkedAssignment?.submissionMode === 'external_link' ? linkedAssignment.note || '' : '')}" />
+            </div>
+          </div>
+
+          <!-- Mode B: Online Exam from Exam Bank -->
+          <div id="postAsgOnlinePane" class="${initSubMode === 'online' ? '' : 'hidden'}">
+            ${
+              exams.length === 0
+                ? `<div class="composer-att-empty" style="color:var(--danger);">Chưa có đề thi nào trong Ngân hàng đề thi. Thầy hãy tạo đề trước hoặc chọn hình thức Nộp qua Link / Google Form.</div>`
+                : `
+                  <div class="form-group" style="margin-bottom:10px;">
+                    <label>Chọn đề thi trong Ngân hàng đề *</label>
+                    <select id="postAsgExamId" class="input-control">
+                      ${exams
+                        .map(
+                          (e) =>
+                            `<option value="${escapeAttr(e.id)}" ${e.id === initExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
+                        )
+                        .join('')}
+                    </select>
+                  </div>
+                  <div class="form-row-2">
+                    <div class="form-group" style="margin-bottom:10px;">
+                      <label id="postAsgOpenLbl">${initAsgType === 'test' ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn)'}</label>
+                      <div class="vn-datetime-pair">
+                        <input id="postAsgOpenDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(linkedAssignment?.openAt || initAsgType === 'test' ? initOpenParts.date : '')}" />
+                        <input id="postAsgOpenTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(linkedAssignment?.openAt || initAsgType === 'test' ? initOpenParts.time : '08:00')}" />
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                      <label id="postAsgDueLbl">${initAsgType === 'test' ? 'Thời gian đóng đề / nộp bài *' : 'Hạn nộp bài tập *'}</label>
+                      <div class="vn-datetime-pair">
+                        <input id="postAsgDueDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(initDueParts.date)}" />
+                        <input id="postAsgDueTime" type="text" class="input-control vn-time-input" placeholder="HH:mm" maxlength="5" value="${escapeAttr(initDueParts.time)}" />
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin-bottom:10px;">
+                    <label class="checkbox-pill" style="margin:0;">
+                      <input type="checkbox" id="postAsgTimed" ${initTimed ? 'checked' : ''} ${initAsgType === 'test' ? 'disabled' : ''} />
+                      <span>Tính thời gian làm bài</span>
+                    </label>
+                    <div id="postAsgDurWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
+                      <span>Làm trong</span>
+                      <input id="postAsgDuration" type="number" min="1" max="300" class="input-control input-compact" style="width:76px; text-align:center;" value="${initDuration}" />
+                      <span>phút</span>
+                    </div>
+                    <label class="checkbox-pill" style="margin:0;">
+                      <input type="checkbox" id="postAsgShuffle" ${linkedAssignment?.shuffle ? 'checked' : ''} />
+                      <span>Trộn câu hỏi</span>
+                    </label>
+                  </div>
+                  <div class="form-group" style="margin-bottom:0;">
+                    <label>Ghi chú cho bài thi (tùy chọn)</label>
+                    <input id="postAsgOnlineNote" class="input-control" placeholder="VD: Làm nghiêm túc, nộp đúng hạn..." value="${escapeAttr(linkedAssignment?.submissionMode !== 'external_link' ? linkedAssignment?.note || '' : '')}" />
+                  </div>
+                `
+            }
+          </div>
+          <div class="composer-asg-hint">
+            Đối tượng học sinh nhận bài tập tự động đồng bộ theo lớp thầy chọn bên dưới.
+          </div>
+        </div>
+      </div>
+
       <!-- Target Audience & Pin -->
       <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
@@ -923,6 +1317,77 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
         });
       }
       syncAttDom();
+
+      // Linked Assignment Toggle & Mode Switching
+      const linkAsgChk = m.querySelector('#postLinkAsgChk');
+      const asgFields = m.querySelector('#postAsgFields');
+      const extPane = m.querySelector('#postAsgExtPane');
+      const onlinePane = m.querySelector('#postAsgOnlinePane');
+      const modeRadios = m.querySelectorAll('input[name="postAsgMode"]');
+      const typeRadios = m.querySelectorAll('input[name="postAsgType"]');
+      const onlineTimedChk = m.querySelector('#postAsgTimed');
+      const onlineDurWrap = m.querySelector('#postAsgDurWrap');
+      const onlineExamSel = m.querySelector('#postAsgExamId');
+      const onlineDurInp = m.querySelector('#postAsgDuration');
+
+      const getSelectedSubMode = () =>
+        m.querySelector('input[name="postAsgMode"]:checked')?.value || 'external_link';
+      const getSelectedAsgType = () =>
+        m.querySelector('input[name="postAsgType"]:checked')?.value || 'homework';
+
+      linkAsgChk.addEventListener('change', () => {
+        asgFields.classList.toggle('hidden', !linkAsgChk.checked);
+      });
+
+      modeRadios.forEach((r) => {
+        r.addEventListener('change', () => {
+          const mode = getSelectedSubMode();
+          m.querySelectorAll('#postAsgModeSwitch .asg-type-opt').forEach((lbl) => {
+            lbl.classList.toggle('active', lbl.querySelector('input')?.value === mode);
+          });
+          extPane.classList.toggle('hidden', mode !== 'external_link');
+          onlinePane.classList.toggle('hidden', mode !== 'online');
+        });
+      });
+
+      typeRadios.forEach((r) => {
+        r.addEventListener('change', () => {
+          const isTest = getSelectedAsgType() === 'test';
+          const openLbl = m.querySelector('#postAsgOpenLbl');
+          const dueLbl = m.querySelector('#postAsgDueLbl');
+          if (openLbl) openLbl.textContent = isTest ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn)';
+          if (dueLbl) dueLbl.textContent = isTest ? 'Thời gian đóng đề / nộp bài *' : 'Hạn nộp bài tập *';
+          if (onlineTimedChk && onlineDurWrap) {
+            if (isTest) {
+              onlineTimedChk.checked = true;
+              onlineTimedChk.disabled = true;
+              onlineDurWrap.classList.remove('hidden');
+            } else {
+              onlineTimedChk.disabled = false;
+            }
+          }
+          if (isTest) {
+            const openDateInp = m.querySelector('#postAsgOpenDate');
+            if (openDateInp && !openDateInp.value.trim()) {
+              const defOpen = defaultVnDateTime(0, '08:00');
+              openDateInp.value = defOpen.date;
+            }
+          }
+        });
+      });
+
+      if (onlineTimedChk && onlineDurWrap) {
+        onlineTimedChk.addEventListener('change', () => {
+          onlineDurWrap.classList.toggle('hidden', !onlineTimedChk.checked);
+        });
+      }
+
+      if (onlineExamSel && onlineDurInp) {
+        onlineExamSel.addEventListener('change', () => {
+          const ex = exams.find((e) => e.id === onlineExamSel.value);
+          if (ex && ex.durationMinutes) onlineDurInp.value = ex.durationMinutes;
+        });
+      }
 
       // Add YouTube
       m.querySelector('#btnAddYt').addEventListener('click', () => {
@@ -1057,6 +1522,84 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
           showToast('Vui lòng chọn ít nhất 1 lớp hoặc chọn "Tất cả lớp".', 'error');
           return;
         }
+
+        let assignmentConfig = { enabled: false };
+        if (linkAsgChk.checked) {
+          const submissionMode = getSelectedSubMode();
+          const assignmentType = getSelectedAsgType();
+          if (submissionMode === 'external_link') {
+            const extUrl = m.querySelector('#postAsgExtUrl').value.trim();
+            if (!extUrl) {
+              showToast('Vui lòng dán đường link nộp bài (VD: link Google Form).', 'error');
+              return;
+            }
+            const extDueDateStr = m.querySelector('#postAsgExtDueDate').value.trim();
+            const extDueTimeStr = m.querySelector('#postAsgExtDueTime').value.trim() || '23:59';
+            let dueAt = '';
+            if (extDueDateStr) {
+              try {
+                dueAt = parseVnDateTimeToIso(extDueDateStr, extDueTimeStr, 'Hạn nộp bài tập');
+              } catch (err) {
+                showToast(err.message, 'error');
+                return;
+              }
+            }
+            assignmentConfig = {
+              enabled: true,
+              submissionMode: 'external_link',
+              assignmentType,
+              externalUrl: extUrl,
+              externalLabel: m.querySelector('#postAsgExtLabel').value.trim(),
+              dueAt,
+              note: m.querySelector('#postAsgExtNote').value.trim(),
+            };
+          } else {
+            if (!onlineExamSel || !onlineExamSel.value) {
+              showToast('Vui lòng chọn đề thi từ Ngân hàng đề thi.', 'error');
+              return;
+            }
+            const openDateStr = m.querySelector('#postAsgOpenDate').value.trim();
+            const openTimeStr = m.querySelector('#postAsgOpenTime').value.trim() || '08:00';
+            const dueDateStr = m.querySelector('#postAsgDueDate').value.trim();
+            const dueTimeStr = m.querySelector('#postAsgDueTime').value.trim() || '23:59';
+
+            let openAt = '';
+            let dueAt = '';
+            try {
+              if (assignmentType === 'test' && !openDateStr) {
+                throw new Error('Bài kiểm tra bắt buộc phải nhập Thời gian mở đề (dd/mm/yyyy).');
+              }
+              if (openDateStr) {
+                openAt = parseVnDateTimeToIso(openDateStr, openTimeStr, 'Thời gian mở đề');
+              }
+              if (!dueDateStr) {
+                throw new Error('Vui lòng nhập hạn nộp bài (dd/mm/yyyy).');
+              }
+              dueAt = parseVnDateTimeToIso(dueDateStr, dueTimeStr, 'Hạn nộp bài tập');
+              if (openAt && new Date(dueAt) <= new Date(openAt)) {
+                throw new Error('Thời gian nộp bài phải sau thời gian mở đề.');
+              }
+            } catch (err) {
+              showToast(err.message, 'error');
+              return;
+            }
+            const timedMode = assignmentType === 'test' ? true : Boolean(onlineTimedChk?.checked);
+            const durationMinutes = Math.max(1, Number(onlineDurInp?.value) || 45);
+            assignmentConfig = {
+              enabled: true,
+              submissionMode: 'online',
+              assignmentType,
+              examId: onlineExamSel.value,
+              openAt,
+              dueAt,
+              timedMode,
+              durationMinutes,
+              shuffle: Boolean(m.querySelector('#postAsgShuffle')?.checked),
+              note: m.querySelector('#postAsgOnlineNote')?.value.trim() || '',
+            };
+          }
+        }
+
         const payload = {
           title: m.querySelector('#postTitle').value.trim(),
           content: m.querySelector('#postContent').value.trim(),
@@ -1064,18 +1607,29 @@ export function openPostComposerModal({ existing = null, classes = [], uiHelpers
           targetClasses,
           pinned: m.querySelector('#postPinned').checked,
           attachments,
+          assignmentConfig,
         };
-        if (!payload.title && !payload.content && payload.attachments.length === 0) {
+        if (!payload.title && !payload.content && payload.attachments.length === 0 && !assignmentConfig.enabled) {
           showToast('Vui lòng nhập nội dung hoặc đính kèm ít nhất 1 video / tài liệu.', 'error');
           return;
         }
         try {
           if (existing) {
             await api.updatePost(existing.id, payload);
-            showToast('Đã cập nhật bài viết!', 'success');
+            showToast(
+              assignmentConfig.enabled
+                ? 'Đã cập nhật bài viết & đồng bộ sang tab Bài tập!'
+                : 'Đã cập nhật bài viết!',
+              'success'
+            );
           } else {
             await api.createPost(payload);
-            showToast('Đã đăng bài lên bảng tin lớp học!', 'success');
+            showToast(
+              assignmentConfig.enabled
+                ? 'Đã đăng bài & liên kết sang tab Bài tập!'
+                : 'Đã đăng bài lên bảng tin lớp học!',
+              'success'
+            );
           }
           closeModal();
           await onSaved?.();

@@ -754,6 +754,159 @@ def format_post_for_user(post: dict, viewer: dict | None, users_by_id: dict) -> 
     return out
 
 
+def normalize_external_url(raw: str | None) -> str:
+    url = str(raw or "").strip()
+    if not url:
+        return ""
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        url = "https://" + url
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        return ""
+    return url
+
+
+def resolve_student_ids_for_classes(db: dict, target_classes: list[str]) -> list[str]:
+    norm = {str(c).strip().lower() for c in (target_classes or []) if str(c).strip()}
+    if not norm:
+        return []
+    return [
+        u["id"]
+        for u in db.get("users", [])
+        if u.get("role") == "student" and str(u.get("className", "")).strip().lower() in norm
+    ]
+
+
+def student_matches_assignment(user: dict, asg: dict) -> bool:
+    if asg.get("assignAll"):
+        return True
+    if user.get("id") in (asg.get("studentIds") or []):
+        return True
+    target_classes = asg.get("targetClasses")
+    if isinstance(target_classes, list) and target_classes:
+        stu_cls = str(user.get("className", "")).strip().lower()
+        if stu_cls and any(str(c).strip().lower() == stu_cls for c in target_classes):
+            return True
+    return False
+
+
+def build_or_update_assignment(
+    db: dict,
+    body: dict,
+    existing: dict | None = None,
+    *,
+    default_title: str = "",
+    default_target_all: bool | None = None,
+    default_target_classes: list[str] | None = None,
+    linked_post_id: str | None = None,
+) -> tuple[dict | None, str | None]:
+    base = existing or {}
+    submission_mode = (
+        "external_link"
+        if str(body.get("submissionMode", base.get("submissionMode", "online"))) == "external_link"
+        else "online"
+    )
+    asg_type = "test" if str(body.get("assignmentType", base.get("assignmentType", "homework"))) == "test" else "homework"
+
+    if default_target_all is not None:
+        assign_all = bool(default_target_all)
+        target_classes = [str(c).strip() for c in (default_target_classes or []) if str(c).strip()]
+        student_ids = [] if assign_all else resolve_student_ids_for_classes(db, target_classes)
+    else:
+        assign_all = bool(body.get("assignAll", base.get("assignAll", False)))
+        target_classes = [
+            str(c).strip()
+            for c in (body.get("targetClasses", base.get("targetClasses", [])) or [])
+            if str(c).strip()
+        ]
+        student_ids = list(body.get("studentIds", base.get("studentIds", [])))
+        if not assign_all and len(student_ids) == 0 and len(target_classes) == 0:
+            return None, "Vui lòng chọn ít nhất 1 học sinh hoặc chọn 'Giao tất cả học sinh'."
+
+    open_at = str(body.get("openAt", base.get("openAt", ""))).strip()
+    due_at = str(body.get("dueAt", base.get("dueAt", ""))).strip()
+    if open_at and due_at:
+        try:
+            if datetime.fromisoformat(due_at) <= datetime.fromisoformat(open_at):
+                return None, "Thời gian nộp bài phải sau thời gian mở đề."
+        except Exception:
+            pass
+
+    note = str(body.get("note", base.get("note", ""))).strip()
+    post_link_id = linked_post_id if linked_post_id is not None else str(base.get("linkedPostId", "")).strip()
+
+    if submission_mode == "external_link":
+        ext_url = normalize_external_url(body.get("externalUrl", base.get("externalUrl", "")))
+        if not ext_url:
+            return None, "Vui lòng nhập đường link nộp bài hợp lệ (VD: link Google Form https://...)."
+        ext_label = str(body.get("externalLabel", base.get("externalLabel", ""))).strip()
+        title = str(body.get("title", "")).strip() or default_title or base.get("title") or "Bài tập nộp qua link"
+        manual_checks = base.get("manualChecks") if isinstance(base.get("manualChecks"), dict) else {}
+
+        asg = {
+            **base,
+            "id": base.get("id") or gen_id("asg"),
+            "submissionMode": "external_link",
+            "examId": "",
+            "externalUrl": ext_url,
+            "externalLabel": ext_label,
+            "manualChecks": manual_checks,
+            "assignmentType": asg_type,
+            "title": title,
+            "note": note,
+            "openAt": open_at,
+            "dueAt": due_at,
+            "assignAll": assign_all,
+            "targetClasses": target_classes,
+            "studentIds": student_ids,
+            "shuffle": False,
+            "timedMode": False,
+            "durationMinutes": None,
+            "allowRetake": False,
+            "linkedPostId": post_link_id,
+            "createdAt": base.get("createdAt") or now_iso(),
+        }
+        return asg, None
+
+    # Online exam mode
+    exam_id = str(body.get("examId", base.get("examId", ""))).strip()
+    exam = next((e for e in db.get("exams", []) if e["id"] == exam_id), None)
+    if not exam:
+        return None, "Đề thi được chọn không tồn tại."
+    if asg_type == "test" and not open_at:
+        return None, "Bài kiểm tra bắt buộc phải có thời gian mở đề."
+    if not due_at:
+        return None, "Vui lòng thiết lập thời gian nộp bài."
+
+    timed_mode = True if asg_type == "test" else bool(body.get("timedMode", base.get("timedMode", False)))
+    dur_mins = max(1, int(body.get("durationMinutes") or base.get("durationMinutes") or exam.get("durationMinutes") or 45))
+    title = str(body.get("title", "")).strip() or default_title or base.get("title") or exam["title"]
+
+    asg = {
+        **base,
+        "id": base.get("id") or gen_id("asg"),
+        "submissionMode": "online",
+        "examId": exam_id,
+        "externalUrl": "",
+        "externalLabel": "",
+        "assignmentType": asg_type,
+        "title": title,
+        "note": note,
+        "openAt": open_at,
+        "dueAt": due_at,
+        "assignAll": assign_all,
+        "targetClasses": target_classes,
+        "studentIds": student_ids,
+        "shuffle": bool(body.get("shuffle", base.get("shuffle", False))),
+        "timedMode": timed_mode,
+        "durationMinutes": dur_mins if timed_mode else None,
+        "allowRetake": False,
+        "linkedPostId": post_link_id,
+        "createdAt": base.get("createdAt") or now_iso(),
+    }
+    return asg, None
+
+
 def is_past_due(due_at_str: str | None) -> bool:
     if not due_at_str:
         return False
@@ -848,7 +1001,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
-    def get_auth_user(self, db: dict) -> tuple[dict | None, str | None]:
+    def _parse_session_entry(self, entry) -> tuple[str | None, str | None]:
+        if isinstance(entry, str):
+            uid = entry.strip()
+            return (uid or None), None
+        if isinstance(entry, dict):
+            uid = str(entry.get("userId", "")).strip() or None
+            imp_id = str(entry.get("impersonatedByAdminId", "")).strip() or None
+            return uid, imp_id
+        return None, None
+
+    def get_auth_session(self, db: dict) -> tuple[dict | None, str | None, str | None]:
         token = ""
         auth = self.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
@@ -856,27 +1019,19 @@ class EduLabHandler(SimpleHTTPRequestHandler):
         if not token:
             token = self._get_cookie_token()
         if not token:
-            return None, None
+            return None, None, None
         sessions = load_sessions()
-        user_id = sessions.get(token)
+        user_id, imp_admin_id = self._parse_session_entry(sessions.get(token))
         if not user_id:
-            return None, None
+            return None, None, None
         for u in db["users"]:
             if u["id"] == user_id:
-                return u, token
-        return None, None
+                return u, token, imp_admin_id
+        return None, None, None
 
-    def is_local_dev_request(self) -> bool:
-        """Strictly allow localhost-only dev helpers; NEVER enabled on Render or Supabase Cloud."""
-        if STORE.mode != "local":
-            return False
-        if os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_URL"):
-            return False
-        client_ip = str(self.client_address[0] if self.client_address else "")
-        if client_ip not in ("127.0.0.1", "::1", "localhost"):
-            return False
-        host_hdr = str(self.headers.get("Host", "")).split(":", 1)[0].strip().lower()
-        return host_hdr in ("localhost", "127.0.0.1")
+    def get_auth_user(self, db: dict) -> tuple[dict | None, str | None]:
+        u, tok, _ = self.get_auth_session(db)
+        return u, tok
 
     def block_private_paths(self, path: str) -> bool:
         norm = path.lstrip("/").lower()
@@ -1086,16 +1241,38 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/me":
                 vis_mode = get_models_visibility_mode(db)
-                is_local_dev = self.is_local_dev_request()
-                if not user:
-                    return self.send_json(200, {"user": None, "modelsVisibilityMode": vis_mode, "isLocalDev": is_local_dev})
-                _, tok = self.get_auth_user(db)
-                extra = [self._session_cookie_header(tok)] if tok and self._get_cookie_token() != tok else None
-                return self.send_json(
-                    200,
-                    {"user": public_user(user), "modelsVisibilityMode": vis_mode, "isLocalDev": is_local_dev},
-                    extra_headers=extra,
+                me_user, tok, imp_admin_id = self.get_auth_session(db)
+                if not me_user:
+                    return self.send_json(
+                        200,
+                        {"user": None, "modelsVisibilityMode": vis_mode, "canSwitchBackToAdmin": False},
+                    )
+                can_switch_back = bool(
+                    imp_admin_id
+                    and any(u["id"] == imp_admin_id and u.get("role") == "admin" for u in db["users"])
                 )
+                payload = {
+                    "user": public_user(me_user),
+                    "modelsVisibilityMode": vis_mode,
+                    "canSwitchBackToAdmin": can_switch_back,
+                }
+                if me_user.get("role") == "admin":
+                    demo_stu = next(
+                        (u for u in db["users"] if u.get("role") == "student" and bool(u.get("isDemo"))),
+                        None,
+                    )
+                    payload["demoStudent"] = (
+                        {
+                            "id": demo_stu["id"],
+                            "fullName": demo_stu.get("fullName", ""),
+                            "username": demo_stu.get("username", ""),
+                            "className": demo_stu.get("className", ""),
+                        }
+                        if demo_stu
+                        else None
+                    )
+                extra = [self._session_cookie_header(tok)] if tok and self._get_cookie_token() != tok else None
+                return self.send_json(200, payload, extra_headers=extra)
 
             if path == "/api/models":
                 qs = parse_qs(parsed.query)
@@ -1215,17 +1392,44 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
                 assigned_list = []
                 for asg in db["assignments"]:
-                    is_mine = asg.get("assignAll") or (user["id"] in asg.get("studentIds", []))
-                    if not is_mine:
+                    if not student_matches_assignment(user, asg):
                         continue
-                    exam = exams_by_id.get(asg["examId"])
+                    sub_mode = "external_link" if asg.get("submissionMode") == "external_link" else "online"
+                    if sub_mode == "external_link":
+                        raw_checks = asg.get("manualChecks") if isinstance(asg.get("manualChecks"), dict) else {}
+                        my_check = raw_checks.get(user["id"])
+                        is_checked = bool(isinstance(my_check, dict) and my_check.get("checked"))
+                        sanitized = {k: v for k, v in asg.items() if k != "manualChecks"}
+                        assigned_list.append({
+                            **sanitized,
+                            "submissionMode": "external_link",
+                            "assignmentType": asg.get("assignmentType", "homework"),
+                            "openAt": asg.get("openAt", ""),
+                            "dueAt": asg.get("dueAt", ""),
+                            "externalUrl": asg.get("externalUrl", ""),
+                            "externalLabel": asg.get("externalLabel", ""),
+                            "linkedPostId": asg.get("linkedPostId", ""),
+                            "allowRetake": False,
+                            "isNotOpen": is_before_open(asg.get("openAt")),
+                            "isExpired": is_past_due(asg.get("dueAt")),
+                            "isManuallyChecked": is_checked,
+                            "myManualCheck": my_check if is_checked else None,
+                            "exam": None,
+                            "mySubmissions": [],
+                        })
+                        continue
+
+                    exam = exams_by_id.get(asg.get("examId", ""))
                     if not exam:
                         continue
                     asg_subs = sorted(subs_by_asg.get(asg["id"], []), key=lambda x: x["submittedAt"], reverse=True)
+                    sanitized = {k: v for k, v in asg.items() if k != "manualChecks"}
                     assigned_list.append({
-                        **asg,
+                        **sanitized,
+                        "submissionMode": "online",
                         "assignmentType": asg.get("assignmentType", "homework"),
                         "openAt": asg.get("openAt", ""),
+                        "linkedPostId": asg.get("linkedPostId", ""),
                         "allowRetake": False,
                         "isNotOpen": is_before_open(asg.get("openAt")),
                         "isExpired": is_past_due(asg.get("dueAt")),
@@ -1289,47 +1493,34 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 save_sessions(sessions)
                 if matched.get("role") == "student":
                     record_student_login(db, matched)
-                return self.send_json(
-                    200,
-                    {
-                        "token": token,
-                        "user": public_user(matched),
-                        "modelsVisibilityMode": get_models_visibility_mode(db),
-                        "isLocalDev": self.is_local_dev_request(),
-                    },
-                    extra_headers=[self._session_cookie_header(token)],
-                )
-
-            # Localhost-only 1-click quick role switch (Admin <-> Student) — strictly 403 on Render/Cloud
-            if path == "/api/dev/quick-switch":
-                if not self.is_local_dev_request():
-                    return self.send_json(403, {"error": "Chức năng chỉ hỗ trợ trên localhost."})
-                target_role = str(body.get("role", "")).strip().lower()
-                if target_role == "admin":
-                    matched = next((u for u in db["users"] if u.get("role") == "admin"), None)
-                else:
-                    matched = next(
-                        (u for u in db["users"] if u.get("role") == "student" and u.get("username") == "hs01"),
+                login_payload = {
+                    "token": token,
+                    "user": public_user(matched),
+                    "modelsVisibilityMode": get_models_visibility_mode(db),
+                    "canSwitchBackToAdmin": False,
+                }
+                if matched.get("role") == "admin":
+                    demo_stu = next(
+                        (u for u in db["users"] if u.get("role") == "student" and bool(u.get("isDemo"))),
                         None,
-                    ) or next((u for u in db["users"] if u.get("role") == "student"), None)
-                if not matched:
-                    return self.send_json(404, {"error": "Không tìm thấy tài khoản tương ứng."})
-                token = secrets.token_urlsafe(32)
-                sessions = load_sessions()
-                sessions[token] = matched["id"]
-                save_sessions(sessions)
+                    )
+                    login_payload["demoStudent"] = (
+                        {
+                            "id": demo_stu["id"],
+                            "fullName": demo_stu.get("fullName", ""),
+                            "username": demo_stu.get("username", ""),
+                            "className": demo_stu.get("className", ""),
+                        }
+                        if demo_stu
+                        else None
+                    )
                 return self.send_json(
                     200,
-                    {
-                        "token": token,
-                        "user": public_user(matched),
-                        "modelsVisibilityMode": get_models_visibility_mode(db),
-                        "isLocalDev": True,
-                    },
+                    login_payload,
                     extra_headers=[self._session_cookie_header(token)],
                 )
 
-            user, token = self.get_auth_user(db)
+            user, token, imp_admin_id = self.get_auth_session(db)
             if path == "/api/logout":
                 if token:
                     sessions = load_sessions()
@@ -1339,6 +1530,79 @@ class EduLabHandler(SimpleHTTPRequestHandler):
 
             if not user:
                 return self.send_json(401, {"error": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."})
+
+            # Admin -> Switch into the single marked Demo Student (works both online & local)
+            if path == "/api/impersonate/demo-student":
+                if user.get("role") != "admin":
+                    return self.send_json(403, {"error": "Chỉ Giáo viên mới có quyền chuyển sang Học sinh Demo."})
+                demo_stu = next(
+                    (u for u in db["users"] if u.get("role") == "student" and bool(u.get("isDemo"))),
+                    None,
+                )
+                if not demo_stu:
+                    return self.send_json(
+                        404,
+                        {
+                            "error": "Chưa có tài khoản Học sinh Demo. Thầy vào Tài khoản học sinh → Sửa hoặc Tạo mới 1 học sinh và tích chọn 'Đánh dấu là Học sinh Demo'."
+                        },
+                    )
+                new_token = secrets.token_urlsafe(32)
+                sessions = load_sessions()
+                if token:
+                    sessions.pop(token, None)
+                sessions[new_token] = {"userId": demo_stu["id"], "impersonatedByAdminId": user["id"]}
+                save_sessions(sessions)
+                return self.send_json(
+                    200,
+                    {
+                        "token": new_token,
+                        "user": public_user(demo_stu),
+                        "modelsVisibilityMode": get_models_visibility_mode(db),
+                        "canSwitchBackToAdmin": True,
+                    },
+                    extra_headers=[self._session_cookie_header(new_token)],
+                )
+
+            # Demo Student preview -> Switch back to Admin (strictly verified by server session!)
+            if path == "/api/impersonate/back-to-admin":
+                if not imp_admin_id:
+                    return self.send_json(403, {"error": "Phiên đăng nhập hiện tại không có quyền chuyển về Giáo viên."})
+                admin_user = next(
+                    (u for u in db["users"] if u["id"] == imp_admin_id and u.get("role") == "admin"),
+                    None,
+                )
+                if not admin_user:
+                    return self.send_json(403, {"error": "Không tìm thấy tài khoản Giáo viên gốc."})
+                new_token = secrets.token_urlsafe(32)
+                sessions = load_sessions()
+                if token:
+                    sessions.pop(token, None)
+                sessions[new_token] = admin_user["id"]
+                save_sessions(sessions)
+                demo_stu = next(
+                    (u for u in db["users"] if u.get("role") == "student" and bool(u.get("isDemo"))),
+                    None,
+                )
+                return self.send_json(
+                    200,
+                    {
+                        "token": new_token,
+                        "user": public_user(admin_user),
+                        "modelsVisibilityMode": get_models_visibility_mode(db),
+                        "canSwitchBackToAdmin": False,
+                        "demoStudent": (
+                            {
+                                "id": demo_stu["id"],
+                                "fullName": demo_stu.get("fullName", ""),
+                                "username": demo_stu.get("username", ""),
+                                "className": demo_stu.get("className", ""),
+                            }
+                            if demo_stu
+                            else None
+                        ),
+                    },
+                    extra_headers=[self._session_cookie_header(new_token)],
+                )
 
             # Track student click on an interactive HTML model
             if path == "/api/analytics/model-click":
@@ -1507,6 +1771,12 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 if any(u["username"].lower() == username for u in db["users"]):
                     return self.send_json(409, {"error": f"Tên đăng nhập '{username}' đã tồn tại."})
 
+                is_demo = bool(body.get("isDemo", False))
+                if is_demo:
+                    for u in db["users"]:
+                        if u.get("role") == "student" and u.get("isDemo"):
+                            u["isDemo"] = False
+
                 new_student = {
                     "id": gen_id("u"),
                     "username": username,
@@ -1519,59 +1789,54 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "phone": str(body.get("phone", "")).strip(),
                     "dob": str(body.get("dob", "")).strip(),
                     "startDate": str(body.get("startDate", "")).strip() or datetime.now().astimezone().strftime("%Y-%m-%d"),
+                    "isDemo": is_demo,
                     "createdAt": now_iso(),
                 }
                 db["users"].append(new_student)
                 save_db(db)
                 return self.send_json(201, {"student": public_user(new_student)})
 
-            # Create Assignment
+            # Create Assignment (supports both Online Exam and External Link / Google Form)
             if path == "/api/admin/assignments":
-                exam_id = str(body.get("examId", ""))
-                exam = next((e for e in db["exams"] if e["id"] == exam_id), None)
-                if not exam:
-                    return self.send_json(404, {"error": "Đề thi được chọn không tồn tại."})
-                assign_all = bool(body.get("assignAll", False))
-                student_ids = list(body.get("studentIds", []))
-                if not assign_all and len(student_ids) == 0:
-                    return self.send_json(400, {"error": "Vui lòng chọn ít nhất 1 học sinh hoặc chọn 'Giao tất cả học sinh'."})
-
-                asg_type = "test" if str(body.get("assignmentType", "homework")) == "test" else "homework"
-                open_at = str(body.get("openAt", "")).strip()
-                due_at = str(body.get("dueAt", "")).strip()
-                if asg_type == "test" and not open_at:
-                    return self.send_json(400, {"error": "Bài kiểm tra bắt buộc phải có thời gian mở đề."})
-                if not due_at:
-                    return self.send_json(400, {"error": "Vui lòng thiết lập thời gian nộp bài."})
-                if open_at and due_at:
-                    try:
-                        if datetime.fromisoformat(due_at) <= datetime.fromisoformat(open_at):
-                            return self.send_json(400, {"error": "Thời gian nộp bài phải sau thời gian mở đề."})
-                    except Exception:
-                        pass
-
-                timed_mode = True if asg_type == "test" else bool(body.get("timedMode", False))
-                dur_mins = max(1, int(body.get("durationMinutes") or exam.get("durationMinutes") or 45))
-
-                asg = {
-                    "id": gen_id("asg"),
-                    "examId": exam_id,
-                    "assignmentType": asg_type,
-                    "title": str(body.get("title", "")).strip() or exam["title"],
-                    "note": str(body.get("note", "")).strip(),
-                    "openAt": open_at,
-                    "dueAt": due_at,
-                    "assignAll": assign_all,
-                    "studentIds": student_ids,
-                    "shuffle": bool(body.get("shuffle", False)),
-                    "timedMode": timed_mode,
-                    "durationMinutes": dur_mins if timed_mode else None,
-                    "allowRetake": False,
-                    "createdAt": now_iso(),
-                }
+                asg, err = build_or_update_assignment(db, body)
+                if err:
+                    return self.send_json(400, {"error": err})
                 db["assignments"].insert(0, asg)
                 save_db(db, keys=["assignments"])
                 return self.send_json(201, {"assignment": asg})
+
+            # Teacher manual submission check for External Link / Google Form assignments
+            if path.startswith("/api/admin/assignments/") and path.endswith("/manual-check"):
+                asg_id = path[len("/api/admin/assignments/"):-len("/manual-check")].strip("/")
+                asg = next((a for a in db.get("assignments", []) if a["id"] == asg_id), None)
+                if not asg:
+                    return self.send_json(404, {"error": "Không tìm thấy đợt giao bài."})
+                checks = asg.get("manualChecks")
+                if not isinstance(checks, dict):
+                    checks = {}
+                updates = body.get("updates")
+                if not isinstance(updates, list):
+                    updates = [{
+                        "studentId": body.get("studentId", ""),
+                        "checked": bool(body.get("checked", False)),
+                        "note": body.get("note", ""),
+                    }]
+                for item in updates:
+                    sid = str(item.get("studentId", "")).strip()
+                    if not sid:
+                        continue
+                    if bool(item.get("checked", False)):
+                        prev_entry = checks.get(sid) if isinstance(checks.get(sid), dict) else {}
+                        checks[sid] = {
+                            "checked": True,
+                            "checkedAt": prev_entry.get("checkedAt") or now_iso(),
+                            "note": str(item.get("note", prev_entry.get("note", ""))).strip(),
+                        }
+                    else:
+                        checks.pop(sid, None)
+                asg["manualChecks"] = checks
+                save_db(db, keys=["assignments"])
+                return self.send_json(200, {"assignment": asg})
 
             # Upload HTML Model (Admin)
             if path == "/api/models":
@@ -1639,28 +1904,52 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     STORE.delete_file(fid)
                 return self.send_json(200, {"removedCount": len(orphan_ids), "stats": STORE.get_storage_stats(db)})
 
-            # Create Classroom Newsfeed Post (Admin)
+            # Create Classroom Newsfeed Post (Admin) — optionally linked to an Assignment
             if path == "/api/admin/posts":
                 title = str(body.get("title", "")).strip()
                 content = str(body.get("content", "")).strip()
                 attachments = body.get("attachments", [])
-                if not title and not content and not attachments:
+                asg_cfg = body.get("assignmentConfig")
+                has_asg = isinstance(asg_cfg, dict) and bool(asg_cfg.get("enabled"))
+                if not title and not content and not attachments and not has_asg:
                     return self.send_json(400, {"error": "Vui lòng nhập nội dung hoặc đính kèm ít nhất 1 tài liệu/video."})
+                target_all = bool(body.get("targetAll", True))
+                target_classes = list(body.get("targetClasses", []))
+                post_id = gen_id("post")
+
+                linked_asg = None
+                if has_asg:
+                    linked_asg, err = build_or_update_assignment(
+                        db,
+                        asg_cfg,
+                        default_title=title,
+                        default_target_all=target_all,
+                        default_target_classes=target_classes,
+                        linked_post_id=post_id,
+                    )
+                    if err:
+                        return self.send_json(400, {"error": err})
+
                 post = {
-                    "id": gen_id("post"),
-                    "title": title,
+                    "id": post_id,
+                    "title": title or (linked_asg["title"] if linked_asg else ""),
                     "content": content,
                     "authorName": user.get("fullName", "Lê Viết Hoàng"),
-                    "targetAll": bool(body.get("targetAll", True)),
-                    "targetClasses": list(body.get("targetClasses", [])),
+                    "targetAll": target_all,
+                    "targetClasses": target_classes,
                     "pinned": bool(body.get("pinned", False)),
                     "attachments": attachments if isinstance(attachments, list) else [],
+                    "linkedAssignmentId": linked_asg["id"] if linked_asg else "",
                     "createdAt": now_iso(),
                     "updatedAt": now_iso(),
                 }
                 db.setdefault("posts", []).insert(0, post)
-                save_db(db, keys=["posts"])
-                return self.send_json(201, {"post": post})
+                if linked_asg:
+                    db.setdefault("assignments", []).insert(0, linked_asg)
+                    save_db(db, keys=["posts", "assignments"])
+                else:
+                    save_db(db, keys=["posts"])
+                return self.send_json(201, {"post": post, "assignment": linked_asg})
 
             return self.send_json(404, {"error": "API không tồn tại."})
 
@@ -1764,6 +2053,13 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 stu["dob"] = str(body.get("dob", stu.get("dob", ""))).strip()
                 if "startDate" in body:
                     stu["startDate"] = str(body.get("startDate", "")).strip()
+                if "isDemo" in body:
+                    is_demo = bool(body.get("isDemo", False))
+                    if is_demo:
+                        for u in db["users"]:
+                            if u.get("role") == "student" and u["id"] != stu["id"] and u.get("isDemo"):
+                                u["isDemo"] = False
+                    stu["isDemo"] = is_demo
                 new_pw = str(body.get("newPassword", "")).strip()
                 if new_pw:
                     if len(new_pw) < 4:
@@ -1775,38 +2071,15 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             # Update Assignment
             if path.startswith("/api/admin/assignments/"):
                 asg_id = path.split("/api/admin/assignments/", 1)[1]
-                asg = next((a for a in db["assignments"] if a["id"] == asg_id), None)
-                if not asg:
+                idx = next((i for i, a in enumerate(db["assignments"]) if a["id"] == asg_id), -1)
+                if idx < 0:
                     return self.send_json(404, {"error": "Không tìm thấy đợt giao bài."})
-                asg_type = "test" if str(body.get("assignmentType", asg.get("assignmentType", "homework"))) == "test" else "homework"
-                open_at = str(body.get("openAt", asg.get("openAt", ""))).strip()
-                due_at = str(body.get("dueAt", asg["dueAt"])).strip()
-                if asg_type == "test" and not open_at:
-                    return self.send_json(400, {"error": "Bài kiểm tra bắt buộc phải có thời gian mở đề."})
-                if not due_at:
-                    return self.send_json(400, {"error": "Vui lòng thiết lập thời gian nộp bài."})
-                if open_at and due_at:
-                    try:
-                        if datetime.fromisoformat(due_at) <= datetime.fromisoformat(open_at):
-                            return self.send_json(400, {"error": "Thời gian nộp bài phải sau thời gian mở đề."})
-                    except Exception:
-                        pass
-                timed_mode = True if asg_type == "test" else bool(body.get("timedMode", asg.get("timedMode", False)))
-                dur_mins = max(1, int(body.get("durationMinutes") or asg.get("durationMinutes") or 45))
-
-                asg["assignmentType"] = asg_type
-                asg["title"] = str(body.get("title", asg["title"])).strip() or asg["title"]
-                asg["note"] = str(body.get("note", asg.get("note", ""))).strip()
-                asg["openAt"] = open_at
-                asg["dueAt"] = due_at
-                asg["assignAll"] = bool(body.get("assignAll", asg.get("assignAll", False)))
-                asg["studentIds"] = list(body.get("studentIds", asg.get("studentIds", [])))
-                asg["shuffle"] = bool(body.get("shuffle", asg.get("shuffle", False)))
-                asg["timedMode"] = timed_mode
-                asg["durationMinutes"] = dur_mins if timed_mode else None
-                asg["allowRetake"] = False
+                updated_asg, err = build_or_update_assignment(db, body, existing=db["assignments"][idx])
+                if err:
+                    return self.send_json(400, {"error": err})
+                db["assignments"][idx] = updated_asg
                 save_db(db, keys=["assignments"])
-                return self.send_json(200, {"assignment": asg})
+                return self.send_json(200, {"assignment": updated_asg})
 
             # Save Teaching Log & Equipment Register (Admin only)
             if path == "/api/admin/teaching-log":
@@ -1850,27 +2123,63 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 save_db(db, keys=["gradebook"])
                 return self.send_json(200, {"gradebook": clean_gb})
 
-            # Update Classroom Newsfeed Post (Admin)
+            # Update Classroom Newsfeed Post (Admin) — syncs optional linked assignment
             if path.startswith("/api/admin/posts/"):
                 post_id = path.split("/api/admin/posts/", 1)[1]
                 post = next((p for p in db.get("posts", []) if p["id"] == post_id), None)
                 if not post:
                     return self.send_json(404, {"error": "Không tìm thấy bài viết."})
+
+                next_title = str(body["title"]).strip() if "title" in body else post.get("title", "")
+                next_target_all = bool(body["targetAll"]) if "targetAll" in body else bool(post.get("targetAll", True))
+                next_target_classes = list(body["targetClasses"]) if "targetClasses" in body else list(post.get("targetClasses", []))
+
+                asg_changed = False
+                linked_asg = None
+                if "assignmentConfig" in body and isinstance(body["assignmentConfig"], dict):
+                    asg_cfg = body["assignmentConfig"]
+                    cur_asg_id = str(post.get("linkedAssignmentId", "")).strip()
+                    cur_idx = next((i for i, a in enumerate(db.get("assignments", [])) if a["id"] == cur_asg_id), -1) if cur_asg_id else -1
+                    if asg_cfg.get("enabled"):
+                        existing_asg = db["assignments"][cur_idx] if cur_idx >= 0 else None
+                        linked_asg, err = build_or_update_assignment(
+                            db,
+                            asg_cfg,
+                            existing=existing_asg,
+                            default_title=next_title,
+                            default_target_all=next_target_all,
+                            default_target_classes=next_target_classes,
+                            linked_post_id=post_id,
+                        )
+                        if err:
+                            return self.send_json(400, {"error": err})
+                        if cur_idx >= 0:
+                            db["assignments"][cur_idx] = linked_asg
+                        else:
+                            db.setdefault("assignments", []).insert(0, linked_asg)
+                        post["linkedAssignmentId"] = linked_asg["id"]
+                        asg_changed = True
+                    else:
+                        if cur_idx >= 0 and db["assignments"][cur_idx].get("linkedPostId") == post_id:
+                            db["assignments"].pop(cur_idx)
+                        post["linkedAssignmentId"] = ""
+                        asg_changed = True
+
                 if "title" in body:
-                    post["title"] = str(body["title"]).strip()
+                    post["title"] = next_title
                 if "content" in body:
                     post["content"] = str(body["content"]).strip()
                 if "targetAll" in body:
-                    post["targetAll"] = bool(body["targetAll"])
+                    post["targetAll"] = next_target_all
                 if "targetClasses" in body:
-                    post["targetClasses"] = list(body["targetClasses"])
+                    post["targetClasses"] = next_target_classes
                 if "pinned" in body:
                     post["pinned"] = bool(body["pinned"])
                 if "attachments" in body and isinstance(body["attachments"], list):
                     post["attachments"] = body["attachments"]
                 post["updatedAt"] = now_iso()
-                save_db(db, keys=["posts"])
-                return self.send_json(200, {"post": post})
+                save_db(db, keys=["posts", "assignments"] if asg_changed else ["posts"])
+                return self.send_json(200, {"post": post, "assignment": linked_asg})
 
             # Update HTML Model metadata / visibility / file (Admin)
             if path.startswith("/api/models/"):
@@ -1906,7 +2215,11 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/admin/exams/"):
                 exam_id = path.split("/api/admin/exams/", 1)[1]
                 db["exams"] = [e for e in db["exams"] if e["id"] != exam_id]
-                db["assignments"] = [a for a in db["assignments"] if a["examId"] != exam_id]
+                removed_asg_ids = {a["id"] for a in db["assignments"] if a.get("examId") == exam_id}
+                db["assignments"] = [a for a in db["assignments"] if a.get("examId") != exam_id]
+                for p in db.get("posts", []):
+                    if p.get("linkedAssignmentId") in removed_asg_ids:
+                        p["linkedAssignmentId"] = ""
                 save_db(db)
                 return self.send_json(200, {"ok": True})
 
@@ -1915,24 +2228,39 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["users"] = [u for u in db["users"] if not (u["id"] == stu_id and u["role"] == "student")]
                 for a in db["assignments"]:
                     a["studentIds"] = [sid for sid in a.get("studentIds", []) if sid != stu_id]
+                    if isinstance(a.get("manualChecks"), dict):
+                        a["manualChecks"].pop(stu_id, None)
                 save_db(db)
                 return self.send_json(200, {"ok": True})
 
             if path.startswith("/api/admin/assignments/"):
                 asg_id = path.split("/api/admin/assignments/", 1)[1]
                 db["assignments"] = [a for a in db["assignments"] if a["id"] != asg_id]
-                save_db(db)
+                for p in db.get("posts", []):
+                    if p.get("linkedAssignmentId") == asg_id:
+                        p["linkedAssignmentId"] = ""
+                save_db(db, keys=["assignments", "posts"])
                 return self.send_json(200, {"ok": True})
 
             if path.startswith("/api/admin/posts/"):
                 post_id = path.split("/api/admin/posts/", 1)[1]
                 target = next((p for p in db.get("posts", []) if p["id"] == post_id), None)
+                linked_asg_id = ""
                 if target:
+                    linked_asg_id = str(target.get("linkedAssignmentId", "")).strip()
                     for att in target.get("attachments", []):
                         if att.get("fileId"):
                             STORE.delete_file(att["fileId"])
                 db["posts"] = [p for p in db.get("posts", []) if p["id"] != post_id]
-                save_db(db, keys=["posts"])
+                if linked_asg_id:
+                    db["assignments"] = [
+                        a
+                        for a in db.get("assignments", [])
+                        if not (a["id"] == linked_asg_id and a.get("linkedPostId") == post_id)
+                    ]
+                    save_db(db, keys=["posts", "assignments"])
+                else:
+                    save_db(db, keys=["posts"])
                 return self.send_json(200, {"ok": True})
 
             if path.startswith("/api/admin/files/"):

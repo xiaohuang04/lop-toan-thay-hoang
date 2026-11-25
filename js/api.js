@@ -35,7 +35,8 @@ export const api = {
   me: () => request('/api/me'),
   login: (username, password) => request('/api/login', { method: 'POST', body: { username, password } }),
   logout: () => request('/api/logout', { method: 'POST' }),
-  devQuickSwitch: (role) => request('/api/dev/quick-switch', { method: 'POST', body: { role } }),
+  switchToDemoStudent: () => request('/api/impersonate/demo-student', { method: 'POST', body: {} }),
+  switchBackToAdmin: () => request('/api/impersonate/back-to-admin', { method: 'POST', body: {} }),
   updateProfile: (payload) => request('/api/profile', { method: 'PUT', body: payload }),
   changePassword: (currentPassword, newPassword) =>
     request('/api/change-password', { method: 'POST', body: { currentPassword, newPassword } }),
@@ -54,6 +55,8 @@ export const api = {
   createAssignment: (asg) => request('/api/admin/assignments', { method: 'POST', body: asg }),
   updateAssignment: (id, asg) => request(`/api/admin/assignments/${encodeURIComponent(id)}`, { method: 'PUT', body: asg }),
   deleteAssignment: (id) => request(`/api/admin/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setAssignmentManualCheck: (id, payload) =>
+    request(`/api/admin/assignments/${encodeURIComponent(id)}/manual-check`, { method: 'POST', body: payload }),
 
   // Classroom Newsfeed Posts & Files
   uploadFile: (payload) => request('/api/admin/files', { method: 'POST', body: payload }),

@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261124z2';
+import { api } from './api.js?v=20261125j';
 import {
   escapeHtml,
   escapeAttr,
@@ -7,7 +7,7 @@ import {
   formatDateTimeVN,
   getDeadlineStatus,
 } from './exam-engine.js?v=20261123d';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261124z4';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261125j';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -84,6 +84,11 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     setHeaderStatus('');
 
     const completedAsgIds = new Set(submissions.map((s) => s.assignmentId));
+    assignments.forEach((a) => {
+      if (a.submissionMode === 'external_link' && a.isManuallyChecked) {
+        completedAsgIds.add(a.id);
+      }
+    });
     const pendingCount = assignments.filter((a) => {
       const dl = getDeadlineStatus(a.dueAt, a.openAt);
       return !completedAsgIds.has(a.id) && !dl.expired;
@@ -167,6 +172,8 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         ${renderFeedList({
           posts: filtered,
           isAdmin: false,
+          assignments: state.data.assignments || [],
+          exams: Object.values(state.data.examsById || {}),
           emptyTitle: posts.length ? 'Không tìm thấy bài viết phù hợp' : 'Chưa có bài giảng hoặc tài liệu nào',
           emptyText: posts.length
             ? 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.'
@@ -365,15 +372,11 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       <div class="exam-list">
         ${assignments
           .map((asg) => {
-            const ex = asg.exam;
+            const isExternal = asg.submissionMode === 'external_link';
             const asgType = asg.assignmentType === 'test' ? 'test' : 'homework';
             const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
             const notOpen = Boolean(asg.isNotOpen || dl.notOpen);
             const expired = Boolean(asg.isExpired || dl.expired);
-            const latestSub = asg.mySubmissions?.[0] || null;
-            const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
-            const canStart = !notOpen && !expired && !latestSub;
-            const durationMins = asg.durationMinutes || ex.durationMinutes || 45;
             const statusBadgeCls = expired
               ? 'badge-danger'
               : notOpen
@@ -381,6 +384,71 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                 : dl.urgent
                   ? 'badge-warning'
                   : 'badge-p1';
+
+            if (isExternal) {
+              const isChecked = Boolean(asg.isManuallyChecked);
+              const checkedAt = asg.myManualCheck?.checkedAt ? formatDateTimeVN(asg.myManualCheck.checkedAt) : '';
+              const rawLbl = (asg.externalLabel || '').trim() || 'Mở link nộp bài (Google Form)';
+              const btnLbl = rawLbl.includes('↗') ? rawLbl : `${rawLbl} ↗`;
+              return `
+                <article class="exam-card is-external-asg ${isChecked ? 'is-checked-asg' : ''}" style="cursor:default;">
+                  <div class="exam-card-top">
+                    <div>
+                      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                        <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
+                          ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
+                        </span>
+                        <span class="badge badge-p3">Nộp qua Link / Form</span>
+                        <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
+                      </div>
+                      <p class="exam-card-desc">
+                        ${
+                          asg.note
+                            ? escapeHtml(asg.note)
+                            : 'Bấm vào nút bên dưới để mở link nộp bài. Giáo viên sẽ kiểm tra và xác nhận trạng thái đã nộp.'
+                        }
+                      </p>
+                    </div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+                      ${
+                        isChecked
+                          ? `<span class="badge badge-success" ${checkedAt ? `title="Xác nhận lúc ${escapeAttr(checkedAt)}"` : ''}>✓ GV đã xác nhận nộp</span>`
+                          : `<span class="badge badge-warning">Chưa xác nhận nộp</span>`
+                      }
+                      ${asg.dueAt ? `<span class="badge ${statusBadgeCls}">${escapeHtml(dl.label)}</span>` : ''}
+                    </div>
+                  </div>
+
+                  <div class="exam-card-footer">
+                    <div class="exam-meta-inline" style="flex-wrap:wrap;">
+                      ${
+                        asg.dueAt
+                          ? `<span><strong>Hạn nộp:</strong> ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>`
+                          : `<span><strong>Hình thức:</strong> Nộp qua link ngoài</span>`
+                      }
+                      ${checkedAt ? `<span>• <strong>Đã xác nhận:</strong> ${escapeHtml(checkedAt)}</span>` : ''}
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                      ${
+                        asg.linkedPostId
+                          ? `<button type="button" class="btn btn-secondary btn-sm" data-stu-goto-post="${escapeAttr(asg.linkedPostId)}">Xem bài giảng &amp; tài liệu</button>`
+                          : ''
+                      }
+                      <a class="btn btn-primary btn-sm" href="${escapeAttr(asg.externalUrl)}" target="_blank" rel="noopener noreferrer">
+                        ${escapeHtml(btnLbl)}
+                      </a>
+                    </div>
+                  </div>
+                </article>
+              `;
+            }
+
+            const ex = asg.exam;
+            if (!ex) return '';
+            const latestSub = asg.mySubmissions?.[0] || null;
+            const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
+            const canStart = !notOpen && !expired && !latestSub;
+            const durationMins = asg.durationMinutes || ex.durationMinutes || 45;
 
             return `
               <article class="exam-card" style="cursor:default;">
@@ -390,6 +458,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                       <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
                         ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
                       </span>
+                      <span class="badge badge-p2">Làm Online</span>
                       <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
                     </div>
                     ${asg.note ? `<p class="exam-card-desc">${escapeHtml(asg.note)}</p>` : ''}
@@ -421,6 +490,11 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                     <span><strong>${asgType === 'test' ? 'Đóng đề / Hạn nộp:' : 'Hạn nộp:'}</strong> ${escapeHtml(formatDateTimeVN(asg.dueAt))}</span>
                   </div>
                   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    ${
+                      asg.linkedPostId
+                        ? `<button type="button" class="btn btn-ghost btn-sm" data-stu-goto-post="${escapeAttr(asg.linkedPostId)}">Xem bài viết</button>`
+                        : ''
+                    }
                     ${
                       latestSub
                         ? `<button class="btn btn-secondary btn-sm" data-review-sub="${latestSub.id}">Xem lại bài &amp; Lời giải</button>`
@@ -508,10 +582,33 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       btn.addEventListener('click', () => openSubmissionReview(btn.dataset.reviewSub));
     });
 
-    const feedListEl = rootEl.querySelector('#studentFeedList');
-    if (feedListEl) {
-      bindFeedEvents(feedListEl, { uiHelpers, posts: state.data.posts || [], isAdmin: false });
-    }
+    rootEl.querySelectorAll('[data-stu-goto-post]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.stuGotoPost;
+        state.subTab = 'feed';
+        state.feedSearch = '';
+        render();
+        const postEl = rootEl.querySelector(`[data-post-id="${CSS.escape(postId)}"]`);
+        if (postEl) {
+          postEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          postEl.classList.add('is-flash-hl');
+          setTimeout(() => postEl.classList.remove('is-flash-hl'), 1400);
+        }
+      });
+    });
+
+    const wireStudentFeed = (el) => {
+      if (!el) return;
+      bindFeedEvents(el, {
+        uiHelpers,
+        posts: state.data.posts || [],
+        isAdmin: false,
+        onTakeAssignment: (asgId) => startAssignment(asgId),
+        onReviewSubmission: (subId) => openSubmissionReview(subId),
+      });
+    };
+
+    wireStudentFeed(rootEl.querySelector('#studentFeedList'));
 
     rootEl.querySelector('#inpStuFeedSearch')?.addEventListener('input', (e) => {
       state.feedSearch = e.target.value;
@@ -522,10 +619,12 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       listEl.innerHTML = renderFeedList({
         posts: filtered,
         isAdmin: false,
+        assignments: state.data.assignments || [],
+        exams: Object.values(state.data.examsById || {}),
         emptyTitle: 'Không tìm thấy bài viết phù hợp',
         emptyText: 'Thử nhập từ khóa khác hoặc xóa ô tìm kiếm.',
       });
-      bindFeedEvents(listEl, { uiHelpers, posts, isAdmin: false });
+      wireStudentFeed(listEl);
       renderMath(listEl);
     });
   }

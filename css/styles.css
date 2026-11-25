@@ -7582,19 +7582,41 @@ iframe {
   }
 }
 
-.local-switch-btn {
-  border-color: #c7d2fe !important;
-  background: #eef2ff !important;
-  color: #3730a3 !important;
-  font-weight: 700 !important;
-  white-space: nowrap;
-  padding: 6px 11px !important;
-  border-radius: 999px !important;
+.user-dropdown-item.is-switch {
+  color: var(--primary);
 }
 
-.local-switch-btn:hover {
-  background: #e0e7ff !important;
-  border-color: #818cf8 !important;
+.user-dropdown-item.is-switch svg {
+  color: var(--primary);
+}
+
+.stu-demo-toggle-wrap {
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1.5px solid #dbe4f0;
+  background: #f8fbff;
+}
+
+.stu-demo-toggle-lbl {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.stu-demo-toggle-lbl strong {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.stu-demo-toggle-lbl small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 /* Private Post-Lesson Notebook (Sổ tay tiết dạy — never printed) */
@@ -11707,6 +11729,258 @@ tr.is-row-adjusted {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
+  }
+}
+
+/* =========================================================================
+   LINKED POST-ASSIGNMENT CARDS, COMPOSER SECTION & TEACHER CHECKLIST MODAL
+   ========================================================================= */
+.feed-asg-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1.5px solid #bfdbfe;
+  background: linear-gradient(180deg, #f8fbff 0%, #eff6ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.feed-asg-box.is-checked {
+  border-color: #a7f3d0;
+  background: linear-gradient(180deg, #f6fef9 0%, #ecfdf5 100%);
+}
+
+.feed-asg-top {
+  flex: 1;
+  min-width: 220px;
+}
+
+.feed-asg-head-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.feed-asg-title {
+  font-size: 0.94rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.feed-asg-sub {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.feed-asg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.composer-asg-section {
+  margin-top: 14px;
+  border: 1.5px solid #dbe4f0;
+  border-radius: 14px;
+  background: #f8fbff;
+  overflow: hidden;
+}
+
+.composer-asg-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 15px;
+  cursor: pointer;
+  margin: 0;
+  user-select: none;
+}
+
+.composer-asg-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-asg-toggle-text strong {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.composer-asg-toggle-text small {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.composer-asg-body {
+  padding: 14px 15px;
+  border-top: 1px solid #dbe4f0;
+  background: #ffffff;
+}
+
+.composer-asg-kind-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.composer-asg-kind-lbl {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.composer-asg-hint {
+  margin-top: 10px;
+  font-size: 0.77rem;
+  color: var(--text-muted);
+}
+
+.mc-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mc-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mc-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.mc-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.mc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  margin: 0;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.mc-row:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.mc-row.is-checked {
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+}
+
+.mc-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mc-row-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.mc-row-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.mc-empty {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.exam-card.is-external-asg {
+  border-left: 3px solid var(--primary);
+}
+
+.exam-card.is-checked-asg {
+  border-left: 3px solid var(--success);
+}
+
+.is-flash-hl {
+  animation: feedFlashHl 1.35s ease;
+}
+
+@keyframes feedFlashHl {
+  0% {
+    box-shadow: 0 0 0 0 rgba(29, 78, 216, 0.35);
+    border-color: var(--primary);
+  }
+  45% {
+    box-shadow: 0 0 0 6px rgba(29, 78, 216, 0.16);
+    border-color: var(--primary);
+  }
+  100% {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+@media (max-width: 640px) {
+  .feed-asg-box {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .feed-asg-actions {
+    width: 100%;
+  }
+  .feed-asg-actions .btn {
+    flex: 1;
+    justify-content: center;
   }
 }
 
