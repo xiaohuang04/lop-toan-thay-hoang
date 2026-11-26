@@ -435,16 +435,31 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
     if not s:
         return ""
 
-    # Strip layout/spacing macros BEFORE structural transforms (e.g. \setlength{\baselineskip}{16pt})
+    # Strip layout/spacing/ex_test column-width macros BEFORE structural transforms
     s = replace_command_2args(s, "setlength", lambda a1, a2: "")
     s = replace_command_2args(s, "addtolength", lambda a1, a2: "")
     s = replace_command_2args(s, "setcounter", lambda a1, a2: "")
-    s = replace_command_1arg(s, "vspace*", lambda a: "")
-    s = replace_command_1arg(s, "vspace", lambda a: "")
-    s = replace_command_1arg(s, "hspace*", lambda a: "")
-    s = replace_command_1arg(s, "hspace", lambda a: "")
+    s = replace_command_2args(s, "fontsize", lambda a1, a2: "")
+    for _cmd1 in (
+        "choicew",
+        "choiceh",
+        "choiceTFw",
+        "choiceTFh",
+        "shortansw",
+        "vspace*",
+        "vspace",
+        "hspace*",
+        "hspace",
+        "label",
+        "linespread",
+        "setstretch",
+        "phantom",
+        "vphantom",
+        "hphantom",
+    ):
+        s = replace_command_1arg(s, _cmd1, lambda a: "")
     s = re.sub(
-        r"\\(noindent|smallskip|medskip|bigskip|hfill|vfill|newpage|clearpage|centering|raggedright|raggedleft)\b",
+        r"\\(noindent|indent|smallskip|medskip|bigskip|hfill|vfill|newpage|clearpage|pagebreak|nopagebreak|linebreak|nolinebreak|centering|raggedright|raggedleft|allowdisplaybreaks|selectfont|normalsize|small|footnotesize|scriptsize|tiny|large|Large|LARGE|huge|Huge)\b",
         "",
         s,
     )
@@ -722,6 +737,8 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
 
         block = replace_command_2args(block, "immini", _unwrap_immini_block)
         block = replace_command_2args(block, "setlength", lambda a1, a2: "")
+        for _wcmd in ("choicew", "choiceh", "choiceTFw", "choiceTFh", "shortansw"):
+            block = replace_command_1arg(block, _wcmd, lambda a: "")
 
         # Detect question type inside remaining block:
         # Priority: \choiceTF / \choiceTFt -> Part II; \shortans -> Part III; \choice -> Part I

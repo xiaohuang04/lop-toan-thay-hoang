@@ -116,6 +116,16 @@ function normalizeMathForSlides(html) {
 
       let out = chunk;
 
+      // Strip leftover ex_test / LaTeX layout commands (e.g. \choicew{0.4\textwidth}, \vspace{...})
+      out = out.replace(
+        /\\(?:choicew|choiceh|choiceTFw|choiceTFh|shortansw|vspace\*?|hspace\*?|label)\s*(?:\[[^\]]*\]\s*)?\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g,
+        ''
+      );
+      out = out.replace(
+        /\\(?:noindent|smallskip|medskip|bigskip|hfill|vfill|newpage|clearpage|pagebreak|centering|raggedright|raggedleft|selectfont)\b/g,
+        ''
+      );
+
       // Pass 1: Merge adjacent inline $...$ blocks separated by plain-text math operators
       // e.g. $\overrightarrow{AB}$= $\overrightarrow{AC}$ -> $\overrightarrow{AB} = \overrightarrow{AC}$
       let prev;
