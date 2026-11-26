@@ -6,9 +6,9 @@ const LS_PROGRESS_KEY = 'math_review_progress';
 const LS_LAST_LESSON_KEY = 'math_review_last_lesson';
 
 const CARD_TYPE_META = {
-  theory: { badge: 'Lý thuyết & Tính chất', cls: 'is-theory' },
-  formula: { badge: 'Công thức cốt lõi', cls: 'is-formula' },
-  warning: { badge: 'Lưu ý & Bẫy hay gặp', cls: 'is-warning' },
+  theory: { badge: 'Lý thuyết', cls: 'is-theory' },
+  formula: { badge: 'Công thức trọng tâm', cls: 'is-formula' },
+  warning: { badge: 'Mẹo & Lưu ý', cls: 'is-warning' },
 };
 
 function stripAccents(str) {
@@ -297,17 +297,27 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
   function syncFlipCardHeights(scopeEl) {
     const host = scopeEl || rootEl;
     if (!host) return;
-    host.querySelectorAll('.rv-flip-card').forEach((card) => {
-      const inner = card.querySelector('.rv-flip-inner');
-      const front = card.querySelector('.rv-flip-front');
-      const back = card.querySelector('.rv-flip-back');
-      if (!inner || !front || !back) return;
-      front.style.height = 'auto';
-      back.style.height = 'auto';
-      const maxH = Math.max(front.scrollHeight, back.scrollHeight, 176);
-      inner.style.minHeight = `${maxH}px`;
-      front.style.height = `${maxH}px`;
-      back.style.height = `${maxH}px`;
+    const equalizeRow = window.innerWidth > 640;
+    host.querySelectorAll('.rv-flip-grid').forEach((grid) => {
+      const cards = Array.from(grid.querySelectorAll('.rv-flip-card'));
+      const heights = cards.map((card) => {
+        const front = card.querySelector('.rv-flip-front');
+        const back = card.querySelector('.rv-flip-back');
+        if (!front || !back) return 206;
+        front.style.height = 'auto';
+        back.style.height = 'auto';
+        return Math.max(front.scrollHeight, back.scrollHeight, 206);
+      });
+      const rowMax = equalizeRow && heights.length ? Math.max(...heights) : 0;
+      cards.forEach((card, idx) => {
+        const h = equalizeRow ? rowMax : heights[idx];
+        const inner = card.querySelector('.rv-flip-inner');
+        const front = card.querySelector('.rv-flip-front');
+        const back = card.querySelector('.rv-flip-back');
+        if (inner) inner.style.minHeight = `${h}px`;
+        if (front) front.style.height = `${h}px`;
+        if (back) back.style.height = `${h}px`;
+      });
     });
   }
 
@@ -413,27 +423,30 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const meta = CARD_TYPE_META[card.type] || CARD_TYPE_META.theory;
     const isStarred = state.bookmarks.has(card.id);
     return `
-      <article class="rv-card ${meta.cls}" id="rv-item-${escapeAttr(card.id)}" data-card-id="${escapeAttr(card.id)}">
-        <div class="rv-card-head">
-          <div class="rv-card-title-wrap">
-            <span class="rv-type-pill ${meta.cls}">${escapeHtml(meta.badge)}</span>
-            ${showLessonMeta ? `<span class="rv-card-lesson-crumb">${escapeHtml(showLessonMeta)}</span>` : ''}
-            <h3 class="rv-card-title">${escapeHtml(card.title)}</h3>
+      <section class="rv-editorial-sec ${meta.cls}" id="rv-item-${escapeAttr(card.id)}" data-card-id="${escapeAttr(card.id)}">
+        <div class="rv-sec-head">
+          <div class="rv-sec-heading-group">
+            <div class="rv-sec-eyebrow-row">
+              <span class="rv-sec-dot ${meta.cls}" aria-hidden="true"></span>
+              <span class="rv-sec-kicker ${meta.cls}">${escapeHtml(meta.badge)}</span>
+              ${showLessonMeta ? `<span class="rv-card-lesson-crumb">• ${escapeHtml(showLessonMeta)}</span>` : ''}
+            </div>
+            <h2 class="rv-sec-title">${escapeHtml(card.title)}</h2>
           </div>
           <button
             type="button"
             class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
             data-star-id="${escapeAttr(card.id)}"
             aria-label="${isStarred ? 'Bỏ lưu khỏi Sổ tay' : 'Lưu vào Sổ tay của tôi'}"
-            title="${isStarred ? 'Đã lưu trong Sổ tay (Bấm để gỡ)' : 'Gắn sao lưu vào Sổ tay hay quên'}"
+            title="${isStarred ? 'Đã lưu trong Sổ tay (Bấm để gỡ)' : 'Lưu mục này vào Sổ tay'}"
           >
-            ★
+            <span aria-hidden="true">${isStarred ? '★' : '☆'}</span>
           </button>
         </div>
-        <div class="rv-card-body">
+        <div class="rv-sec-body">
           ${transformRecallMasks(card.content)}
         </div>
-      </article>
+      </section>
     `;
   }
 
@@ -453,32 +466,32 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           <!-- FRONT: Common Mistake -->
           <div class="rv-flip-face rv-flip-front">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-front">⚠ Bẫy sai lầm • ${fc.title || 'Sai ở đâu?'}</span>
+              <span class="rv-flip-badge is-front">${fc.title || 'Sai ở đâu?'}</span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
                 data-star-id="${escapeAttr(fc.id)}"
                 title="${isStarred ? 'Đã lưu trong Sổ tay' : 'Lưu thẻ này vào Sổ tay'}"
-              >★</button>
+              >${isStarred ? '★' : '☆'}</button>
             </div>
             ${showLessonMeta ? `<div class="rv-flip-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
             <div class="rv-flip-content">${fc.frontError}</div>
-            <div class="rv-flip-hint">↻ Chạm vào thẻ để lật xem nguyên nhân &amp; cách sửa đúng</div>
+            <div class="rv-flip-hint">Lật xem cách hiểu đúng →</div>
           </div>
 
           <!-- BACK: Correct Reasoning -->
           <div class="rv-flip-face rv-flip-back">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-back">✓ Sửa lỗi chuẩn xác</span>
+              <span class="rv-flip-badge is-back">✓ Cách hiểu đúng</span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
                 data-star-id="${escapeAttr(fc.id)}"
                 title="${isStarred ? 'Đã lưu trong Sổ tay' : 'Lưu thẻ này vào Sổ tay'}"
-              >★</button>
+              >${isStarred ? '★' : '☆'}</button>
             </div>
             <div class="rv-flip-content">${fc.backCorrection}</div>
-            <div class="rv-flip-hint">↺ Chạm lại để quay về mặt trước</div>
+            <div class="rv-flip-hint">↺ Quay lại tình huống</div>
           </div>
         </div>
       </div>
@@ -487,50 +500,41 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
   function renderTouch1Html(lesson) {
     return `
-      <div class="rv-recall-floating-bar ${state.activeRecall ? 'is-on' : ''}">
-        <button
-          type="button"
-          role="switch"
-          aria-checked="${state.activeRecall}"
-          class="rv-recall-switch-wrap ${state.activeRecall ? 'is-checked' : ''}"
-          id="btnActiveRecallToggle"
-        >
-          <span class="rv-switch-ui" aria-hidden="true"></span>
-          <span class="rv-recall-lbl">
-            <strong>Chế độ tự kiểm tra (Active Recall)</strong>
-            <small>${state.activeRecall ? 'Đang che các vế công thức cốt lõi — tự nhẩm rồi chạm từng ô để kiểm tra!' : 'Bật để tự động che công thức cốt lõi và rèn trí nhớ chủ động'}</small>
-          </span>
-        </button>
-        ${
-          state.activeRecall
-            ? `
+      ${
+        state.activeRecall
+          ? `
+            <div class="rv-recall-hint-strip">
+              <span>Đang bật chế độ <strong>Che công thức</strong> — tự nhẩm kết quả rồi chạm vào từng ô <em>"Chạm để hiện"</em>.</span>
               <div class="rv-recall-quick-btns">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnRevealAllMasks">Hiện tất cả</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="btnHideAllMasks">Che lại</button>
+                <button type="button" class="rv-inline-link" id="btnRevealAllMasks">Hiện tất cả</button>
+                <span aria-hidden="true">·</span>
+                <button type="button" class="rv-inline-link" id="btnHideAllMasks">Úp lại</button>
               </div>
-            `
-            : ''
-        }
-      </div>
+            </div>
+          `
+          : ''
+      }
 
-      <div class="rv-cards-stack">
+      <div class="rv-editorial-flow">
         ${(lesson.coreCards || []).map((c) => renderCoreCardHtml(c)).join('')}
       </div>
 
       ${
         lesson.flipCards?.length
           ? `
-            <div class="rv-section-block">
-              <div class="rv-subhead">
-                <div>
-                  <h3 class="rv-subhead-title">Thẻ lật "Bắt lỗi sai kinh điển"</h3>
-                  <p class="rv-subhead-desc">Đọc tình huống học sinh hay mất điểm ở mặt cam, tự phát hiện lỗi rồi chạm vào thẻ để lật xem lời giải chuẩn.</p>
+            <section class="rv-pitfalls-section">
+              <div class="rv-pitfalls-head">
+                <div class="rv-sec-eyebrow-row">
+                  <span class="rv-sec-dot is-warning" aria-hidden="true"></span>
+                  <span class="rv-sec-kicker is-warning">Phản biện tư duy</span>
                 </div>
+                <h2 class="rv-sec-title">Các bẫy sai lầm kinh điển</h2>
+                <p class="rv-subhead-desc">Thử tự tìm chỗ sai trong lời giải bên dưới trước khi chạm vào thẻ để lật xem đáp án.</p>
               </div>
               <div class="rv-flip-grid">
                 ${lesson.flipCards.map((fc) => renderFlipCardHtml(fc)).join('')}
               </div>
-            </div>
+            </section>
           `
           : ''
       }
@@ -1018,34 +1022,32 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
             <div class="rv-empty-notebook">
               <div class="rv-empty-star" aria-hidden="true">☆</div>
               <h3>Sổ tay của bạn đang trống</h3>
-              <p>Khi học ở <strong>Chạm 1: Sơ đồ lõi</strong>, hãy bấm vào ngôi sao <strong>★</strong> ở góc phải những công thức hoặc lỗi sai bạn thấy dễ nhầm để lưu vào đây nhé!</p>
+              <p>Khi đọc mục <strong>Kiến thức trọng tâm</strong>, hãy bấm vào ngôi sao <strong>☆</strong> ở góc phải những công thức hoặc lỗi sai bạn thấy dễ nhầm để lưu vào đây nhé!</p>
               <button type="button" class="btn btn-primary" id="btnBackToLessonFromNb">Quay lại bài học đang xem →</button>
             </div>
           `
           : `
-            <div class="rv-recall-floating-bar ${state.activeRecall ? 'is-on' : ''}">
+            <div class="rv-tabbar-wrap is-notebook-bar">
+              <span class="rv-nb-count-note">${starredItems.length} mục đã đánh dấu</span>
               <button
                 type="button"
                 role="switch"
                 aria-checked="${state.activeRecall}"
-                class="rv-recall-switch-wrap ${state.activeRecall ? 'is-checked' : ''}"
+                class="rv-inline-recall-toggle ${state.activeRecall ? 'is-checked' : ''}"
                 id="btnActiveRecallToggle"
               >
                 <span class="rv-switch-ui" aria-hidden="true"></span>
-                <span class="rv-recall-lbl">
-                  <strong>Chế độ tự kiểm tra trong Sổ tay</strong>
-                  <small>Che các vế công thức đã đánh dấu để tự nhẩm lại trước khi thi</small>
-                </span>
+                <span>Che công thức</span>
               </button>
             </div>
 
-            <div class="rv-cards-stack">
+            <div class="rv-editorial-flow">
               ${starredItems
                 .map((it) => {
                   const jumpBtn = `
                     <div class="rv-nb-jump-row">
-                      <button type="button" class="btn btn-ghost btn-sm" data-jump-lesson="${escapeAttr(it.lessonId)}" data-jump-card="${escapeAttr(it.id)}">
-                        Mở ${escapeHtml(it.lessonLabel)} →
+                      <button type="button" class="rv-inline-link" data-jump-lesson="${escapeAttr(it.lessonId)}" data-jump-card="${escapeAttr(it.id)}">
+                        Xem trong ${escapeHtml(it.lessonLabel)} →
                       </button>
                     </div>
                   `;
@@ -1053,7 +1055,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
                     return `<div class="rv-nb-item-wrap">${renderCoreCardHtml(it.card, { showLessonMeta: it.lessonLabel })}${jumpBtn}</div>`;
                   }
                   if (it.kind === 'flip') {
-                    return `<div class="rv-nb-item-wrap">${renderFlipCardHtml(it.card, { showLessonMeta: it.lessonLabel })}${jumpBtn}</div>`;
+                    return `<div class="rv-nb-item-wrap" style="padding:18px 0;">${renderFlipCardHtml(it.card, { showLessonMeta: it.lessonLabel })}${jumpBtn}</div>`;
                   }
                   return '';
                 })
@@ -1124,53 +1126,73 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const nextLesson = lessonIdx >= 0 && lessonIdx < lessonsIndex.length - 1 ? lessonsIndex[lessonIdx + 1] : null;
 
     return `
-      <div class="rv-lesson-header">
+      <header class="rv-lesson-header">
         <div class="rv-lesson-head-left">
           <div class="rv-breadcrumb">
-            ${escapeHtml(lesson.gradeLabel)} • ${escapeHtml(lesson.chapterCode)}: ${escapeHtml(lesson.chapterTitle)}
+            ${escapeHtml(lesson.gradeLabel)} · ${escapeHtml(lesson.chapterCode)} — ${escapeHtml(lesson.chapterTitle)}
           </div>
           <h1 class="rv-lesson-h1">${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</h1>
           <p class="rv-lesson-desc">${lesson.summary}</p>
         </div>
-        <div class="rv-lesson-head-actions">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnPrintWorksheet" title="In phiếu ôn tập A4 hoặc lưu ra PDF">
-            🖨 In phiếu ôn tập
+      </header>
+
+      <!-- Clean Open Underline Tab Bar + Integrated Inline Tools -->
+      <div class="rv-tabbar-wrap">
+        <div class="rv-touch-tabs" role="tablist" aria-label="Các phần ôn tập bài học">
+          <button
+            type="button"
+            role="tab"
+            aria-selected="${state.touchTab === 'touch1'}"
+            class="rv-touch-tab ${state.touchTab === 'touch1' ? 'is-active' : ''}"
+            data-touch-tab="touch1"
+          >
+            Kiến thức trọng tâm
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected="${state.touchTab === 'touch2'}"
+            class="rv-touch-tab ${state.touchTab === 'touch2' ? 'is-active' : ''}"
+            data-touch-tab="touch2"
+          >
+            Ví dụ từng bước
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected="${state.touchTab === 'touch3'}"
+            class="rv-touch-tab ${state.touchTab === 'touch3' ? 'is-active' : ''}"
+            data-touch-tab="touch3"
+          >
+            Luyện nhanh
           </button>
         </div>
-      </div>
 
-      <!-- 3-Chạm Tab Switcher -->
-      <div class="rv-touch-tabs" role="tablist" aria-label="Luồng học 3 Chạm">
-        <button
-          type="button"
-          role="tab"
-          aria-selected="${state.touchTab === 'touch1'}"
-          class="rv-touch-tab ${state.touchTab === 'touch1' ? 'is-active' : ''}"
-          data-touch-tab="touch1"
-        >
-          <span class="rv-touch-step">Chạm 1</span>
-          <strong>Sơ đồ lõi</strong>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected="${state.touchTab === 'touch2'}"
-          class="rv-touch-tab ${state.touchTab === 'touch2' ? 'is-active' : ''}"
-          data-touch-tab="touch2"
-        >
-          <span class="rv-touch-step">Chạm 2</span>
-          <strong>Ví dụ từng bước</strong>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected="${state.touchTab === 'touch3'}"
-          class="rv-touch-tab ${state.touchTab === 'touch3' ? 'is-active' : ''}"
-          data-touch-tab="touch3"
-        >
-          <span class="rv-touch-step">Chạm 3</span>
-          <strong>Luyện nhanh</strong>
-        </button>
+        <div class="rv-tabbar-tools">
+          ${
+            state.touchTab === 'touch1'
+              ? `
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked="${state.activeRecall}"
+                  class="rv-inline-recall-toggle ${state.activeRecall ? 'is-checked' : ''}"
+                  id="btnActiveRecallToggle"
+                  title="Bật để tự động ẩn các vế công thức quan trọng và tự nhẩm lại"
+                >
+                  <span class="rv-switch-ui" aria-hidden="true"></span>
+                  <span>Che công thức</span>
+                </button>
+              `
+              : ''
+          }
+          <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" title="In phiếu ôn tập A4 hoặc lưu ra PDF">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            <span>In phiếu</span>
+          </button>
+        </div>
       </div>
 
       <!-- Active Chạm Content -->
@@ -1510,6 +1532,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         const starred = state.bookmarks.has(cid);
         rootEl.querySelectorAll(`[data-star-id="${CSS.escape(cid)}"]`).forEach((b) => {
           b.classList.toggle('is-starred', starred);
+          b.textContent = starred ? '★' : '☆';
         });
         const badgeEl = rootEl.querySelector('#rvNotebookCount');
         if (badgeEl) badgeEl.textContent = String(state.bookmarks.size);
