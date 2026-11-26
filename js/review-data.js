@@ -83,37 +83,23 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b1-card-1',
                 type: 'theory',
-                title: 'Khái niệm dãy số và cách cho dãy số',
+                title: 'Khái niệm & Cách cho dãy số',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li><strong>Dãy số vô hạn:</strong> Là một hàm số $u$ xác định trên tập các số nguyên dương $\\mathbb{N}^*$. Ký hiệu là $(u_n)$, dạng khai triển: $u_1, u_2, u_3, \\dots, u_n, \\dots$ với $u_1$ là số hạng đầu, $u_n$ là số hạng tổng quát (số hạng thứ $n$).</li>
-                    <li>
-                      <strong>Các cách cho dãy số phổ biến:</strong>
-                      <ol class="rv-num-list">
-                        <li>Liệt kê các số hạng.</li>
-                        <li>Diễn đạt bằng lời.</li>
-                        <li>Cho bằng công thức số hạng tổng quát $u_n = f(n)$.</li>
-                        <li>Cho bằng phương pháp truy hồi (cho số hạng đầu và hệ thức liên hệ giữa $u_{n+1}$ với các số hạng trước đó).</li>
-                      </ol>
-                    </li>
+                    <li><strong>Dãy số vô hạn $(u_n)$:</strong> Hàm số trên $\\mathbb{N}^*$, dạng $u_1, u_2, \\dots, u_n, \\dots$ ($u_1$: số hạng đầu · $u_n$: số hạng tổng quát).</li>
+                    <li><strong>4 cách cho:</strong> Liệt kê · Diễn đạt lời · Công thức $u_n = f(n)$ · Hệ thức truy hồi.</li>
                   </ul>
                 `,
               },
               {
                 id: 'b1-card-2',
                 type: 'formula',
-                title: 'Tiêu chuẩn xét tính tăng, giảm của dãy số',
+                title: 'Tính tăng, giảm (Đơn điệu)',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li>Dãy số $(u_n)$ là <strong>dãy số tăng</strong> nếu với mọi $n \\in \\mathbb{N}^*$: [CHE: $u_{n+1} > u_n$] (tương đương [CHE: $u_{n+1} - u_n > 0$]).</li>
-                    <li>Dãy số $(u_n)$ là <strong>dãy số giảm</strong> nếu với mọi $n \\in \\mathbb{N}^*$: [CHE: $u_{n+1} < u_n$] (tương đương [CHE: $u_{n+1} - u_n < 0$]).</li>
-                    <li>
-                      <strong>Phương pháp xét tỉ số</strong> (chỉ áp dụng khi [CHE: $u_n > 0$ với mọi $n \\in \\mathbb{N}^*$]):
-                      <ul class="rv-sub-list">
-                        <li>Dãy tăng nếu [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$].</li>
-                        <li>Dãy giảm nếu [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$].</li>
-                      </ul>
-                    </li>
+                    <li><strong>Dãy tăng</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} > u_n$] $\\iff$ [CHE: $u_{n+1} - u_n > 0$].</li>
+                    <li><strong>Dãy giảm</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} < u_n$] $\\iff$ [CHE: $u_{n+1} - u_n < 0$].</li>
+                    <li><strong>Xét tỉ số</strong> (chỉ khi [CHE: $u_n > 0, \\forall n \\in \\mathbb{N}^*$]): Tăng $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$] · Giảm $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$].</li>
                   </ul>
                 `,
               },
@@ -123,20 +109,20 @@ export const REVIEW_CURRICULUM = [
                 title: 'Dãy số bị chặn',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li>Dãy số $(u_n)$ <strong>bị chặn trên</strong> nếu tồn tại số $M$ sao cho [CHE: $u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
-                    <li>Dãy số $(u_n)$ <strong>bị chặn dưới</strong> nếu tồn tại số $m$ sao cho [CHE: $u_n \\ge m, \\forall n \\in \\mathbb{N}^*$].</li>
-                    <li>Dãy số $(u_n)$ <strong>bị chặn</strong> nếu nó vừa bị chặn trên vừa bị chặn dưới, tức là tồn tại $m, M$ sao cho [CHE: $m \\le u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
+                    <li><strong>Bị chặn trên:</strong> $\\exists M$ sao cho [CHE: $u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
+                    <li><strong>Bị chặn dưới:</strong> $\\exists m$ sao cho [CHE: $u_n \\ge m, \\forall n \\in \\mathbb{N}^*$].</li>
+                    <li><strong>Bị chặn:</strong> Vừa chặn trên vừa chặn dưới $\\iff \\exists m, M:$ [CHE: $m \\le u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
                   </ul>
                 `,
               },
               {
                 id: 'b1-card-4',
                 type: 'warning',
-                title: 'Lưu ý quan trọng',
+                title: 'Lưu ý nhanh',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li>Không phải mọi dãy số đều tăng hoặc giảm (ví dụ dãy đan dấu $u_n = (-1)^n$ không tăng cũng không giảm).</li>
-                    <li>Chỉ cần tính $u_1, u_2, u_3$ là có thể dự đoán tính tăng/giảm, nhưng để chứng minh bắt buộc phải kiểm tra với mọi $n \\in \\mathbb{N}^*$.</li>
+                    <li>Có dãy không tăng cũng không giảm, VD: $u_n = (-1)^n$.</li>
+                    <li>Thử $u_1, u_2, u_3$ chỉ để dự đoán; chứng minh phải biến đổi với mọi $n \\in \\mathbb{N}^*$.</li>
                   </ul>
                 `,
               },
@@ -144,19 +130,19 @@ export const REVIEW_CURRICULUM = [
             flipCards: [
               {
                 id: 'b1-flip-1',
-                title: 'Tình huống 1.1 • Xét tỉ số dãy âm',
+                title: 'Xét tỉ số dãy âm',
                 frontError:
-                  'Xét tính tăng giảm của dãy $u_n = -2^n$. Học sinh lập tỉ số $\\dfrac{u_{n+1}}{u_n} = \\dfrac{-2^{n+1}}{-2^n} = 2 > 1$ rồi kết luận dãy số tăng. <strong>Sai ở đâu?</strong>',
+                  'Cho $u_n = -2^n$. Lập $\\dfrac{u_{n+1}}{u_n} = \\dfrac{-2^{n+1}}{-2^n} = 2 > 1 \\Rightarrow$ kết luận dãy tăng. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Phương pháp xét tỉ số $\\dfrac{u_{n+1}}{u_n} > 1$ <strong>chỉ đúng khi mọi số hạng</strong> $u_n > 0$. Ở đây $u_n = -2^n < 0$ với mọi $n$. Khi chia hai vế cho số âm $u_n$, bất đẳng thức đổi chiều: $\\dfrac{u_{n+1}}{u_n} > 1 \\Leftrightarrow u_{n+1} < u_n$, nên dãy số này là <strong>dãy số giảm</strong>.',
+                  'Xét $\\dfrac{u_{n+1}}{u_n} > 1$ chỉ áp dụng khi $u_n > 0$. Vì $u_n = -2^n < 0$, nhân chéo phải đổi chiều $\\Rightarrow u_{n+1} < u_n$ (<strong>dãy giảm</strong>).',
               },
               {
                 id: 'b1-flip-2',
-                title: 'Tình huống 1.2 • Thay chỉ số $u_{n+1}$',
+                title: 'Thay chỉ số $u_{n+1}$',
                 frontError:
-                  'Tính số hạng $u_{n+1}$ của dãy $u_n = \\dfrac{2n - 1}{n + 1}$. Học sinh viết $u_{n+1} = \\dfrac{2n - 1 + 1}{n + 1 + 1} = \\dfrac{2n}{n + 2}$. <strong>Sai ở đâu?</strong>',
+                  'Cho $u_n = \\dfrac{2n - 1}{n + 1}$, viết $u_{n+1} = \\dfrac{2n - 1 + 1}{n + 1 + 1} = \\dfrac{2n}{n + 2}$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Để tìm $u_{n+1}$, phải thay toàn bộ chữ $n$ bằng biểu thức $(n + 1)$ có dấu ngoặc. Cách đúng: $u_{n+1} = \\dfrac{2(n + 1) - 1}{(n + 1) + 1} = \\dfrac{2n + 1}{n + 2}$.',
+                  'Phải thay mọi chữ $n$ bằng cụm $(n + 1)$:<br/>$u_{n+1} = \\dfrac{2(n + 1) - 1}{(n + 1) + 1} = \\dfrac{2n + 1}{n + 2}$.',
               },
             ],
             examples: [
@@ -307,62 +293,55 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b2-card-1',
                 type: 'theory',
-                title: 'Định nghĩa Cấp số cộng',
+                title: 'Định nghĩa & Nhận biết',
                 content: `
                   <ul class="rv-bullet-list">
                     <li>
-                      Cấp số cộng là một dãy số (hữu hạn hoặc vô hạn), trong đó kể từ số hạng thứ hai, mỗi số hạng đều bằng số hạng đứng ngay trước nó cộng với một số không đổi $d$ gọi là <strong>công sai</strong>:
+                      Mỗi số hạng (từ $u_2$) bằng số hạng liền trước cộng <strong>công sai $d$</strong> không đổi:
                       $$u_{n+1} = u_n + d \\quad (\\forall n \\in \\mathbb{N}^*)$$
                     </li>
-                    <li><strong>Dấu hiệu nhận biết nhanh:</strong> Hiệu $u_{n+1} - u_n = d$ là một hằng số không phụ thuộc vào $n$.</li>
-                    <li>Nếu $d > 0$: CSC tăng; nếu $d < 0$: CSC giảm; nếu $d = 0$: CSC là dãy không đổi.</li>
+                    <li><strong>Nhận biết:</strong> $u_{n+1} - u_n = d$ (hằng số) · $d > 0$: tăng · $d < 0$: giảm · $d = 0$: không đổi.</li>
                   </ul>
                 `,
               },
               {
                 id: 'b2-card-2',
                 type: 'formula',
-                title: 'Các công thức cốt lõi của Cấp số cộng',
+                title: 'Công thức Cấp số cộng',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li><strong>Số hạng tổng quát:</strong> Với $n \\ge 2$, ta có $u_n =$ [CHE: $u_1 + (n - 1)d$].</li>
-                    <li><strong>Liên hệ hai số hạng bất kỳ:</strong> $u_m - u_k =$ [CHE: $(m - k)d$].</li>
-                    <li><strong>Tính chất 3 số hạng liên tiếp:</strong> Ba số $a, b, c$ theo thứ tự lập thành CSC khi và chỉ khi [CHE: $a + c = 2b$] (hay $b =$ [CHE: $\\dfrac{a + c}{2}$]).</li>
-                    <li>
-                      <strong>Tổng $n$ số hạng đầu tiên $S_n = u_1 + u_2 + \\dots + u_n$:</strong>
-                      <ul class="rv-sub-list">
-                        <li>Dạng 1 (biết $u_1$ và $u_n$): $S_n =$ [CHE: $\\dfrac{n(u_1 + u_n)}{2}$].</li>
-                        <li>Dạng 2 (biết $u_1$ và $d$): $S_n =$ [CHE: $\\dfrac{n}{2}[2u_1 + (n - 1)d]$].</li>
-                      </ul>
-                    </li>
+                    <li><strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 + (n - 1)d$].</li>
+                    <li><strong>Liên hệ 2 số hạng:</strong> $u_m - u_k =$ [CHE: $(m - k)d$].</li>
+                    <li><strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $a + c = 2b$] $\\iff b =$ [CHE: $\\dfrac{a + c}{2}$].</li>
+                    <li><strong>Tổng $n$ số hạng đầu:</strong> $S_n =$ [CHE: $\\dfrac{n(u_1 + u_n)}{2}$] $=$ [CHE: $\\dfrac{n}{2}[2u_1 + (n - 1)d]$].</li>
                   </ul>
                 `,
               },
               {
                 id: 'b2-card-3',
                 type: 'warning',
-                title: 'Mẹo giải nhanh hệ phương trình CSC',
+                title: 'Mẹo giải hệ CSC',
                 content: `
-                  <p style="margin:0;">Khi đề bài cho hệ phương trình liên quan đến nhiều số hạng như $u_2, u_5, u_7, \\dots$, chiến thuật tối ưu luôn là <strong>đưa tất cả về hai ẩn $u_1$ và $d$</strong> bằng công thức $u_k = u_1 + (k - 1)d$ để giải hệ bậc nhất hai ẩn.</p>
+                  <p style="margin:0;">Đưa mọi số hạng $u_k$ về <strong>2 ẩn $u_1, d$</strong> qua $u_k = u_1 + (k - 1)d$ rồi bấm máy hệ bậc nhất.</p>
                 `,
               },
             ],
             flipCards: [
               {
                 id: 'b2-flip-1',
-                title: 'Tình huống 2.1 • Nhầm hệ số công sai d',
+                title: 'Nhầm hệ số của $d$',
                 frontError:
-                  'Cho CSC có $u_1 = 3, d = 2$. Học sinh tính số hạng thứ 10 là $u_{10} = 3 + 10 \\cdot 2 = 23$. <strong>Sai ở đâu?</strong>',
+                  'Cho $u_1 = 3, d = 2$. Tính $u_{10} = 3 + 10 \\cdot 2 = 23$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Quên trừ 1 ở hệ số của $d$. Công thức chuẩn là $u_n = u_1 + (n - 1)d$, do đó $u_{10} = u_1 + 9d = 3 + 9 \\cdot 2 = 21$.',
+                  'Quên trừ $1$ ở hệ số công sai!<br/>$u_n = u_1 + (n - 1)d \\Rightarrow u_{10} = 3 + 9 \\cdot 2 = 21$.',
               },
               {
                 id: 'b2-flip-2',
-                title: 'Tình huống 2.2 • Quên nhân 2 trước $u_1$ khi tính $S_n$',
+                title: 'Thiếu hệ số $2u_1$ trong $S_n$',
                 frontError:
-                  'Tính tổng 10 số hạng đầu với $u_1 = 3, d = 2$. Học sinh viết $S_{10} = \\dfrac{10}{2}[u_1 + 9d] = 5(3 + 18) = 105$. <strong>Sai ở đâu?</strong>',
+                  'Cho $u_1 = 3, d = 2$. Tính $S_{10} = \\dfrac{10}{2}[u_1 + 9d] = 105$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Thiếu hệ số $2$ trước $u_1$ trong ngoặc vuông! Công thức đúng là $S_n = \\dfrac{n}{2}[2u_1 + (n - 1)d]$, suy ra $S_{10} = \\dfrac{10}{2}[2 \\cdot 3 + 9 \\cdot 2] = 5 \\cdot 24 = 120$.',
+                  'Thiếu số $2$ trước $u_1$!<br/>$S_{10} = \\dfrac{10}{2}[2u_1 + 9d] = 5(2 \\cdot 3 + 18) = 120$.',
               },
             ],
             examples: [
@@ -526,44 +505,38 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b3-card-1',
                 type: 'theory',
-                title: 'Định nghĩa Cấp số nhân',
+                title: 'Định nghĩa & Nhận biết',
                 content: `
                   <ul class="rv-bullet-list">
                     <li>
-                      Cấp số nhân là một dãy số (hữu hạn hoặc vô hạn), trong đó kể từ số hạng thứ hai, mỗi số hạng đều là tích của số hạng đứng ngay trước nó với một số không đổi $q$ gọi là <strong>công bội</strong>:
+                      Mỗi số hạng (từ $u_2$) bằng số hạng liền trước nhân <strong>công bội $q$</strong> không đổi:
                       $$u_{n+1} = u_n \\cdot q \\quad (\\forall n \\in \\mathbb{N}^*)$$
                     </li>
-                    <li><strong>Dấu hiệu nhận biết nhanh:</strong> Khi $u_n \\neq 0$, tỉ số $\\dfrac{u_{n+1}}{u_n} = q$ là hằng số không phụ thuộc vào $n$.</li>
+                    <li><strong>Nhận biết</strong> ($u_n \\neq 0$): $\\dfrac{u_{n+1}}{u_n} = q$ (hằng số).</li>
                   </ul>
                 `,
               },
               {
                 id: 'b3-card-2',
                 type: 'formula',
-                title: 'Các công thức cốt lõi của Cấp số nhân',
+                title: 'Công thức Cấp số nhân',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li><strong>Số hạng tổng quát:</strong> Với $n \\ge 2$, ta có $u_n =$ [CHE: $u_1 \\cdot q^{n-1}$].</li>
-                    <li><strong>Liên hệ hai số hạng bất kỳ ($u_k \\neq 0$):</strong> $\\dfrac{u_m}{u_k} =$ [CHE: $q^{m-k}$].</li>
-                    <li><strong>Tính chất 3 số hạng liên tiếp:</strong> Ba số $a, b, c$ theo thứ tự lập thành CSN khi và chỉ khi [CHE: $b^2 = a \\cdot c$] (hay $|b| =$ [CHE: $\\sqrt{ac}$]).</li>
-                    <li>
-                      <strong>Tổng $n$ số hạng đầu tiên $S_n = u_1 + u_2 + \\dots + u_n$:</strong>
-                      <ul class="rv-sub-list">
-                        <li>Nếu $q \\neq 1$: $S_n =$ [CHE: $u_1 \\cdot \\dfrac{1 - q^n}{1 - q}$] (hoặc [CHE: $u_1 \\cdot \\dfrac{q^n - 1}{q - 1}$]).</li>
-                        <li>Nếu $q = 1$: $S_n =$ [CHE: $n \\cdot u_1$].</li>
-                      </ul>
-                    </li>
+                    <li><strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 \\cdot q^{n-1}$].</li>
+                    <li><strong>Liên hệ 2 số hạng</strong> ($u_k \\neq 0$): $\\dfrac{u_m}{u_k} =$ [CHE: $q^{m-k}$].</li>
+                    <li><strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $b^2 = a \\cdot c$] $\\iff |b| =$ [CHE: $\\sqrt{ac}$].</li>
+                    <li><strong>Tổng $n$ số hạng đầu:</strong> $q \\neq 1 \\Rightarrow S_n =$ [CHE: $u_1 \\cdot \\dfrac{1 - q^n}{1 - q}$] · $q = 1 \\Rightarrow S_n =$ [CHE: $n \\cdot u_1$].</li>
                   </ul>
                 `,
               },
               {
                 id: 'b3-card-3',
                 type: 'warning',
-                title: 'Hai bẫy cần đặc biệt cảnh giác',
+                title: 'Hai bẫy hay gặp',
                 content: `
                   <ul class="rv-bullet-list">
-                    <li><strong>Bẫy công bội $q = 1$:</strong> Công thức phân số $S_n = u_1 \\dfrac{1 - q^n}{1 - q}$ có mẫu số là $1 - q$, tuyệt đối không dùng khi $q = 1$.</li>
-                    <li><strong>Bẫy khai căn chẵn:</strong> Khi giải $q^2 = 9$ hoặc $u_2^2 = 81$, nếu đề bài <strong>không</strong> cho thêm điều kiện "các số hạng đều dương" hay "$q > 0$", bắt buộc phải lấy <strong>cả hai giá trị dương và âm</strong> ($\\pm$).</li>
+                    <li><strong>$q = 1$:</strong> $S_n = n \\cdot u_1$ (không áp dụng phân thức mẫu $1 - q$).</li>
+                    <li><strong>Mũ chẵn</strong> ($q^2 = 9, x^2 = 36$): lấy đủ <strong>cả $\\pm$</strong> nếu đề không cho dương.</li>
                   </ul>
                 `,
               },
@@ -571,27 +544,27 @@ export const REVIEW_CURRICULUM = [
             flipCards: [
               {
                 id: 'b3-flip-1',
-                title: 'Tình huống 3.1 • Quên nghiệm âm khi khai căn',
+                title: 'Bỏ sót nghiệm âm',
                 frontError:
-                  'Ba số $2; x; 18$ theo thứ tự lập thành một cấp số nhân. Học sinh viết $x^2 = 2 \\cdot 18 = 36 \\Rightarrow x = 6$ và kết luận chỉ có 1 giá trị. <strong>Sai ở đâu?</strong>',
+                  'Ba số $2; x; 18$ lập thành CSN $\\Rightarrow x^2 = 36 \\Rightarrow$ kết luận chỉ có $x = 6$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Thiếu nghiệm âm! Phương trình $x^2 = 36$ có <strong>hai nghiệm</strong> $x = 6$ (ứng với $q = 3$) và $x = -6$ (ứng với $q = -3$). Cả hai dãy $(2; 6; 18)$ và $(2; -6; 18)$ đều là cấp số nhân hợp lệ.',
+                  'Thiếu nghiệm âm! $x^2 = 36 \\Leftrightarrow x = \\pm 6$ (ứng với $q = 3$ và $q = -3$ đều thỏa mãn).',
               },
               {
                 id: 'b3-flip-2',
-                title: 'Tình huống 3.2 • Nhầm số mũ n với n − 1',
+                title: 'Nhầm mũ $n$ với $n - 1$',
                 frontError:
-                  'Cho CSN có $u_1 = 2, q = 3$. Học sinh tính $u_5 = 2 \\cdot 3^5 = 486$. <strong>Sai ở đâu?</strong>',
+                  'Cho CSN $u_1 = 2, q = 3$. Tính $u_5 = 2 \\cdot 3^5 = 486$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Nhầm số mũ $n$ với $n - 1$. Công thức chuẩn là $u_n = u_1 \\cdot q^{n-1}$, nên $u_5 = u_1 \\cdot q^4 = 2 \\cdot 3^4 = 2 \\cdot 81 = 162$.',
+                  'Số mũ chuẩn là $n - 1$:<br/>$u_5 = u_1 \\cdot q^4 = 2 \\cdot 3^4 = 162$.',
               },
               {
                 id: 'b3-flip-3',
-                title: 'Tình huống 3.3 • Lệch mốc thời gian t = 0',
+                title: 'Lệch mốc $t = 0$',
                 frontError:
-                  'Trong bài toán tăng trưởng vi khuẩn: ban đầu có 100 con, cứ sau 1 giờ nhân đôi. Học sinh gán $u_1 = 100, q = 2$ rồi tính số vi khuẩn sau 8 giờ là $u_8 = 100 \\cdot 2^7 = 12800$. <strong>Sai ở đâu?</strong>',
+                  'Ban đầu $100$ vi khuẩn, mỗi giờ nhân đôi. Sau $8$ giờ tính $u_8 = 100 \\cdot 2^7 = 12800$. <strong>Sai ở đâu?</strong>',
                 backCorrection:
-                  'Nhầm mốc chỉ số ban đầu! Ban đầu là thời điểm $t = 0$ (chưa qua giờ nào). Sau 1 giờ số vi khuẩn đã là $200$, sau 8 giờ phải nhân đôi đủ 8 lần: $100 \\cdot 2^8 = 25600$ con. <strong>Mẹo tránh sai:</strong> Gọi $u_1$ là kết quả <strong>sau 1 giờ</strong> ($u_1 = 200$), khi đó sau 8 giờ là $u_8 = 200 \\cdot 2^7 = 25600$.',
+                  'Ban đầu là $t = 0$. Sau $1$ giờ mới là $u_1 = 200 \\Rightarrow$ sau $8$ giờ: $u_8 = 200 \\cdot 2^7 = 100 \\cdot 2^8 = 25600$.',
               },
             ],
             examples: [

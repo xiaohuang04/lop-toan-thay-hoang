@@ -13420,12 +13420,22 @@ body.ls-fs-body-lock {
    Pastel Cognitive Palette • 3-Chạm Flow • Active Recall • 3D Flip • Print A4
    ========================================================================== */
 
+/* Pure Crisp White Canvas when Ôn tập (/on-tap) is active */
+body:has(#panel-review.active) {
+  background: #ffffff;
+}
+
+#panel-review.active {
+  background: #ffffff;
+}
+
 .rv-root {
   display: grid;
   grid-template-columns: 268px minmax(0, 1fr);
   gap: 36px;
   align-items: start;
   color: #1e293b;
+  background: #ffffff;
   min-height: calc(100vh - 110px);
 }
 
@@ -13437,11 +13447,12 @@ body.ls-fs-body-lock {
 .rv-root .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 14px 18px;
-  margin: 0.85em 0;
+  padding: 13px 18px;
+  margin: 0.75em 0;
   max-width: 100%;
   border-radius: 14px;
-  background: rgba(241, 245, 249, 0.72);
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -13691,8 +13702,8 @@ body.ls-fs-body-lock {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 0 14px;
-  background: linear-gradient(180deg, #f8fafc 84%, rgba(248, 250, 252, 0) 100%);
+  padding: 6px 0 12px;
+  background: linear-gradient(180deg, #ffffff 86%, rgba(255, 255, 255, 0) 100%);
 }
 
 .rv-mobile-menu-btn {
@@ -13718,12 +13729,11 @@ body.ls-fs-body-lock {
 
 .rv-search-input {
   width: 100%;
-  height: 40px;
+  height: 39px;
   padding: 0 16px 0 40px;
   border-radius: 999px;
-  border: 1px solid rgba(203, 213, 225, 0.85);
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(8px);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
   color: #1e293b;
   font-size: 0.87rem;
   font-family: inherit;
@@ -13797,9 +13807,9 @@ body.ls-fs-body-lock {
   line-height: 1.45;
 }
 
-/* Open Editorial Lesson Hero (ZERO enclosing box!) */
+/* Open Editorial Lesson Hero */
 .rv-lesson-header {
-  padding: 10px 0 22px;
+  padding: 6px 0 16px;
   margin-bottom: 0;
   background: transparent;
   border: none;
@@ -13807,17 +13817,17 @@ body.ls-fs-body-lock {
 }
 
 .rv-breadcrumb {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #2563eb;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .rv-lesson-h1 {
   margin: 0;
-  font-size: 2rem;
+  font-size: 1.92rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -13825,26 +13835,25 @@ body.ls-fs-body-lock {
 }
 
 .rv-lesson-desc {
-  margin: 10px 0 0;
-  font-size: 0.98rem;
+  margin: 8px 0 0;
+  font-size: 0.95rem;
   color: #475569;
-  line-height: 1.65;
-  max-width: 68ch;
+  line-height: 1.6;
 }
 
-/* Unified Sleek Underline Tab Bar + Inline Tools */
+/* Unified Sleek Underline Tab Bar + Icon Tools */
 .rv-tabbar-wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
-  border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
 }
 
 .rv-tabbar-wrap.is-notebook-bar {
-  padding-bottom: 12px;
+  padding-bottom: 8px;
 }
 
 .rv-nb-count-note {
@@ -13856,7 +13865,7 @@ body.ls-fs-body-lock {
 .rv-touch-tabs {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 22px;
   background: transparent;
   padding: 0;
   margin: 0;
@@ -13864,11 +13873,14 @@ body.ls-fs-body-lock {
 
 .rv-touch-tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
-  padding: 12px 2px 13px;
+  padding: 11px 2px 12px;
   color: #64748b;
-  font-size: 0.94rem;
+  font-size: 0.92rem;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
@@ -13898,103 +13910,89 @@ body.ls-fs-body-lock {
 .rv-tabbar-tools {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding-bottom: 6px;
+  gap: 6px;
+  padding-bottom: 5px;
 }
 
-.rv-inline-recall-toggle {
+/* Modern Icon-Only Tool Buttons + Hover Tooltip */
+.rv-tool-icon-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border: none;
-  background: transparent;
-  padding: 4px 2px;
-  color: #475569;
-  font-size: 0.84rem;
-  font-weight: 600;
-  font-family: inherit;
+  justify-content: center;
   cursor: pointer;
-  transition: color 0.16s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
-.rv-inline-recall-toggle:hover {
+.rv-tool-icon-btn:hover {
+  background: #f8fafc;
   color: #0f172a;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
 }
 
-.rv-inline-recall-toggle.is-checked {
+.rv-tool-icon-btn.is-active {
+  background: #fdf2f8;
+  border-color: #f472b6;
   color: #db2777;
 }
 
-.rv-switch-ui {
-  position: relative;
-  width: 38px;
-  height: 22px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  flex-shrink: 0;
-  transition: background 0.2s ease;
-}
-
-.rv-switch-ui::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.rv-inline-recall-toggle.is-checked .rv-switch-ui {
-  background: #ec4899;
-}
-
-.rv-inline-recall-toggle.is-checked .rv-switch-ui::after {
-  transform: translateX(16px);
-}
-
 .rv-print-ghost-btn {
+  position: relative;
+  height: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
-  border-radius: 999px;
+  gap: 5px;
+  padding: 0 11px;
+  border-radius: 10px;
   border: 1px solid #e2e8f0;
-  background: transparent;
+  background: #ffffff;
   color: #475569;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.81rem;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .rv-print-ghost-btn:hover {
-  background: #ffffff;
+  background: #f8fafc;
   border-color: #cbd5e1;
   color: #0f172a;
+  transform: translateY(-1px);
 }
 
-/* Subtle Active Recall Status Hint Strip (Only shown when Recall ON) */
-.rv-recall-hint-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 0 4px;
-  font-size: 0.85rem;
-  color: #be185d;
+.rv-tool-icon-btn[data-tip]::after,
+.rv-print-ghost-btn[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.16s ease;
+  z-index: 40;
 }
 
-.rv-recall-quick-btns {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #94a3b8;
+.rv-tool-icon-btn[data-tip]:hover::after,
+.rv-print-ghost-btn[data-tip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .rv-inline-link {
@@ -14012,7 +14010,7 @@ body.ls-fs-body-lock {
   text-decoration: underline;
 }
 
-/* [CHE: ...] Mask Chips */
+/* [CHE: ...] Compact Icon Mask Chips */
 .rv-recall-mask {
   display: inline;
 }
@@ -14025,7 +14023,7 @@ body.ls-fs-body-lock {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-  margin: 2px 4px;
+  margin: 2px 3px;
   cursor: pointer;
 }
 
@@ -14036,40 +14034,42 @@ body.ls-fs-body-lock {
 .rv-root.is-recall-mode .rv-recall-mask:not(.is-revealed) .rv-recall-chip {
   display: inline-flex;
   align-items: center;
-  padding: 3px 12px;
+  gap: 4px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(252, 231, 243, 0.85);
+  background: #fdf2f8;
   border: 1px dashed #ec4899;
-  color: #be185d;
-  font-size: 0.8rem;
-  font-weight: 700;
-  line-height: 1.45;
+  color: #db2777;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.4;
   user-select: none;
   transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .rv-root.is-recall-mode .rv-recall-mask:not(.is-revealed):hover .rv-recall-chip {
-  background: #fbcfe8;
+  background: #fce7f3;
   transform: translateY(-1px);
 }
 
 .rv-root.is-recall-mode .rv-recall-mask.is-revealed .rv-recall-ans {
   display: inline-block;
-  padding: 1px 9px;
+  padding: 1px 8px;
   border-radius: 8px;
-  background: rgba(220, 252, 231, 0.78);
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
   color: #14532d;
 }
 
-/* Open Editorial Knowledge Sections (ZERO Box Fatigue!) */
+/* Open Editorial Knowledge Sections */
 .rv-editorial-flow {
   display: flex;
   flex-direction: column;
 }
 
 .rv-editorial-sec {
-  padding: 32px 0;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.78);
+  padding: 26px 0;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .rv-editorial-sec:last-child {
@@ -14086,58 +14086,47 @@ body.ls-fs-body-lock {
 
 .rv-sec-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
-.rv-sec-eyebrow-row {
+.rv-sec-heading-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 11px;
+  min-width: 0;
 }
 
-.rv-sec-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.rv-sec-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-.rv-sec-dot.is-theory {
-  background: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
-}
-
-.rv-sec-dot.is-formula {
-  background: #ec4899;
-  box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.14);
-}
-
-.rv-sec-dot.is-warning {
-  background: #f97316;
-  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.15);
-}
-
-.rv-sec-kicker {
-  font-size: 0.73rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
-
-.rv-sec-kicker.is-theory {
+.rv-sec-ico.is-theory {
+  background: #eff6ff;
   color: #2563eb;
 }
 
-.rv-sec-kicker.is-formula {
+.rv-sec-ico.is-formula {
+  background: #fdf2f8;
   color: #db2777;
 }
 
-.rv-sec-kicker.is-warning {
+.rv-sec-ico.is-warning {
+  background: #fff7ed;
   color: #ea580c;
+}
+
+.rv-sec-ico.is-danger {
+  background: #fff1f2;
+  color: #e11d48;
 }
 
 .rv-type-pill {
@@ -14163,23 +14152,24 @@ body.ls-fs-body-lock {
 }
 
 .rv-card-lesson-crumb {
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #64748b;
+  margin-top: 2px;
 }
 
 .rv-sec-title {
   margin: 0;
-  font-size: 1.28rem;
+  font-size: 1.18rem;
   font-weight: 800;
   letter-spacing: -0.01em;
   color: #0f172a;
 }
 
 .rv-sec-body {
-  font-size: 1rem;
+  font-size: 0.98rem;
   color: #1e293b;
-  line-height: 1.9;
+  line-height: 1.88;
 }
 
 /* Spacious Editorial Lists & Formula Showcase Rails */
@@ -14191,32 +14181,30 @@ body.ls-fs-body-lock {
 
 .rv-bullet-list > li + li,
 .rv-num-list > li + li {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .rv-editorial-sec.is-theory .rv-bullet-list > li::marker {
   color: #3b82f6;
 }
 
-/* Formulas: Open Left-Accented Strips instead of enclosed pink boxes */
 .rv-editorial-sec.is-formula .rv-bullet-list {
   list-style: none;
   padding-left: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .rv-editorial-sec.is-formula .rv-bullet-list > li {
   margin-top: 0;
-  padding: 10px 0 10px 18px;
-  border-left: 2.5px solid rgba(236, 72, 153, 0.55);
+  padding: 8px 0 8px 16px;
+  border-left: 2.5px solid #f472b6;
 }
 
-/* Warnings/Tips: Open Marginalia Callout Rail */
 .rv-editorial-sec.is-warning .rv-sec-body {
-  padding: 4px 0 4px 20px;
-  border-left: 3px solid #fb923c;
+  padding: 3px 0 3px 16px;
+  border-left: 2.5px solid #fb923c;
   color: #334155;
 }
 
@@ -14230,16 +14218,14 @@ body.ls-fs-body-lock {
   margin-top: 6px;
 }
 
-/* Frameless Minimal Star Bookmark Button */
+/* Frameless Minimal SVG Star Bookmark Button */
 .rv-star-btn {
   width: 32px;
   height: 32px;
-  border-radius: 999px;
+  border-radius: 9px;
   border: none;
   background: transparent;
   color: #94a3b8;
-  font-size: 1.22rem;
-  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14249,7 +14235,7 @@ body.ls-fs-body-lock {
 }
 
 .rv-star-btn:hover {
-  transform: scale(1.12);
+  transform: scale(1.1);
   color: #f59e0b;
   background: rgba(245, 158, 11, 0.1);
 }
@@ -14258,44 +14244,35 @@ body.ls-fs-body-lock {
   color: #f59e0b;
 }
 
-/* Sleek, Airy Minimalist 3D Flashcards ("Các bẫy sai lầm kinh điển") */
+/* Rock-Solid 3D Flip Cards (Zero Hover Specificity Conflict, Zero Edge Jitter!) */
 .rv-pitfalls-section {
-  padding-top: 34px;
-  margin-top: 8px;
-}
-
-.rv-pitfalls-head {
-  margin-bottom: 20px;
-}
-
-.rv-subhead-desc {
-  margin: 6px 0 0;
-  font-size: 0.92rem;
-  color: #64748b;
+  padding-top: 28px;
 }
 
 .rv-flip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
-  gap: 22px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
 }
 
 .rv-flip-card {
-  perspective: 1300px;
+  position: relative;
+  perspective: 1400px;
   cursor: pointer;
   outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .rv-flip-inner {
   position: relative;
   width: 100%;
-  min-height: 206px;
+  min-height: 184px;
   transform-style: preserve-3d;
-  transition: transform 0.58s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.rv-flip-card:hover .rv-flip-inner:not(.is-flipped) {
-  transform: translateY(-2px);
+  -webkit-transform-style: preserve-3d;
+  transform: rotateY(0deg);
+  transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
 .rv-flip-card.is-flipped .rv-flip-inner {
@@ -14307,25 +14284,44 @@ body.ls-fs-body-lock {
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  border-radius: 20px;
-  padding: 22px 24px;
+  border-radius: 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 14px 34px -14px rgba(15, 23, 42, 0.08);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .rv-flip-front {
-  background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   color: #1e293b;
+  transform: rotateY(0deg) translateZ(1px);
 }
 
 .rv-flip-back {
-  background: linear-gradient(180deg, #f6fef9 0%, #ecfdf5 100%);
+  background: #f0fdf4;
   border: 1px solid #bbf7d0;
   color: #14532d;
-  transform: rotateY(180deg);
+  transform: rotateY(180deg) translateZ(1px);
+}
+
+.rv-flip-card:not(.is-flipped) .rv-flip-back {
+  pointer-events: none;
+}
+
+.rv-flip-card.is-flipped .rv-flip-front {
+  pointer-events: none;
+}
+
+.rv-flip-card:hover .rv-flip-front {
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 26px -12px rgba(15, 23, 42, 0.12);
+}
+
+.rv-flip-card:hover .rv-flip-back {
+  border-color: #86efac;
+  box-shadow: 0 10px 26px -12px rgba(22, 163, 74, 0.16);
 }
 
 .rv-flip-top {
@@ -14333,19 +14329,19 @@ body.ls-fs-body-lock {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .rv-flip-badge {
   font-size: 0.74rem;
   font-weight: 700;
-  padding: 4px 11px;
+  padding: 3px 10px;
   border-radius: 999px;
 }
 
 .rv-flip-badge.is-front {
-  background: #fff7ed;
-  color: #ea580c;
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .rv-flip-badge.is-back {
@@ -14360,20 +14356,39 @@ body.ls-fs-body-lock {
 }
 
 .rv-flip-content {
-  font-size: 0.95rem;
-  line-height: 1.82;
+  font-size: 0.94rem;
+  line-height: 1.78;
   flex: 1;
 }
 
-.rv-flip-hint {
-  margin-top: 14px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #64748b;
+.rv-flip-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
-.rv-flip-back .rv-flip-hint {
+.rv-flip-ico-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.rv-flip-ico-btn.is-back {
+  border-color: #bbf7d0;
   color: #15803d;
+}
+
+.rv-flip-card:hover .rv-flip-ico-btn {
+  transform: rotate(22deg);
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 
 /* Chạm 2: Step-by-Step Progressive Examples */

@@ -1,4 +1,4 @@
-import { REVIEW_CURRICULUM } from './review-data.js?v=20261126x';
+import { REVIEW_CURRICULUM } from './review-data.js?v=20261127a';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
@@ -6,10 +6,34 @@ const LS_PROGRESS_KEY = 'math_review_progress';
 const LS_LAST_LESSON_KEY = 'math_review_last_lesson';
 
 const CARD_TYPE_META = {
-  theory: { badge: 'Lý thuyết', cls: 'is-theory' },
-  formula: { badge: 'Công thức trọng tâm', cls: 'is-formula' },
-  warning: { badge: 'Mẹo & Lưu ý', cls: 'is-warning' },
+  theory: {
+    badge: 'Lý thuyết',
+    cls: 'is-theory',
+    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+  },
+  formula: {
+    badge: 'Công thức',
+    cls: 'is-formula',
+    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4H6l6 8-6 8h12"/></svg>`,
+  },
+  warning: {
+    badge: 'Lưu ý',
+    cls: 'is-warning',
+    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.7.6 1 1.4 1 2.3h6c0-.9.3-1.7 1-2.3A7 7 0 0 0 12 2z"/></svg>`,
+  },
 };
+
+function renderStarSvg(filled) {
+  return filled
+    ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+    : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+}
+
+function renderRecallEyeSvg(masked) {
+  return masked
+    ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+}
 
 function stripAccents(str) {
   return String(str || '')
@@ -56,7 +80,7 @@ export function transformRecallMasks(htmlStr) {
     if (depth === 0) {
       const inner = s.slice(idx + marker.length, cursor - 1).trim();
       maskCounter += 1;
-      out += `<span class="rv-recall-mask" data-recall-mask="${maskCounter}" role="button" tabindex="0" title="Chạm để ẩn/hiện công thức"><span class="rv-recall-chip">Chạm để hiện</span><span class="rv-recall-ans">${inner}</span></span>`;
+      out += `<span class="rv-recall-mask" data-recall-mask="${maskCounter}" role="button" tabindex="0" title="Chạm để hiện/ẩn"><span class="rv-recall-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span>?</span></span><span class="rv-recall-ans">${inner}</span></span>`;
       i = cursor;
     } else {
       // Unclosed fallback
@@ -425,22 +449,21 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     return `
       <section class="rv-editorial-sec ${meta.cls}" id="rv-item-${escapeAttr(card.id)}" data-card-id="${escapeAttr(card.id)}">
         <div class="rv-sec-head">
-          <div class="rv-sec-heading-group">
-            <div class="rv-sec-eyebrow-row">
-              <span class="rv-sec-dot ${meta.cls}" aria-hidden="true"></span>
-              <span class="rv-sec-kicker ${meta.cls}">${escapeHtml(meta.badge)}</span>
-              ${showLessonMeta ? `<span class="rv-card-lesson-crumb">• ${escapeHtml(showLessonMeta)}</span>` : ''}
+          <div class="rv-sec-heading-inline">
+            <span class="rv-sec-ico ${meta.cls}" aria-hidden="true" title="${escapeAttr(meta.badge)}">${meta.iconSvg}</span>
+            <div>
+              <h2 class="rv-sec-title">${escapeHtml(card.title)}</h2>
+              ${showLessonMeta ? `<div class="rv-card-lesson-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
             </div>
-            <h2 class="rv-sec-title">${escapeHtml(card.title)}</h2>
           </div>
           <button
             type="button"
             class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
             data-star-id="${escapeAttr(card.id)}"
-            aria-label="${isStarred ? 'Bỏ lưu khỏi Sổ tay' : 'Lưu vào Sổ tay của tôi'}"
-            title="${isStarred ? 'Đã lưu trong Sổ tay (Bấm để gỡ)' : 'Lưu mục này vào Sổ tay'}"
+            aria-label="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu Sổ tay'}"
+            title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
           >
-            <span aria-hidden="true">${isStarred ? '★' : '☆'}</span>
+            ${renderStarSvg(isStarred)}
           </button>
         </div>
         <div class="rv-sec-body">
@@ -453,6 +476,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
   function renderFlipCardHtml(fc, { showLessonMeta = '' } = {}) {
     const isFlipped = state.flippedIds.has(fc.id);
     const isStarred = state.bookmarks.has(fc.id);
+    const flipIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;
     return `
       <div
         class="rv-flip-card ${isFlipped ? 'is-flipped' : ''}"
@@ -460,38 +484,42 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         data-flip-id="${escapeAttr(fc.id)}"
         role="button"
         tabindex="0"
-        aria-label="Thẻ bắt lỗi sai: chạm để lật xem sửa lỗi"
+        aria-label="Chạm để lật thẻ"
       >
         <div class="rv-flip-inner">
           <!-- FRONT: Common Mistake -->
           <div class="rv-flip-face rv-flip-front">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-front">${fc.title || 'Sai ở đâu?'}</span>
+              <span class="rv-flip-badge is-front">⚠ ${fc.title || 'Sai ở đâu?'}</span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
                 data-star-id="${escapeAttr(fc.id)}"
-                title="${isStarred ? 'Đã lưu trong Sổ tay' : 'Lưu thẻ này vào Sổ tay'}"
-              >${isStarred ? '★' : '☆'}</button>
+                title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
+              >${renderStarSvg(isStarred)}</button>
             </div>
             ${showLessonMeta ? `<div class="rv-flip-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
             <div class="rv-flip-content">${fc.frontError}</div>
-            <div class="rv-flip-hint">Lật xem cách hiểu đúng →</div>
+            <div class="rv-flip-foot">
+              <span class="rv-flip-ico-btn" title="Lật thẻ">${flipIconSvg}</span>
+            </div>
           </div>
 
           <!-- BACK: Correct Reasoning -->
           <div class="rv-flip-face rv-flip-back">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-back">✓ Cách hiểu đúng</span>
+              <span class="rv-flip-badge is-back">✓ Đúng</span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
                 data-star-id="${escapeAttr(fc.id)}"
-                title="${isStarred ? 'Đã lưu trong Sổ tay' : 'Lưu thẻ này vào Sổ tay'}"
-              >${isStarred ? '★' : '☆'}</button>
+                title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
+              >${renderStarSvg(isStarred)}</button>
             </div>
             <div class="rv-flip-content">${fc.backCorrection}</div>
-            <div class="rv-flip-hint">↺ Quay lại tình huống</div>
+            <div class="rv-flip-foot">
+              <span class="rv-flip-ico-btn is-back" title="Lật lại">${flipIconSvg}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -500,21 +528,6 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
   function renderTouch1Html(lesson) {
     return `
-      ${
-        state.activeRecall
-          ? `
-            <div class="rv-recall-hint-strip">
-              <span>Đang bật chế độ <strong>Che công thức</strong> — tự nhẩm kết quả rồi chạm vào từng ô <em>"Chạm để hiện"</em>.</span>
-              <div class="rv-recall-quick-btns">
-                <button type="button" class="rv-inline-link" id="btnRevealAllMasks">Hiện tất cả</button>
-                <span aria-hidden="true">·</span>
-                <button type="button" class="rv-inline-link" id="btnHideAllMasks">Úp lại</button>
-              </div>
-            </div>
-          `
-          : ''
-      }
-
       <div class="rv-editorial-flow">
         ${(lesson.coreCards || []).map((c) => renderCoreCardHtml(c)).join('')}
       </div>
@@ -523,13 +536,13 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         lesson.flipCards?.length
           ? `
             <section class="rv-pitfalls-section">
-              <div class="rv-pitfalls-head">
-                <div class="rv-sec-eyebrow-row">
-                  <span class="rv-sec-dot is-warning" aria-hidden="true"></span>
-                  <span class="rv-sec-kicker is-warning">Phản biện tư duy</span>
+              <div class="rv-sec-head" style="margin-bottom:16px;">
+                <div class="rv-sec-heading-inline">
+                  <span class="rv-sec-ico is-danger" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </span>
+                  <h2 class="rv-sec-title">Bẫy hay sai</h2>
                 </div>
-                <h2 class="rv-sec-title">Các bẫy sai lầm kinh điển</h2>
-                <p class="rv-subhead-desc">Thử tự tìm chỗ sai trong lời giải bên dưới trước khi chạm vào thẻ để lật xem đáp án.</p>
               </div>
               <div class="rv-flip-grid">
                 ${lesson.flipCards.map((fc) => renderFlipCardHtml(fc)).join('')}
@@ -1028,17 +1041,20 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           `
           : `
             <div class="rv-tabbar-wrap is-notebook-bar">
-              <span class="rv-nb-count-note">${starredItems.length} mục đã đánh dấu</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked="${state.activeRecall}"
-                class="rv-inline-recall-toggle ${state.activeRecall ? 'is-checked' : ''}"
-                id="btnActiveRecallToggle"
-              >
-                <span class="rv-switch-ui" aria-hidden="true"></span>
-                <span>Che công thức</span>
-              </button>
+              <span class="rv-nb-count-note">${starredItems.length} mục</span>
+              <div class="rv-tabbar-tools">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked="${state.activeRecall}"
+                  class="rv-tool-icon-btn ${state.activeRecall ? 'is-active' : ''}"
+                  id="btnActiveRecallToggle"
+                  data-tip="${state.activeRecall ? 'Bỏ che công thức' : 'Che công thức'}"
+                  aria-label="Che công thức"
+                >
+                  ${renderRecallEyeSvg(state.activeRecall)}
+                </button>
+              </div>
             </div>
 
             <div class="rv-editorial-flow">
@@ -1129,16 +1145,15 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       <header class="rv-lesson-header">
         <div class="rv-lesson-head-left">
           <div class="rv-breadcrumb">
-            ${escapeHtml(lesson.gradeLabel)} · ${escapeHtml(lesson.chapterCode)} — ${escapeHtml(lesson.chapterTitle)}
+            ${escapeHtml(lesson.gradeLabel)} · ${escapeHtml(lesson.chapterCode)}
           </div>
           <h1 class="rv-lesson-h1">${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</h1>
-          <p class="rv-lesson-desc">${lesson.summary}</p>
         </div>
       </header>
 
-      <!-- Clean Open Underline Tab Bar + Integrated Inline Tools -->
+      <!-- Clean Open Underline Tab Bar + Icon Tools -->
       <div class="rv-tabbar-wrap">
-        <div class="rv-touch-tabs" role="tablist" aria-label="Các phần ôn tập bài học">
+        <div class="rv-touch-tabs" role="tablist" aria-label="Các phần ôn tập">
           <button
             type="button"
             role="tab"
@@ -1146,7 +1161,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
             class="rv-touch-tab ${state.touchTab === 'touch1' ? 'is-active' : ''}"
             data-touch-tab="touch1"
           >
-            Kiến thức trọng tâm
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            <span>Kiến thức trọng tâm</span>
           </button>
           <button
             type="button"
@@ -1155,7 +1171,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
             class="rv-touch-tab ${state.touchTab === 'touch2' ? 'is-active' : ''}"
             data-touch-tab="touch2"
           >
-            Ví dụ từng bước
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span>Ví dụ</span>
           </button>
           <button
             type="button"
@@ -1164,7 +1181,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
             class="rv-touch-tab ${state.touchTab === 'touch3' ? 'is-active' : ''}"
             data-touch-tab="touch3"
           >
-            Luyện nhanh
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>Luyện nhanh</span>
           </button>
         </div>
 
@@ -1172,25 +1190,37 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           ${
             state.touchTab === 'touch1'
               ? `
+                ${
+                  state.activeRecall
+                    ? `
+                      <button type="button" class="rv-tool-icon-btn" id="btnRevealAllMasks" data-tip="Hiện tất cả" aria-label="Hiện tất cả">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                      <button type="button" class="rv-tool-icon-btn" id="btnHideAllMasks" data-tip="Úp lại tất cả" aria-label="Úp lại tất cả">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                      </button>
+                    `
+                    : ''
+                }
                 <button
                   type="button"
                   role="switch"
                   aria-checked="${state.activeRecall}"
-                  class="rv-inline-recall-toggle ${state.activeRecall ? 'is-checked' : ''}"
+                  class="rv-tool-icon-btn ${state.activeRecall ? 'is-active' : ''}"
                   id="btnActiveRecallToggle"
-                  title="Bật để tự động ẩn các vế công thức quan trọng và tự nhẩm lại"
+                  data-tip="${state.activeRecall ? 'Bỏ che công thức' : 'Che công thức'}"
+                  aria-label="Che công thức"
                 >
-                  <span class="rv-switch-ui" aria-hidden="true"></span>
-                  <span>Che công thức</span>
+                  ${renderRecallEyeSvg(state.activeRecall)}
                 </button>
               `
               : ''
           }
-          <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" title="In phiếu ôn tập A4 hoặc lưu ra PDF">
+          <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" data-tip="In phiếu ôn tập" aria-label="In phiếu ôn tập">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
             </svg>
-            <span>In phiếu</span>
+            <span>In</span>
           </button>
         </div>
       </div>
@@ -1250,7 +1280,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
                 type="search"
                 id="rvSearchInput"
                 class="rv-search-input"
-                placeholder="Tìm nhanh công thức, định lý, lỗi sai (VD: công sai, cấp số nhân, bị chặn)..."
+                placeholder="Tìm công thức, định nghĩa..."
                 autocomplete="off"
                 value="${escapeAttr(state.searchQuery)}"
               />
@@ -1532,7 +1562,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         const starred = state.bookmarks.has(cid);
         rootEl.querySelectorAll(`[data-star-id="${CSS.escape(cid)}"]`).forEach((b) => {
           b.classList.toggle('is-starred', starred);
-          b.textContent = starred ? '★' : '☆';
+          b.innerHTML = renderStarSvg(starred);
         });
         const badgeEl = rootEl.querySelector('#rvNotebookCount');
         if (badgeEl) badgeEl.textContent = String(state.bookmarks.size);
