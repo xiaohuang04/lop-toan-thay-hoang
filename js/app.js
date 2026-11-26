@@ -624,7 +624,7 @@ function computeAvatarInitials(name) {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
-const PRESET_AVATAR_VER = '20261126r';
+const PRESET_AVATAR_VER = '20261126v';
 
 function avatarDisplaySrc(url) {
   const s = String(url || '').trim();
