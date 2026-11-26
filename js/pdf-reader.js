@@ -454,3 +454,115 @@ export async function extractGradebookFromPdfFile(file) {
     pageCount: pdf.numPages,
   };
 }
+
+/**
+ * Render only the PDF pages needed by `pendingPdfFigures` at high DPI and crop each
+ * normalized [ymin, xmin, ymax, xmax] (0..1000) region into a crisp PNG <div class="q-figure">.
+ * Returns { [token]: htmlString }.
+ */
+export async function cropPdfFiguresFromFile(file, pendingPdfFigures = [], scale = 2.4) {
+  const map = {};
+  if (!file || !Array.isArray(pendingPdfFigures) || pendingPdfFigures.length === 0) {
+    return map;
+  }
+
+  const byPage = new Map();
+  for (const item of pendingPdfFigures) {
+    if (!item || !item.token || !Array.isArray(item.box_2d) || item.box_2d.length !== 4) continue;
+    const p = Number(item.page) || 1;
+    if (!byPage.has(p)) byPage.set(p, []);
+    byPage.get(p).push(item);
+  }
+  if (byPage.size === 0) return map;
+
+  const pdfjsLib = await loadPdfJs();
+  const arrayBuf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+
+  for (const [pageNum, items] of byPage.entries()) {
+    if (pageNum < 1 || pageNum > pdf.numPages) {
+      items.forEach((it) => (map[it.token] = ''));
+      continue;
+    }
+    try {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = Math.ceil(viewport.width);
+      pageCanvas.height = Math.ceil(viewport.height);
+      const pCtx = pageCanvas.getContext('2d');
+      pCtx.fillStyle = '#ffffff';
+      pCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      await page.render({ canvasContext: pCtx, viewport }).promise;
+
+      const W = pageCanvas.width;
+      const H = pageCanvas.height;
+
+      for (const it of items) {
+        const [ry1, rx1, ry2, rx2] = it.box_2d.map((v) => Number(v) || 0);
+        // Add subtle 1% padding so diagram labels near edges never get clipped
+        const pad = 10;
+        const y1 = Math.max(0, Math.floor(((ry1 - pad) / 1000) * H));
+        const x1 = Math.max(0, Math.floor(((rx1 - pad) / 1000) * W));
+        const y2 = Math.min(H, Math.ceil(((ry2 + pad) / 1000) * H));
+        const x2 = Math.min(W, Math.ceil(((rx2 + pad) / 1000) * W));
+        const cw = x2 - x1;
+        const ch = y2 - y1;
+        if (cw < 16 || ch < 16) {
+          map[it.token] = '';
+          continue;
+        }
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cw;
+        cropCanvas.height = ch;
+        const cCtx = cropCanvas.getContext('2d');
+        cCtx.fillStyle = '#ffffff';
+        cCtx.fillRect(0, 0, cw, ch);
+        cCtx.drawImage(pageCanvas, x1, y1, cw, ch, 0, 0, cw, ch);
+        const pngUrl = cropCanvas.toDataURL('image/png');
+        map[it.token] = `<div class="q-figure"><img src="${pngUrl}" alt="Hình minh họa" /></div>`;
+      }
+    } catch {
+      items.forEach((it) => (map[it.token] = ''));
+    }
+  }
+  return map;
+}
+
+/**
+ * Replace placeholder figure tokens across all 4 parts of an exam or slide deck object in place.
+ */
+export function replaceTokensInExamOrDeck(obj, tokenMap = {}) {
+  if (!obj || !tokenMap || typeof tokenMap !== 'object') return obj;
+  const entries = Object.entries(tokenMap);
+  if (entries.length === 0) return obj;
+
+  const swap = (str) => {
+    if (typeof str !== 'string' || !str) return str;
+    let out = str;
+    for (const [tok, html] of entries) {
+      if (out.includes(tok)) out = out.split(tok).join(html);
+    }
+    return out;
+  };
+
+  (obj.part1 || []).forEach((q) => {
+    q.stem = swap(q.stem);
+    q.explanation = swap(q.explanation);
+    (q.options || []).forEach((o) => (o.text = swap(o.text)));
+  });
+  (obj.part2 || []).forEach((q) => {
+    q.stem = swap(q.stem);
+    q.explanation = swap(q.explanation);
+    (q.statements || []).forEach((st) => (st.text = swap(st.text)));
+  });
+  (obj.part3 || []).forEach((q) => {
+    q.stem = swap(q.stem);
+    q.explanation = swap(q.explanation);
+  });
+  (obj.part4 || []).forEach((q) => {
+    q.stem = swap(q.stem);
+    q.explanation = swap(q.explanation);
+  });
+  return obj;
+}

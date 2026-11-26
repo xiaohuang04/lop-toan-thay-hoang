@@ -25,6 +25,7 @@ async function request(url, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const err = new Error(data.error || `Lỗi máy chủ (${res.status})`);
     err.status = res.status;
+    err.code = data.code || '';
     throw err;
   }
   return data;
@@ -43,6 +44,9 @@ export const api = {
 
   // Admin
   adminOverview: () => request('/api/admin/overview'),
+  getAiSettings: () => request('/api/admin/ai-settings'),
+  saveAiSettings: (payload) => request('/api/admin/ai-settings', { method: 'POST', body: payload }),
+  testAiSettings: (payload = {}) => request('/api/admin/ai-settings/test', { method: 'POST', body: payload }),
   parseExam: (payload) => request('/api/admin/parse-exam', { method: 'POST', body: payload }),
   parsePresentation: (payload) => request('/api/admin/parse-presentation', { method: 'POST', body: payload }),
   getPresentationSample: () => request('/api/admin/presentation-sample'),

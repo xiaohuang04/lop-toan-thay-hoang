@@ -25,6 +25,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from curriculum_data import build_builtin_curriculum_plans
+from gemini_pdf import (
+    DEFAULT_GEMINI_MODEL,
+    GeminiPdfError,
+    parse_pdf_with_gemini,
+    resolve_gemini_config,
+    test_gemini_connection,
+)
 from live_game_engine import LiveGameEngine
 from parsers import parse_docx_bytes, parse_extest_latex, parse_presentation_source, parse_structured_exam_text
 from storage import StorageBackend
@@ -1348,6 +1355,21 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền xem dung lượng."})
                 return self.send_json(200, STORE.get_storage_stats(db))
 
+            if path == "/api/admin/ai-settings":
+                if user["role"] != "admin":
+                    return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền xem cài đặt AI."})
+                cfg = resolve_gemini_config(db)
+                return self.send_json(
+                    200,
+                    {
+                        "configured": cfg["configured"],
+                        "source": cfg["source"],
+                        "maskedKey": cfg["maskedKey"],
+                        "model": cfg["model"],
+                        "availableModels": cfg["availableModels"],
+                    },
+                )
+
             if path == "/api/admin/presentation-sample":
                 if user["role"] != "admin":
                     return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền truy cập."})
@@ -1491,6 +1513,48 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             body = self.read_body_json()
         except Exception as e:
             return self.send_json(400, {"error": f"Dữ liệu gửi lên không hợp lệ: {e}"})
+
+        # Lock-free Gemini Vision AI routes (external HTTP I/O must not block LOCK!)
+        if path in ("/api/admin/ai-settings/test", "/api/admin/parse-presentation", "/api/admin/parse-exam"):
+            req_fmt = str(body.get("format", "")).lower().strip() if isinstance(body, dict) else ""
+            if path == "/api/admin/ai-settings/test" or req_fmt == "pdf_base64":
+                with LOCK:
+                    db_snap = load_db()
+                    auth_user, _, _ = self.get_auth_session(db_snap)
+                    ai_cfg = resolve_gemini_config(db_snap)
+                if not auth_user:
+                    return self.send_json(401, {"error": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."})
+                if auth_user.get("role") != "admin":
+                    return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền thực hiện."})
+
+                if path == "/api/admin/ai-settings/test":
+                    raw_key = str(body.get("apiKey", "")).strip() or ai_cfg["apiKey"]
+                    raw_model = str(body.get("model", "")).strip() or ai_cfg["model"]
+                    try:
+                        res = test_gemini_connection(raw_key, raw_model)
+                        return self.send_json(200, res)
+                    except GeminiPdfError as ge:
+                        return self.send_json(ge.http_status, {"error": str(ge), "code": ge.code})
+                    except Exception as exc:
+                        return self.send_json(500, {"error": f"Lỗi kiểm tra kết nối Gemini: {exc}"})
+
+                # Parse PDF with Gemini Vision AI (shared by both Presentation Slides & Exam Bank)
+                b64_pdf = str(body.get("base64Data", "")).strip()
+                filename = str(body.get("filename", "")).strip()
+                for_pres = path == "/api/admin/parse-presentation"
+                try:
+                    result = parse_pdf_with_gemini(
+                        b64_pdf,
+                        filename=filename,
+                        api_key=ai_cfg["apiKey"],
+                        model=ai_cfg["model"],
+                        for_presentation=for_pres,
+                    )
+                    return self.send_json(200, result)
+                except GeminiPdfError as ge:
+                    return self.send_json(ge.http_status, {"error": str(ge), "code": ge.code})
+                except Exception as exc:
+                    return self.send_json(500, {"error": f"Lỗi trích xuất PDF bằng Gemini AI: {exc}"})
 
         with LOCK:
             db = load_db()
@@ -1715,6 +1779,34 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             # Admin-only POST routes
             if user["role"] != "admin":
                 return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền thực hiện."})
+
+            # Save Gemini AI settings (API key & model) to db['settings'] (synced to Supabase Cloud / local)
+            if path == "/api/admin/ai-settings":
+                if not isinstance(db.get("settings"), dict):
+                    db["settings"] = {}
+                if bool(body.get("clearKey")):
+                    db["settings"].pop("geminiApiKey", None)
+                else:
+                    new_key = str(body.get("apiKey", "")).strip()
+                    if new_key:
+                        db["settings"]["geminiApiKey"] = new_key
+                new_model = str(body.get("model", "")).strip()
+                if new_model:
+                    db["settings"]["geminiModel"] = new_model
+                elif not db["settings"].get("geminiModel"):
+                    db["settings"]["geminiModel"] = DEFAULT_GEMINI_MODEL
+                save_db(db, keys=["settings"])
+                cfg = resolve_gemini_config(db)
+                return self.send_json(
+                    200,
+                    {
+                        "configured": cfg["configured"],
+                        "source": cfg["source"],
+                        "maskedKey": cfg["maskedKey"],
+                        "model": cfg["model"],
+                        "availableModels": cfg["availableModels"],
+                    },
+                )
 
             # Parse Lecture Presentation Deck (Word .docx, PDF text, or LaTeX .tex -> Part I/II/III/IV slides)
             if path == "/api/admin/parse-presentation":

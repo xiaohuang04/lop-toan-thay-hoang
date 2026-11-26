@@ -1,11 +1,11 @@
-import { api, setToken } from './api.js?v=20261126a';
+import { api, setToken } from './api.js?v=20261126l';
 import { createExamRunner } from './exam-runner.js?v=20261125l';
-import { createTeacherController } from './teacher-ui.js?v=20261126e';
-import { createStudentController } from './student-ui.js?v=20261126a';
+import { createTeacherController } from './teacher-ui.js?v=20261126l';
+import { createStudentController } from './student-ui.js?v=20261126l';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125l';
-import { createLectureSlidesController } from './lecture-slides.js?v=20261126k';
+import { createLectureSlidesController } from './lecture-slides.js?v=20261126m';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
@@ -42,6 +42,7 @@ const menuItemProfile = document.getElementById('menuItemProfile');
 const menuItemSwitchDemo = document.getElementById('menuItemSwitchDemo');
 const menuItemSwitchAdmin = document.getElementById('menuItemSwitchAdmin');
 const menuItemStorage = document.getElementById('menuItemStorage');
+const menuItemAiSettings = document.getElementById('menuItemAiSettings');
 const menuItemChangePw = document.getElementById('menuItemChangePw');
 const menuItemLogout = document.getElementById('menuItemLogout');
 
@@ -180,7 +181,7 @@ function fitInlineMath(container) {
   });
 }
 
-function renderMath(container) {
+function renderMath(container, onDone) {
   if (!container) return;
   const doRender = () => {
     if (typeof window.renderMathInElement === 'function') {
@@ -193,7 +194,12 @@ function renderMath(container) {
         ],
         throwOnError: false,
       });
-      requestAnimationFrame(() => fitInlineMath(container));
+      requestAnimationFrame(() => {
+        fitInlineMath(container);
+        onDone?.();
+      });
+    } else {
+      onDone?.();
     }
   };
   if (typeof window.renderMathInElement === 'function') {
@@ -218,6 +224,7 @@ const uiHelpers = {
   fitInlineMath,
   setHeaderStatus,
   openStorageModal: () => openStorageManagerModal(),
+  openAiSettingsModal: (opts) => openAiSettingsModal(opts),
 };
 
 const examRoot = document.getElementById('examRoot');
@@ -673,6 +680,9 @@ function updateUserHeader() {
   if (menuItemStorage) {
     menuItemStorage.classList.toggle('hidden', !isAdmin);
   }
+  if (menuItemAiSettings) {
+    menuItemAiSettings.classList.toggle('hidden', !isAdmin);
+  }
   syncUserMenuStagger();
   if (tabBtnLab) {
     tabBtnLab.classList.toggle('hidden', !isAdmin && modelsVisibilityMode === 'admin_only');
@@ -919,6 +929,178 @@ async function openStorageManagerModal() {
 menuItemStorage?.addEventListener('click', () => {
   closeUserDropdown();
   openStorageManagerModal();
+});
+
+async function openAiSettingsModal({ onSaved } = {}) {
+  if (!currentUser || currentUser.role !== 'admin') return;
+
+  openModal({
+    title: 'Cài đặt Gemini AI (Chuyển PDF → LaTeX)',
+    bodyHtml: `<div style="padding:24px; text-align:center; color:var(--text-muted);">Đang tải cấu hình AI...</div>`,
+    footerHtml: `
+      <button type="button" class="btn btn-secondary" id="mCloseAi">Đóng</button>
+      <button type="button" class="btn btn-secondary hidden" id="mTestAi">Kiểm tra kết nối</button>
+      <button type="button" class="btn btn-primary hidden" id="mSaveAi">Lưu cài đặt</button>
+    `,
+    onMount: async (m) => {
+      const mBody = m.querySelector('.modal-body');
+      const btnClose = m.querySelector('#mCloseAi');
+      const btnTest = m.querySelector('#mTestAi');
+      const btnSave = m.querySelector('#mSaveAi');
+      btnClose?.addEventListener('click', closeModal);
+
+      let cfg = null;
+      try {
+        cfg = await api.getAiSettings();
+      } catch (err) {
+        mBody.innerHTML = `<div style="padding:16px; color:var(--danger);">${escapeHtml(err.message)}</div>`;
+        return;
+      }
+
+      const models = Array.isArray(cfg.availableModels) && cfg.availableModels.length
+        ? cfg.availableModels
+        : [
+            { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Khuyên dùng · Free Tier)' },
+            { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Nhanh & cân bằng · Free Tier)' },
+            { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Siêu tốc · Free Tier)' },
+          ];
+      const curModel = cfg.model || 'gemini-3.8-flash';
+      const srcLabel =
+        cfg.source === 'db'
+          ? `Đã lưu khóa (${cfg.maskedKey})`
+          : cfg.source === 'env'
+            ? `Đang dùng biến môi trường (${cfg.maskedKey})`
+            : 'Chưa cài đặt API Key';
+
+      mBody.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:10px 12px; border-radius:11px; background:${cfg.configured ? '#f0fdf4' : '#fffbeb'}; border:1px solid ${cfg.configured ? '#bbf7d0' : '#fde68a'};">
+            <span style="font-size:0.84rem; font-weight:700; color:${cfg.configured ? '#15803d' : '#92400e'};">
+              ${cfg.configured ? '●' : '○'} ${escapeHtml(srcLabel)}
+            </span>
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style="font-size:0.8rem; font-weight:700; color:var(--primary); text-decoration:none;">
+              Lấy API Key miễn phí ($0) tại Google AI Studio ↗
+            </a>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0;">
+            <label for="aiKeyInput">Gemini API Key ${cfg.configured ? '(để trống nếu giữ nguyên khóa cũ)' : '*'}</label>
+            <div style="display:flex; gap:8px;">
+              <input
+                type="password"
+                id="aiKeyInput"
+                class="input-control"
+                placeholder="${cfg.configured ? 'Dán API Key mới để thay đổi...' : 'AIzaSy...'}"
+                autocomplete="off"
+                spellcheck="false"
+                style="flex:1;"
+              />
+              ${
+                cfg.source === 'db'
+                  ? `<button type="button" class="btn btn-danger-outline btn-sm" id="btnClearAiKey" title="Xóa khóa đã lưu">Xóa khóa</button>`
+                  : ''
+              }
+            </div>
+            <small style="display:block; margin-top:5px; color:var(--text-muted); font-size:0.76rem; line-height:1.45;">
+              Dùng chung cho tính năng đọc file <strong>PDF → LaTeX + tự cắt hình vẽ</strong> ở cả <strong>Trình chiếu</strong> và <strong>Ngân hàng đề thi</strong>. Khóa được lưu an toàn trên máy chủ (Supabase Cloud), không lộ ra phía học sinh.
+            </small>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0;">
+            <label for="aiModelSelect">Model Gemini sử dụng</label>
+            <select id="aiModelSelect" class="input-control">
+              ${models
+                .map(
+                  (md) =>
+                    `<option value="${escapeAttr(md.id)}" ${md.id === curModel ? 'selected' : ''}>${escapeHtml(md.label)}</option>`
+                )
+                .join('')}
+            </select>
+          </div>
+
+          <div id="aiSettingsStatus" class="hidden" style="padding:9px 12px; border-radius:10px; font-size:0.83rem;"></div>
+        </div>
+      `;
+
+      btnTest.classList.remove('hidden');
+      btnSave.classList.remove('hidden');
+
+      const keyInp = mBody.querySelector('#aiKeyInput');
+      const modelSel = mBody.querySelector('#aiModelSelect');
+      const statusBox = mBody.querySelector('#aiSettingsStatus');
+      const clearBtn = mBody.querySelector('#btnClearAiKey');
+
+      const showBoxStatus = (msg, kind = 'info') => {
+        statusBox.classList.remove('hidden');
+        const palette =
+          kind === 'success'
+            ? { bg: '#f0fdf4', bd: '#bbf7d0', fg: '#15803d' }
+            : kind === 'error'
+              ? { bg: '#fef2f2', bd: '#fecaca', fg: '#b91c1c' }
+              : { bg: '#eff6ff', bd: '#bfdbfe', fg: '#1d4ed8' };
+        statusBox.style.background = palette.bg;
+        statusBox.style.border = `1px solid ${palette.bd}`;
+        statusBox.style.color = palette.fg;
+        statusBox.textContent = msg;
+      };
+
+      clearBtn?.addEventListener('click', async () => {
+        clearBtn.disabled = true;
+        try {
+          const next = await api.saveAiSettings({ clearKey: true, model: modelSel.value });
+          showToast('Đã xóa Gemini API Key khỏi cài đặt.', 'info');
+          onSaved?.(next);
+          closeModal();
+        } catch (err) {
+          showBoxStatus(err.message || 'Không thể xóa khóa.', 'error');
+          clearBtn.disabled = false;
+        }
+      });
+
+      btnTest.addEventListener('click', async () => {
+        btnTest.disabled = true;
+        showBoxStatus('Đang kiểm tra kết nối tới Google Gemini API...', 'info');
+        try {
+          const res = await api.testAiSettings({
+            apiKey: keyInp.value.trim(),
+            model: modelSel.value,
+          });
+          showBoxStatus(`✓ Kết nối thành công với ${res.model} (${res.latencyMs} ms)!`, 'success');
+        } catch (err) {
+          showBoxStatus(`✕ ${err.message || 'Kết nối thất bại.'}`, 'error');
+        } finally {
+          btnTest.disabled = false;
+        }
+      });
+
+      btnSave.addEventListener('click', async () => {
+        const typedKey = keyInp.value.trim();
+        if (!cfg.configured && !typedKey) {
+          showBoxStatus('Vui lòng dán Gemini API Key trước khi lưu.', 'error');
+          keyInp.focus();
+          return;
+        }
+        btnSave.disabled = true;
+        try {
+          const next = await api.saveAiSettings({
+            apiKey: typedKey,
+            model: modelSel.value,
+          });
+          showToast('Đã lưu cài đặt Gemini AI thành công!', 'success');
+          onSaved?.(next);
+          closeModal();
+        } catch (err) {
+          showBoxStatus(err.message || 'Không thể lưu cài đặt.', 'error');
+          btnSave.disabled = false;
+        }
+      });
+    },
+  });
+}
+
+menuItemAiSettings?.addEventListener('click', () => {
+  closeUserDropdown();
+  openAiSettingsModal();
 });
 
 const PRESET_ANIMAL_AVATARS = [

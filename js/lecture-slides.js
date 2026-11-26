@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20261126a';
+import { api } from './api.js?v=20261126l';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
-import { extractTextFromPdfFile } from './pdf-reader.js?v=20261123d';
+import { cropPdfFiguresFromFile, replaceTokensInExamOrDeck } from './pdf-reader.js?v=20261126l';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 
 function fileToBase64(file) {
@@ -80,18 +80,79 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
 }
 
 function estimateOptionsCols(options = [], dock = 'full', dockWidth = 48) {
-  const maxLen = options.reduce((m, o) => {
-    const plain = String(o.text || '').replace(/<[^>]+>/g, '');
-    return Math.max(m, plain.length);
+  // Lightweight initial guess before KaTeX paints; autoLayoutOptionGrids() measures true pixel width right after KaTeX renders.
+  const maxVisualLen = options.reduce((m, o) => {
+    const rough = String(o.text || '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\\(?:overrightarrow|overleftarrow|overleftrightarrow|widehat|widetilde|overline|underline|displaystyle|dfrac|tfrac|frac|left|right|text|mathrm|mathbb|cdot|times|sqrt)\b/g, 'x')
+      .replace(/[{}$\\]/g, '');
+    return Math.max(m, rough.trim().length);
   }, 0);
-  const hasInlineImg = options.some((o) => String(o.text || '').includes('<img'));
   if (dock !== 'full') {
-    if (dockWidth <= 42 || maxLen > 36 || hasInlineImg) return 1;
-    return 2;
+    return dockWidth <= 40 || maxVisualLen > 28 ? 1 : 2;
   }
-  if (hasInlineImg || maxLen > 50) return 1;
-  if (maxLen > 22) return 2;
+  if (maxVisualLen > 42) return 1;
+  if (maxVisualLen > 18) return 2;
   return 4;
+}
+
+/**
+ * Measure the true rendered pixel width of each option AFTER KaTeX paints
+ * and choose 4 cols (1 row), 2 cols (2 rows), or 1 col (4 rows) accurately.
+ */
+function autoLayoutOptionGrids(container) {
+  if (!container) return;
+  const grids = container.querySelectorAll('.ls-opts-grid');
+  if (!grids.length) return;
+
+  grids.forEach((grid) => {
+    const gridW = grid.clientWidth;
+    if (gridW <= 60) return;
+
+    const items = Array.from(grid.querySelectorAll('.ls-opt-item'));
+    if (items.length === 0) return;
+
+    let maxNeededW = 0;
+    let hasBlockFigure = false;
+
+    for (const item of items) {
+      if (item.querySelector('.q-figure')) {
+        hasBlockFigure = true;
+        break;
+      }
+      const keyEl = item.querySelector('.ls-opt-key');
+      const valEl = item.querySelector('.ls-opt-val');
+      if (!valEl) continue;
+
+      // Measure natural unwrapped pixel width of the rendered KaTeX/text content
+      const prevStyle = valEl.style.cssText;
+      valEl.style.flex = '0 0 auto';
+      valEl.style.width = 'max-content';
+      valEl.style.whiteSpace = 'nowrap';
+      const valW = valEl.getBoundingClientRect().width;
+      valEl.style.cssText = prevStyle;
+
+      const keyW = keyEl ? keyEl.getBoundingClientRect().width : 30;
+      // key + gap (10px) + content + button horizontal padding (24px) + border (3px) + breathing room (12px)
+      const neededW = keyW + valW + 49;
+      if (neededW > maxNeededW) maxNeededW = neededW;
+    }
+
+    const colGap = 14;
+    let cols = 1;
+    if (!hasBlockFigure) {
+      if (items.length <= 4 && maxNeededW * 4 + colGap * 3 <= gridW) {
+        cols = 4;
+      } else if (maxNeededW * 2 + colGap <= gridW) {
+        cols = 2;
+      } else {
+        cols = 1;
+      }
+    }
+
+    grid.classList.remove('cols-1', 'cols-2', 'cols-4');
+    grid.classList.add(`cols-${cols}`);
+  });
 }
 
 function normalizeMathForSlides(html) {
@@ -351,11 +412,14 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
 }
 
 export function createLectureSlidesController({ uiHelpers }) {
-  const { showToast, renderMath, fitInlineMath } = uiHelpers;
+  const { showToast, renderMath, fitInlineMath, openAiSettingsModal } = uiHelpers;
 
   const state = {
     deck: null, // { title, part1, part2, part3, part4 }
     warnings: [],
+    lastLatexSource: '',
+    aiConfigured: null, // null | true | false
+    aiModel: '',
     partChunk: { 1: 2, 3: 1, 4: 1 }, // questions per slide for Parts I, III, IV (Part II is always 1)
     slideIdx: 0,
     dock: 'full', // 'left' | 'full' | 'right'
@@ -381,6 +445,7 @@ export function createLectureSlidesController({ uiHelpers }) {
   let mountEl = null;
   let keydownHandler = null;
   let fsChangeHandler = null;
+  let stageResizeHandler = null;
   let laserMoveHandler = null;
   let laserLeaveHandler = null;
   let laserResizeHandler = null;
@@ -467,6 +532,10 @@ export function createLectureSlidesController({ uiHelpers }) {
 
   function detachGlobalListeners() {
     stopLaserLoop();
+    if (stageResizeHandler) {
+      window.removeEventListener('resize', stageResizeHandler);
+      stageResizeHandler = null;
+    }
     if (keydownHandler) {
       window.removeEventListener('keydown', keydownHandler);
       keydownHandler = null;
@@ -478,7 +547,7 @@ export function createLectureSlidesController({ uiHelpers }) {
     }
   }
 
-  function openDeck(deck, warnings = []) {
+  function openDeck(deck, warnings = [], latexSource = '') {
     state.deck = {
       title: deck.title || 'Bài giảng trình chiếu',
       part1: Array.isArray(deck.part1) ? deck.part1 : [],
@@ -487,6 +556,7 @@ export function createLectureSlidesController({ uiHelpers }) {
       part4: Array.isArray(deck.part4) ? deck.part4 : [],
     };
     state.warnings = Array.isArray(warnings) ? warnings : [];
+    state.lastLatexSource = String(latexSource || '');
     state.slideIdx = 0;
     state.showIndex = false;
     state.demoMarks = { p1: {}, p2: {}, p3: {} };
@@ -527,8 +597,13 @@ export function createLectureSlidesController({ uiHelpers }) {
       const b64 = await fileToBase64(file);
       res = await api.parsePresentation({ format: 'docx', base64Data: b64, filename: file.name });
     } else if (ext === 'pdf') {
-      const text = await extractTextFromPdfFile(file);
-      res = await api.parsePresentation({ format: 'pdf', content: text, filename: file.name });
+      showToast('Đang đọc file PDF bằng Gemini Vision AI (thường mất 10–25 giây)...', 'info');
+      const b64 = await fileToBase64(file);
+      res = await api.parsePresentation({ format: 'pdf_base64', base64Data: b64, filename: file.name });
+      if (res?.deck && Array.isArray(res.pendingPdfFigures) && res.pendingPdfFigures.length > 0) {
+        const figMap = await cropPdfFiguresFromFile(file, res.pendingPdfFigures);
+        replaceTokensInExamOrDeck(res.deck, figMap);
+      }
     } else if (ext === 'tex' || ext === 'txt') {
       const text = await file.text();
       const fmt = text.includes('\\begin{ex}') || ext === 'tex' ? 'latex' : 'pdf';
@@ -539,12 +614,41 @@ export function createLectureSlidesController({ uiHelpers }) {
     return res;
   }
 
+  async function refreshAiStatus() {
+    try {
+      const cfg = await api.getAiSettings();
+      state.aiConfigured = Boolean(cfg?.configured);
+      state.aiModel = cfg?.model || '';
+      const btn = mountEl?.querySelector('#btnLsAiSettings');
+      if (btn) {
+        btn.classList.toggle('is-ai-ready', state.aiConfigured);
+        btn.innerHTML = state.aiConfigured
+          ? `<span>● Gemini AI (PDF): Sẵn sàng</span>`
+          : `<span>⚙ Cài đặt Gemini AI (Đọc PDF)</span>`;
+      }
+    } catch {}
+  }
+
   function renderLauncherHtml(exams = []) {
+    const aiLabel =
+      state.aiConfigured === true
+        ? '● Gemini AI (PDF): Sẵn sàng'
+        : state.aiConfigured === false
+          ? '⚙ Cài đặt Gemini AI (Đọc PDF)'
+          : '⚙ Cài đặt Gemini AI (Đọc PDF)';
     return `
       <div class="ls-launcher">
         <div class="card ls-hero-card">
           <div class="ls-hero-top is-compact">
             <span class="badge badge-p1">Trình chiếu bài giảng</span>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm ${state.aiConfigured ? 'is-ai-ready' : ''}"
+              id="btnLsAiSettings"
+              title="Cài đặt Gemini API Key (miễn phí) để đọc mọi file PDF sang LaTeX"
+            >
+              <span>${aiLabel}</span>
+            </button>
           </div>
 
           <div id="lsDropzoneHost" style="margin-top:14px;"></div>
@@ -844,7 +948,14 @@ export function createLectureSlidesController({ uiHelpers }) {
                 <aside class="ls-index-drawer" id="lsIndexDrawer">
                   <div class="ls-index-head">
                     <strong>Mục lục (${slides.length} trang)</strong>
-                    <button type="button" class="btn btn-ghost btn-sm" id="btnCloseLsIndex">✕</button>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                      ${
+                        state.lastLatexSource
+                          ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCopySlideLatex" title="Sao chép mã LaTeX (ex_test) vừa trích xuất từ PDF">Chép TeX</button>`
+                          : ''
+                      }
+                      <button type="button" class="btn btn-ghost btn-sm" id="btnCloseLsIndex">✕</button>
+                    </div>
                   </div>
                   <div class="ls-index-list">
                     ${slides
@@ -909,10 +1020,24 @@ export function createLectureSlidesController({ uiHelpers }) {
 
     mountEl.innerHTML = renderStageHtml();
     bindStageEvents();
-    renderMath?.(mountEl.querySelector('#lsContentCol'));
+    const colEl = mountEl.querySelector('#lsContentCol');
+    renderMath?.(colEl, () => autoLayoutOptionGrids(colEl));
   }
 
   function bindLauncherEvents() {
+    mountEl.querySelector('#btnLsAiSettings')?.addEventListener('click', () => {
+      openAiSettingsModal?.({
+        onSaved: (cfg) => {
+          state.aiConfigured = Boolean(cfg?.configured);
+          state.aiModel = cfg?.model || '';
+          renderCurrent();
+        },
+      });
+    });
+    if (state.aiConfigured === null) {
+      refreshAiStatus();
+    }
+
     const dzHost = mountEl.querySelector('#lsDropzoneHost');
     if (dzHost) {
       mountAnimatedDropzone(dzHost, {
@@ -921,9 +1046,9 @@ export function createLectureSlidesController({ uiHelpers }) {
         multiple: false,
         idleTitle: 'Kéo thả file đề vào đây để tạo slide trình chiếu',
         dragTitle: 'Thả file để tách câu hỏi ngay',
-        subNote: 'Word (.docx) · PDF (.pdf) · LaTeX (.tex)',
+        subNote: 'Word (.docx) · PDF (.pdf — Gemini AI) · LaTeX (.tex)',
         hintText: '',
-        maxBytes: 25 * 1024 * 1024,
+        maxBytes: 24 * 1024 * 1024,
         onProcess: async (file) => {
           if (!file) return null;
           return await handleFileImport(file);
@@ -934,11 +1059,20 @@ export function createLectureSlidesController({ uiHelpers }) {
             const total =
               (d.part1?.length || 0) + (d.part2?.length || 0) + (d.part3?.length || 0) + (d.part4?.length || 0);
             showToast(`Đã tách thành công ${total} câu hỏi thành trang trình chiếu!`, 'success');
-            openDeck(d, res.warnings || []);
+            openDeck(d, res.warnings || [], res.latexSource || '');
           }
         },
         onError: (err) => {
           showToast(err?.message || 'Không thể tách câu hỏi từ tệp này.', 'error');
+          if (err?.code === 'MISSING_GEMINI_KEY') {
+            openAiSettingsModal?.({
+              onSaved: (cfg) => {
+                state.aiConfigured = Boolean(cfg?.configured);
+                state.aiModel = cfg?.model || '';
+                renderCurrent();
+              },
+            });
+          }
         },
       });
     }
@@ -1326,12 +1460,14 @@ export function createLectureSlidesController({ uiHelpers }) {
         state.dockWidth = val;
         if (widthVal) widthVal.textContent = `${val}%`;
         stageEl.style.setProperty('--ls-dock-w', `${val}%`);
-        fitInlineMath?.(mountEl.querySelector('#lsContentCol'));
+        const colEl = mountEl.querySelector('#lsContentCol');
+        fitInlineMath?.(colEl);
+        autoLayoutOptionGrids(colEl);
       });
       widthSlider.addEventListener('change', () => {
-        const curSlide = getSlides()[state.slideIdx];
-        if (curSlide?.part === 1) renderCurrent();
-        else fitInlineMath?.(mountEl.querySelector('#lsContentCol'));
+        const colEl = mountEl.querySelector('#lsContentCol');
+        fitInlineMath?.(colEl);
+        autoLayoutOptionGrids(colEl);
       });
     }
 
@@ -1376,6 +1512,15 @@ export function createLectureSlidesController({ uiHelpers }) {
     mountEl.querySelector('#btnCloseLsIndex')?.addEventListener('click', () => {
       state.showIndex = false;
       renderCurrent();
+    });
+    mountEl.querySelector('#btnCopySlideLatex')?.addEventListener('click', async () => {
+      if (!state.lastLatexSource) return;
+      try {
+        await navigator.clipboard.writeText(state.lastLatexSource);
+        showToast('Đã sao chép toàn bộ mã LaTeX (ex_test) vào bộ nhớ tạm!', 'success');
+      } catch {
+        showToast('Trình duyệt không cho phép sao chép tự động.', 'error');
+      }
     });
     mountEl.querySelectorAll('[data-ls-jump]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1491,6 +1636,14 @@ export function createLectureSlidesController({ uiHelpers }) {
         renderCurrent();
       }
     };
+    stageResizeHandler = () => {
+      const colEl = mountEl?.querySelector('#lsContentCol');
+      if (!colEl) return;
+      fitInlineMath?.(colEl);
+      autoLayoutOptionGrids(colEl);
+    };
+    window.addEventListener('resize', stageResizeHandler, { passive: true });
+
     document.addEventListener('fullscreenchange', fsChangeHandler);
     document.addEventListener('webkitfullscreenchange', fsChangeHandler);
   }

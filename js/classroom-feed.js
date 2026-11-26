@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261126a';
+import { api } from './api.js?v=20261126l';
 import {
   escapeHtml,
   escapeAttr,

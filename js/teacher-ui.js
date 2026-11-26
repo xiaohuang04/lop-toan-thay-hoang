@@ -1,9 +1,11 @@
-import { api } from './api.js?v=20261126a';
+import { api } from './api.js?v=20261126l';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
   renderPdfBase64AllPagesToPngs,
-} from './pdf-reader.js?v=20261123d';
+  cropPdfFiguresFromFile,
+  replaceTokensInExamOrDeck,
+} from './pdf-reader.js?v=20261126l';
 import {
   escapeHtml,
   escapeAttr,
@@ -22,7 +24,7 @@ import {
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261126a';
+} from './classroom-feed.js?v=20261126l';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -2330,8 +2332,11 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       </div>
 
       <div id="impPanelPdf" class="${mode === 'pdf' ? '' : 'hidden'}">
-        <div class="import-tip">
-          Hỗ trợ nạp file <strong>PDF (.pdf)</strong> có lớp văn bản (đề xuất từ LaTeX hoặc Word). Hệ thống trích xuất tự động 3 phần và cho phép thầy rà soát lại công thức trong Trình tinh chỉnh.
+        <div class="import-tip" style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <span>
+            Đọc mọi file <strong>PDF (.pdf)</strong> — kể cả đề xuất từ <strong>Word/MathType, LaTeX hoặc PDF ảnh scan</strong> — bằng <strong>Gemini Vision AI</strong>, tự chuyển sang mã LaTeX chuẩn và tự cắt hình vẽ sắc nét.
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnImpOpenAiSettings">⚙ Cài đặt Gemini AI</button>
         </div>
         <div id="pdfDropzone"></div>
       </div>
@@ -2380,6 +2385,11 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   <span class="badge badge-p1">Phần I: ${p1n} câu</span>
                   <span class="badge badge-p2">Phần II: ${p2n} câu</span>
                   <span class="badge badge-p3">Phần III: ${p3n} câu</span>
+                  ${
+                    res.latexSource
+                      ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCopyParsedLatex">Sao chép mã LaTeX</button>`
+                      : ''
+                  }
                 </div>
               </div>
 
@@ -2405,6 +2415,15 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           previewEl.classList.remove('hidden');
           btnEditParsed.classList.remove('hidden');
           btnSaveParsed.classList.remove('hidden');
+          previewEl.querySelector('#btnCopyParsedLatex')?.addEventListener('click', async () => {
+            if (!res.latexSource) return;
+            try {
+              await navigator.clipboard.writeText(res.latexSource);
+              showToast('Đã sao chép toàn bộ mã LaTeX (ex_test) vào bộ nhớ tạm!', 'success');
+            } catch {
+              showToast('Không thể sao chép tự động.', 'error');
+            }
+          });
           renderMath(previewEl);
         }
 
@@ -2571,23 +2590,31 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           },
         });
 
-        // === MODE 3: PDF (.pdf) ===
+        // === MODE 3: PDF (.pdf) via Gemini Vision AI ===
+        m.querySelector('#btnImpOpenAiSettings')?.addEventListener('click', () => {
+          uiHelpers.openAiSettingsModal?.();
+        });
+
         mountAnimatedDropzone(m.querySelector('#pdfDropzone'), {
           inputId: 'inpPdfFile',
           accept: '.pdf,application/pdf',
           idleTitle: 'Kéo thả file PDF (.pdf) vào đây',
-          dragTitle: 'Thả file PDF để nạp đề',
-          hintText: 'Tự nhận diện PHẦN I / PHẦN II / PHẦN III và đánh số Câu 1., Câu 2., ...',
+          dragTitle: 'Thả file PDF để Gemini AI đọc đề',
+          subNote: '.pdf (tối đa 24 MB)',
+          hintText: '',
+          maxBytes: 24 * 1024 * 1024,
           onProcess: async (file) => {
             if (!file.name.toLowerCase().endsWith('.pdf')) {
               throw new Error('Vui lòng chọn file định dạng .pdf.');
             }
-            statusEl.classList.add('hidden');
-            const extractedText = await extractTextFromPdfFile(file);
-            if (!extractedText.trim()) {
-              throw new Error('File PDF không có lớp văn bản (có thể là ảnh scan). Vui lòng dùng mã LaTeX ex_test hoặc file Word .docx.');
+            setStatus('Đang đọc file PDF & chuyển công thức sang LaTeX bằng Gemini Vision AI (10–25 giây)...', 'info');
+            const base64Data = await fileToBase64(file);
+            const res = await api.parseExam({ format: 'pdf_base64', base64Data, filename: file.name });
+            if (res?.exam && Array.isArray(res.pendingPdfFigures) && res.pendingPdfFigures.length > 0) {
+              setStatus(`Đang cắt ảnh độ nét cao cho ${res.pendingPdfFigures.length} hình vẽ trong PDF...`, 'info');
+              const figMap = await cropPdfFiguresFromFile(file, res.pendingPdfFigures);
+              replaceTokensInExamOrDeck(res.exam, figMap);
             }
-            const res = await api.parseExam({ format: 'pdf_text', content: extractedText, filename: file.name });
             await resolvePendingTikzPdfs(res);
             return res;
           },
@@ -2596,7 +2623,18 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             showParsedPreview(res);
           },
           onError: (err) => {
-            setStatus(escapeHtml(err?.message || 'Không thể đọc file PDF.'), 'error');
+            const msg = escapeHtml(err?.message || 'Không thể đọc file PDF.');
+            if (err?.code === 'MISSING_GEMINI_KEY') {
+              setStatus(
+                `${msg} <button type="button" class="btn btn-primary btn-sm" id="btnErrOpenAi" style="margin-left:8px;">Cài đặt Gemini AI ngay</button>`,
+                'error'
+              );
+              statusEl.querySelector('#btnErrOpenAi')?.addEventListener('click', () => {
+                uiHelpers.openAiSettingsModal?.();
+              });
+            } else {
+              setStatus(msg, 'error');
+            }
           },
         });
 
