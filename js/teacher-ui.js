@@ -247,11 +247,20 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     return `
       <div class="section-toolbar">
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <button class="btn btn-primary" id="btnNewPost">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          <button
+            type="button"
+            class="feed-post-icon-btn"
+            id="btnNewPost"
+            aria-label="Đăng bài giảng / tài liệu"
+            data-tooltip="Đăng bài giảng / tài liệu"
+          >
+            <svg class="feed-post-icon-svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path class="fpi-tray" d="M21 15v4a2.2 2.2 0 0 1-2.2 2.2H5.2A2.2 2.2 0 0 1 3 19v-4"/>
+              <g class="fpi-arrow">
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </g>
             </svg>
-            Đăng bài giảng / tài liệu
           </button>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
