@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from curriculum_data import build_builtin_curriculum_plans
 from live_game_engine import LiveGameEngine
-from parsers import parse_docx_bytes, parse_extest_latex, parse_structured_exam_text
+from parsers import parse_docx_bytes, parse_extest_latex, parse_presentation_source, parse_structured_exam_text
 from storage import StorageBackend
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1215,6 +1215,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 or path.startswith("/so-bao-giang/")
                 or path == "/so-diem"
                 or path.startswith("/so-diem/")
+                or path == "/trinh-chieu"
+                or path.startswith("/trinh-chieu/")
                 or path == "/game-tuong-tac"
                 or path.startswith("/game-tuong-tac/")
             ):
@@ -1345,6 +1347,19 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 if user["role"] != "admin":
                     return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền xem dung lượng."})
                 return self.send_json(200, STORE.get_storage_stats(db))
+
+            if path == "/api/admin/presentation-sample":
+                if user["role"] != "admin":
+                    return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền truy cập."})
+                sample_path = BASE_DIR / "samples" / "de-minh-hoa-trinh-chieu.docx"
+                if not sample_path.is_file():
+                    return self.send_json(404, {"error": "Chưa có file Đề minh họa mẫu."})
+                try:
+                    b64 = base64.b64encode(sample_path.read_bytes()).decode("ascii")
+                    result = parse_presentation_source("docx_base64", b64, filename="Đề minh họa (File Word gốc).docx")
+                    return self.send_json(200, result)
+                except Exception as e:
+                    return self.send_json(400, {"error": str(e)})
 
             if path == "/api/admin/overview":
                 if user["role"] != "admin":
@@ -1700,6 +1715,24 @@ class EduLabHandler(SimpleHTTPRequestHandler):
             # Admin-only POST routes
             if user["role"] != "admin":
                 return self.send_json(403, {"error": "Chỉ tài khoản Giáo viên (Admin) mới có quyền thực hiện."})
+
+            # Parse Lecture Presentation Deck (Word .docx, PDF text, or LaTeX .tex -> Part I/II/III/IV slides)
+            if path == "/api/admin/parse-presentation":
+                fmt = str(body.get("format", "docx")).lower().strip()
+                filename = str(body.get("filename", "")).strip()
+                try:
+                    if fmt == "docx":
+                        b64 = str(body.get("base64Data", ""))
+                        if not b64:
+                            raise ValueError("Thiếu dữ liệu file Word (.docx).")
+                        result = parse_presentation_source("docx_base64", b64, filename=filename)
+                    elif fmt == "latex":
+                        result = parse_presentation_source("latex", str(body.get("content", "")), filename=filename)
+                    else:
+                        result = parse_presentation_source("pdf", str(body.get("content", "")), filename=filename)
+                    return self.send_json(200, result)
+                except Exception as e:
+                    return self.send_json(400, {"error": str(e)})
 
             # Parse Exam from LaTeX (ex_test), Word (.docx), or PDF text
             if path == "/api/admin/parse-exam":

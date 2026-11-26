@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-  <link rel="stylesheet" href="/css/styles.css?v=20261125j" />
+  <link rel="stylesheet" href="/css/styles.css?v=20261126i" />
 </head>
 <body>
   <!-- AUTH SCREEN (Shown when not logged in) -->
@@ -97,6 +97,14 @@
               <polyline points="2 12 12 17 22 12"/>
             </svg>
             <span>Mô hình tương tác</span>
+          </button>
+          <button class="main-tab hidden" role="tab" aria-selected="false" data-tab="slides" id="tabBtnSlides">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            <span>Trình chiếu</span>
           </button>
           <button class="main-tab hidden" role="tab" aria-selected="false" data-tab="teaching-log" id="tabBtnTeachingLog">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -195,6 +203,10 @@
         <div id="labRoot"></div>
       </section>
 
+      <section id="panel-slides" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnSlides">
+        <div id="slidesRoot"></div>
+      </section>
+
       <section id="panel-teaching-log" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnTeachingLog">
         <div id="teachingLogRoot"></div>
       </section>
@@ -227,6 +239,6 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/app.js?v=20261125l"></script>
+  <script type="module" src="/js/app.js?v=20261126j"></script>
 </body>
 </html>

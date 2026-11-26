@@ -44,6 +44,8 @@ export const api = {
   // Admin
   adminOverview: () => request('/api/admin/overview'),
   parseExam: (payload) => request('/api/admin/parse-exam', { method: 'POST', body: payload }),
+  parsePresentation: (payload) => request('/api/admin/parse-presentation', { method: 'POST', body: payload }),
+  getPresentationSample: () => request('/api/admin/presentation-sample'),
   createExams: (examsOrExam) => request('/api/admin/exams', { method: 'POST', body: examsOrExam }),
   updateExam: (id, exam) => request(`/api/admin/exams/${encodeURIComponent(id)}`, { method: 'PUT', body: exam }),
   deleteExam: (id) => request(`/api/admin/exams/${encodeURIComponent(id)}`, { method: 'DELETE' }),

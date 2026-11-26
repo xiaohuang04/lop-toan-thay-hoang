@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261125j';
+import { api } from './api.js?v=20261126a';
 import {
   extractTextFromPdfFile,
   renderPdfBase64ToPngDataUrl,
@@ -22,7 +22,7 @@ import {
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261125k';
+} from './classroom-feed.js?v=20261126a';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -35,7 +35,7 @@ import {
   renderAnalyticsAdminSection,
   bindAnalyticsAdminEvents,
 } from './analytics-admin.js?v=20261124a';
-import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z';
+import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -77,7 +77,7 @@ Ta có $I = \\big[x^2 - x\\big]_0^3 = 6$.
 }
 \\end{ex}`;
 
-export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
+export function createTeacherController({ rootEl, examRunner, uiHelpers, onPresentExam, onExamsLoaded }) {
   const { showToast, openModal, closeModal, renderMath, setHeaderStatus } = uiHelpers;
 
   const state = {
@@ -124,6 +124,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
         analytics: res.analytics || null,
         modelsSummary: res.modelsSummary || [],
       };
+      onExamsLoaded?.(state.data.exams);
       if (!state.inRunner) render();
     } catch (err) {
       showToast(err.message || 'Không thể tải dữ liệu quản trị.', 'error');
@@ -341,6 +342,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
                         </div>
                         <div style="display:flex; gap:8px; flex-wrap:wrap;">
                           <button class="btn btn-primary btn-sm" data-assign-exam="${ex.id}">Giao bài tập</button>
+                          <button class="btn btn-secondary btn-sm" data-present-exam-card="${ex.id}">Trình chiếu</button>
                           <button class="btn btn-secondary btn-sm" data-edit-exam="${ex.id}">Tinh chỉnh đề</button>
                           <button class="btn btn-secondary btn-sm" data-preview-exam="${ex.id}">Xem trước</button>
                           <button class="btn btn-danger-outline btn-sm" data-delete-exam="${ex.id}">Xóa</button>
@@ -2038,6 +2040,15 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
       btn.addEventListener('click', () => openAssignmentModal({ preselectExamId: btn.dataset.assignExam }));
     });
 
+    rootEl.querySelectorAll('[data-present-exam-card]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const exam = state.data.exams.find((e) => e.id === btn.dataset.presentExamCard);
+        if (!exam) return;
+        onPresentExam?.(exam);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+
     rootEl.querySelectorAll('[data-preview-exam]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const exam = state.data.exams.find((e) => e.id === btn.dataset.previewExam);
@@ -2623,6 +2634,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers }) {
 
   return {
     init: refresh,
+    getExams: () => state.data.exams || [],
     goHome: () => {
       examRunner.cleanup();
       state.editingExam = null;

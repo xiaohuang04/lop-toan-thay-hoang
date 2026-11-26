@@ -1,10 +1,11 @@
-import { api, setToken } from './api.js?v=20261125j';
+import { api, setToken } from './api.js?v=20261126a';
 import { createExamRunner } from './exam-runner.js?v=20261125l';
-import { createTeacherController } from './teacher-ui.js?v=20261125k';
-import { createStudentController } from './student-ui.js?v=20261125k';
+import { createTeacherController } from './teacher-ui.js?v=20261126e';
+import { createStudentController } from './student-ui.js?v=20261126a';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125l';
+import { createLectureSlidesController } from './lecture-slides.js?v=20261126j';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
@@ -164,6 +165,21 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function fitInlineMath(container) {
+  if (!container) return;
+  container.querySelectorAll('.katex').forEach((node) => {
+    if (node.closest('.katex-display')) return;
+    node.classList.remove('is-katex-wrap');
+    const box =
+      node.closest('.ls-q-stem, .ls-opt-val, .ls-tf-val, .q-stem, .opt-text, .tf-text') || node.parentElement;
+    if (!box) return;
+    const maxW = box.clientWidth;
+    if (maxW > 48 && node.getBoundingClientRect().width > maxW - 4) {
+      node.classList.add('is-katex-wrap');
+    }
+  });
+}
+
 function renderMath(container) {
   if (!container) return;
   const doRender = () => {
@@ -177,6 +193,7 @@ function renderMath(container) {
         ],
         throwOnError: false,
       });
+      requestAnimationFrame(() => fitInlineMath(container));
     }
   };
   if (typeof window.renderMathInElement === 'function') {
@@ -198,17 +215,27 @@ const uiHelpers = {
   openModal,
   closeModal,
   renderMath,
+  fitInlineMath,
   setHeaderStatus,
   openStorageModal: () => openStorageManagerModal(),
 };
 
 const examRoot = document.getElementById('examRoot');
+const slidesRoot = document.getElementById('slidesRoot');
 const examRunner = createExamRunner({ rootEl: examRoot, uiHelpers });
+const lectureSlidesCtrl = createLectureSlidesController({ uiHelpers });
 
 const teacherCtrl = createTeacherController({
   rootEl: examRoot,
   examRunner,
   uiHelpers,
+  onPresentExam: (exam) => {
+    lectureSlidesCtrl.presentExam(exam);
+    switchTab('slides');
+  },
+  onExamsLoaded: (exams) => {
+    lectureSlidesCtrl.setExams(exams);
+  },
 });
 
 const studentCtrl = createStudentController({
@@ -259,6 +286,9 @@ function parseRouteFromLocation() {
       grade: null,
       manage: false,
     };
+  }
+  if (raw === '/trinh-chieu' || raw.startsWith('/trinh-chieu/')) {
+    return { tab: 'slides', grade: null, manage: false };
   }
   if (raw === '/game-tuong-tac' || raw.startsWith('/game-tuong-tac/')) {
     return { tab: 'live-game', grade: null, manage: false };
@@ -326,6 +356,7 @@ const gradebookCtrl = createGradebookController({
 // 4-Tab Navigation (Tab 3 & 4 Admin-only) + Clean History API URL Routing (/lop-hoc, /mo-hinh, /so-bao-giang, /so-diem)
 const tabButtons = document.querySelectorAll('.main-tab');
 const tabBtnLab = document.getElementById('tabBtnLab');
+const tabBtnSlides = document.getElementById('tabBtnSlides');
 const tabBtnTeachingLog = document.getElementById('tabBtnTeachingLog');
 const tabBtnGradebook = document.getElementById('tabBtnGradebook');
 const tabBtnLiveGame = document.getElementById('tabBtnLiveGame');
@@ -333,6 +364,7 @@ const tabExamLabel = document.getElementById('tabExamLabel');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
+  slides: document.getElementById('panel-slides'),
   'teaching-log': document.getElementById('panel-teaching-log'),
   gradebook: document.getElementById('panel-gradebook'),
   'live-game': document.getElementById('panel-live-game'),
@@ -364,7 +396,9 @@ function updateLabTabLock() {
 }
 
 function updateDocumentTitle(tabName) {
-  if (tabName === 'live-game') {
+  if (tabName === 'slides') {
+    document.title = 'Trình chiếu bài giảng — Lớp toán thầy Hoàng';
+  } else if (tabName === 'live-game') {
     document.title = 'Game tương tác — Lớp toán thầy Hoàng';
   } else if (tabName === 'gradebook') {
     document.title = 'Sổ điểm — Lớp toán thầy Hoàng';
@@ -380,13 +414,17 @@ function updateDocumentTitle(tabName) {
 }
 
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
-  // Guard Admin-only Sổ báo giảng, Sổ điểm & Game tương tác tabs
-  if ((tabName === 'teaching-log' || tabName === 'gradebook' || tabName === 'live-game') && currentUser?.role !== 'admin') {
+  // Guard Admin-only Trình chiếu, Sổ báo giảng, Sổ điểm & Game tương tác tabs
+  if ((tabName === 'slides' || tabName === 'teaching-log' || tabName === 'gradebook' || tabName === 'live-game') && currentUser?.role !== 'admin') {
     tabName = 'exam';
   }
   // Guard Mô hình tương tác when visibility is set to Admin-only
   if (tabName === 'lab' && currentUser?.role !== 'admin' && modelsVisibilityMode === 'admin_only') {
     tabName = 'exam';
+  }
+
+  if (tabName !== 'slides') {
+    lectureSlidesCtrl.cleanup();
   }
 
   tabButtons.forEach((btn) => {
@@ -402,7 +440,12 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
   setHeaderStatus('');
   updateDocumentTitle(tabName);
 
-  if (tabName === 'live-game') {
+  if (tabName === 'slides') {
+    if (updateUrl) {
+      syncBrowserUrl('/trinh-chieu', { replace: replaceUrl });
+    }
+    lectureSlidesCtrl.mount(slidesRoot, { exams: teacherCtrl.getExams?.() || [] });
+  } else if (tabName === 'live-game') {
     if (updateUrl) {
       syncBrowserUrl('/game-tuong-tac', { replace: replaceUrl });
     }
@@ -633,6 +676,9 @@ function updateUserHeader() {
   syncUserMenuStagger();
   if (tabBtnLab) {
     tabBtnLab.classList.toggle('hidden', !isAdmin && modelsVisibilityMode === 'admin_only');
+  }
+  if (tabBtnSlides) {
+    tabBtnSlides.classList.toggle('hidden', !isAdmin);
   }
   if (tabBtnTeachingLog) {
     tabBtnTeachingLog.classList.toggle('hidden', !isAdmin);

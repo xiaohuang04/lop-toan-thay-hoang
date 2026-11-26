@@ -24,6 +24,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from mtef_parser import ole_bytes_to_latex, wmf_bytes_to_latex
+
 
 # =============================================================================
 # UTILITY: BALANCED BRACE / ARGUMENT EXTRACTOR FOR LATEX
@@ -496,11 +498,22 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
 
     s = re.sub(r"\\begin\{itemchoice\}([\s\S]*?)\\end\{itemchoice\}", _itemchoice_sub, s)
 
-    # Handle itemize / enumerate
+    # Handle itemize / enumerate (preserving custom labels like \item[a)])
     def _list_sub(m: re.Match) -> str:
         inner = m.group(2)
-        items = [clean_latex_fragment(x.strip(), tikz_tokens) for x in re.split(r"\\item\b", inner) if x.strip()]
-        return "<br/>".join(f"• {x}" for x in items)
+        rendered_items: list[str] = []
+        for raw_item in re.split(r"\\item\b", inner):
+            seg = raw_item.strip()
+            if not seg:
+                continue
+            m_lbl = re.match(r"^\[([^\]]+)\]\s*([\s\S]*)$", seg)
+            if m_lbl:
+                lbl = m_lbl.group(1).strip()
+                body_html = clean_latex_fragment(m_lbl.group(2).strip(), tikz_tokens)
+                rendered_items.append(f"<strong>{lbl}</strong> {body_html}")
+            else:
+                rendered_items.append(f"• {clean_latex_fragment(seg, tikz_tokens)}")
+        return "<br/>".join(rendered_items)
 
     s = re.sub(r"\\begin\{(itemize|enumerate)\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{\1\}", _list_sub, s)
 
@@ -519,6 +532,12 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
     s = re.sub(r"(?:\s*\\par\b\s*)+$", "", s)
     s = re.sub(r"^(?:\s*\\par\b\s*)+", "", s)
     s = re.sub(r"\s*\\par\b\s*", "<br/>", s)
+
+    # Clean LaTeX list environments (\begin{enumerate}, \begin{itemize}, \item[a)])
+    s = re.sub(r"\\begin\{(?:enumerate|itemize)\}(?:\[[^\]]*\])?", "", s)
+    s = re.sub(r"\\end\{(?:enumerate|itemize)\}", "", s)
+    s = re.sub(r"\\item\s*\[([^\]]+)\]\s*", r"<br/><strong>\1</strong> ", s)
+    s = re.sub(r"\\item\b\s*", "<br/>• ", s)
 
     # Common Vietnamese math shortcuts
     s = re.sub(r"\\vec\{([^}]+)\}", r"\\overrightarrow{\1}", s)
@@ -666,6 +685,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
     part1 = []
     part2 = []
     part3 = []
+    part4 = []
     stamp = hex(int(time.time() * 1000))[2:][-5:]
 
     for idx, (_, raw_block) in enumerate(ex_blocks, start=1):
@@ -805,9 +825,19 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 "explanation": explanation,
             })
         else:
-            warnings.append(f"Bỏ qua khối ex #{idx} vì không thấy \\choice, \\choiceTF hoặc \\shortans.")
+            # Essay / Tự luận question (no \choice, \choiceTF, or \shortans)
+            stem_clean = clean_latex_fragment(block, tikz_tokens)
+            if stem_clean:
+                part4.append({
+                    "id": f"tex-p4-{len(part4)+1}-{stamp}",
+                    "topic": "",
+                    "stem": stem_clean,
+                    "explanation": explanation,
+                })
+            else:
+                warnings.append(f"Bỏ qua khối ex #{idx} vì nội dung trống.")
 
-    if len(part1) + len(part2) + len(part3) == 0:
+    if len(part1) + len(part2) + len(part3) + len(part4) == 0:
         raise ValueError("Không trích xuất được câu hỏi hợp lệ nào từ mã LaTeX ex_test.")
 
     return {
@@ -825,6 +855,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             "part1": part1,
             "part2": part2,
             "part3": part3,
+            "part4": part4,
         },
         "warnings": warnings,
         "sourceFormat": "latex_extest",
@@ -1070,12 +1101,29 @@ def _is_marked_correct_run(r_el: ET.Element) -> bool:
     return False
 
 
+WP_NS = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+
+
 def _ole_preview_img_html(zf: zipfile.ZipFile, rels: dict[str, str], obj_el: ET.Element) -> tuple[str, bool]:
     """
     For MathType OLE objects in .docx:
-    - If a raster preview image (png/jpg/gif) exists in word/media, embed it cleanly as inline <img>.
-    - If only WMF/EMF vector preview exists (browsers don't render raw WMF), return a clean placeholder & flag.
+    1. First decode the embedded OLE2 'Equation Native' MTEF v5 stream -> crisp KaTeX LaTeX!
+    2. Fallback: decode MTEF v5 from WMF AppsMFCC comment if present!
+    3. Fallback: embed raster preview (png/jpg/gif/svg) if present.
     """
+    # 1. Try OLE2 binary stream (100% crisp LaTeX)
+    for ole in obj_el.iter(f"{O_NS}OLEObject"):
+        rid = ole.get(f"{R_NS}id")
+        if not rid or rid not in rels:
+            continue
+        target = rels[rid]
+        zip_path = target if target.startswith("word/") else f"word/{target}"
+        if zip_path in zf.namelist():
+            tex = ole_bytes_to_latex(zf.read(zip_path))
+            if tex:
+                return f"${tex}$", False
+
+    # 2. Try imagedata preview (WMF MTEF comment or raster image)
     for img in obj_el.iter(f"{V_NS}imagedata"):
         rid = img.get(f"{R_NS}id")
         if not rid or rid not in rels:
@@ -1085,21 +1133,190 @@ def _ole_preview_img_html(zf: zipfile.ZipFile, rels: dict[str, str], obj_el: ET.
         if zip_path not in zf.namelist():
             continue
         ext = zip_path.lower().rsplit(".", 1)[-1]
+        if ext == "wmf":
+            tex = wmf_bytes_to_latex(zf.read(zip_path))
+            if tex:
+                return f"${tex}$", False
         if ext in ("png", "jpg", "jpeg", "gif", "webp", "svg"):
             mime = "image/svg+xml" if ext == "svg" else ("image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}")
             b64 = base64.b64encode(zf.read(zip_path)).decode("ascii")
-            return f'<img src="data:{mime};base64,{b64}" alt="MathType" style="vertical-align:middle;max-height:2.4em;" />', False
-        # WMF / EMF MathType preview
+            return f'<img src="data:{mime};base64,{b64}" class="inline-eq-img" alt="MathType" style="vertical-align:middle;max-height:2.4em;" />', False
+        # Unreadable WMF / EMF MathType preview
         return '<span class="mathtype-placeholder">[Công thức MathType — khuyến nghị chuyển sang LaTeX trong Word bằng MathType Toggle TeX]</span>', True
     return '<span class="mathtype-placeholder">[Công thức MathType]</span>', True
+
+
+def _drawing_or_pict_html(zf: zipfile.ZipFile, rels: dict[str, str], elem: ET.Element) -> tuple[str, bool, bool]:
+    """
+    Extract HTML/LaTeX from a <w:drawing> or <w:pict> element.
+    Returns (html_str, is_block_figure, had_unreadable_wmf).
+    """
+    # Check image height in EMUs (914400 EMU = 1 inch = 96px; <= 420000 EMU ~ 44px => inline formula pic)
+    cy_emu = 0
+    for ext_el in elem.iter(f"{WP_NS}extent"):
+        try:
+            cy_emu = max(cy_emu, int(ext_el.get("cy") or 0))
+        except ValueError:
+            pass
+    is_small_inline = 0 < cy_emu <= 420000
+
+    # 1. DrawingML <a:blip r:embed="...">
+    for blip in elem.iter(f"{A_NS}blip"):
+        rid = blip.get(f"{R_NS}embed")
+        if not rid or rid not in rels:
+            continue
+        target = rels[rid]
+        zp = target if target.startswith("word/") else f"word/{target}"
+        if zp not in zf.namelist():
+            continue
+        ext = zp.lower().rsplit(".", 1)[-1]
+        if ext == "wmf":
+            tex = wmf_bytes_to_latex(zf.read(zp))
+            if tex:
+                return f"${tex}$", False, False
+            return "", False, True
+        if ext in ("png", "jpg", "jpeg", "gif", "webp", "svg"):
+            mime = "image/svg+xml" if ext == "svg" else ("image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}")
+            b64 = base64.b64encode(zf.read(zp)).decode("ascii")
+            if is_small_inline:
+                return f'<img src="data:{mime};base64,{b64}" class="inline-eq-img" alt="Công thức" />', False, False
+            return f'<div class="q-figure"><img src="data:{mime};base64,{b64}" alt="Hình minh họa" /></div>', True, False
+
+    # 2. VML <v:imagedata r:id="..."> inside <w:pict>
+    for img in elem.iter(f"{V_NS}imagedata"):
+        rid = img.get(f"{R_NS}id")
+        if not rid or rid not in rels:
+            continue
+        target = rels[rid]
+        zp = target if target.startswith("word/") else f"word/{target}"
+        if zp not in zf.namelist():
+            continue
+        ext = zp.lower().rsplit(".", 1)[-1]
+        if ext == "wmf":
+            tex = wmf_bytes_to_latex(zf.read(zp))
+            if tex:
+                return f"${tex}$", False, False
+            return "", False, True
+        if ext in ("png", "jpg", "jpeg", "gif", "webp", "svg"):
+            mime = "image/svg+xml" if ext == "svg" else ("image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}")
+            b64 = base64.b64encode(zf.read(zp)).decode("ascii")
+            return f'<div class="q-figure"><img src="data:{mime};base64,{b64}" alt="Hình minh họa" /></div>', True, False
+
+    return "", False, False
+
+
+def _is_hidden_run(r_el: ET.Element) -> bool:
+    """Return True if a <w:r> run is marked hidden (<w:vanish/> or <w:webHidden/>)."""
+    rPr = r_el.find(f"{W_NS}rPr")
+    if rPr is None:
+        return False
+    for tag_name in ("vanish", "webHidden"):
+        el = rPr.find(f"{W_NS}{tag_name}")
+        if el is not None:
+            val = (el.get(f"{W_NS}val") or "true").lower()
+            if val not in ("0", "false", "none"):
+                return True
+    return False
+
+
+def _extract_paragraph_text(zf: zipfile.ZipFile, rels: dict[str, str], p_el: ET.Element, *, mark_keys: bool = True) -> tuple[str, int]:
+    """Extract text, OMML LaTeX, MathType OLE/WMF LaTeX, and embedded figures from a <w:p> element.
+    Skips hidden Word complex field instruction runs (between fldChar begin..separate/end) and vanish runs.
+    Moves any leading floating figures (anchored before 'Câu N.') to the end of the paragraph so question headers match cleanly."""
+    line_parts: list[str] = []
+    leading_figs: list[str] = []
+    seen_text = False
+    wmf_fail = 0
+    # Word complex field stack: 'instr' = hidden field code (before separate), 'result' = visible output (after separate)
+    field_stack: list[str] = []
+
+    def _walk_children(parent: ET.Element):
+        nonlocal seen_text, wmf_fail
+        for sub in parent:
+            stag = sub.tag.split("}")[-1]
+            if stag in ("del", "moveFrom"):
+                continue
+            if stag in ("ins", "hyperlink", "smartTag", "sdtContent"):
+                _walk_children(sub)
+                continue
+            if stag == "sdt":
+                sdt_c = sub.find(f"{W_NS}sdtContent")
+                if sdt_c is not None:
+                    _walk_children(sdt_c)
+                continue
+            if stag == "r":
+                # Track Word complex field boundaries inside this run
+                in_hidden_field_before = "instr" in field_stack
+                has_fld_char = False
+                for fc in sub.findall(f"{W_NS}fldChar"):
+                    has_fld_char = True
+                    ftype = (fc.get(f"{W_NS}fldCharType") or "").lower()
+                    if ftype == "begin":
+                        field_stack.append("instr")
+                    elif ftype == "separate":
+                        if field_stack:
+                            field_stack[-1] = "result"
+                    elif ftype == "end":
+                        if field_stack:
+                            field_stack.pop()
+                if has_fld_char or in_hidden_field_before or ("instr" in field_stack) or _is_hidden_run(sub):
+                    continue
+
+                marked = _is_marked_correct_run(sub) if mark_keys else False
+                run_buf: list[str] = []
+                for rchild in sub:
+                    rctag = rchild.tag.split("}")[-1]
+                    if rctag == "t" and rchild.text:
+                        run_buf.append(rchild.text)
+                    elif rctag == "tab":
+                        run_buf.append("    ")
+                    elif rctag == "br":
+                        run_buf.append("\n")
+                    elif rctag == "object":
+                        obj_html, is_wmf = _ole_preview_img_html(zf, rels, rchild)
+                        if is_wmf:
+                            wmf_fail += 1
+                        run_buf.append(obj_html)
+                    elif rctag in ("drawing", "pict"):
+                        d_html, is_blk, bad_wmf = _drawing_or_pict_html(zf, rels, rchild)
+                        if bad_wmf:
+                            wmf_fail += 1
+                        if d_html:
+                            if is_blk and not seen_text and not "".join(run_buf).strip():
+                                leading_figs.append(d_html)
+                            else:
+                                run_buf.append(d_html)
+                run_str = "".join(run_buf)
+                if run_str.strip():
+                    seen_text = True
+                if marked and run_str.strip():
+                    line_parts.append(f"«KEY»{run_str}«/KEY»")
+                else:
+                    line_parts.append(run_str)
+            elif stag in ("oMath", "oMathPara"):
+                if "instr" in field_stack:
+                    continue
+                tex = omml_to_latex(sub).strip()
+                if tex:
+                    seen_text = True
+                    line_parts.append(f"${tex}$")
+
+    _walk_children(p_el)
+
+    text_part = "".join(line_parts).strip()
+    if leading_figs:
+        if text_part:
+            text_part = f"{text_part}\n" + "".join(leading_figs)
+        else:
+            text_part = "".join(leading_figs)
+    return text_part, wmf_fail
 
 
 def parse_docx_bytes(raw_bytes: bytes, filename: str = "") -> dict:
     """
     Parse a .docx file containing Microsoft Equation (OMML) and/or MathType objects
-    into EduLab 2025 structure.
+    into EduLab 2025 structure (Part I, II, III, IV).
     """
-    warnings: list[str] = []
     mathtype_wmf_count = 0
 
     try:
@@ -1116,86 +1333,52 @@ def parse_docx_bytes(raw_bytes: bytes, filename: str = "") -> dict:
     if body is None:
         raise ValueError("File Word rỗng.")
 
-    # Extract lines preserving answer markers (<<ANS>> tag before underlined/red choice labels)
     extracted_lines: list[str] = []
 
     for child in body:
         ctag = child.tag.split("}")[-1]
         if ctag == "p":
-            line_parts: list[str] = []
-            for sub in child:
-                stag = sub.tag.split("}")[-1]
-                if stag == "r":
-                    marked = _is_marked_correct_run(sub)
-                    run_buf: list[str] = []
-                    for rchild in sub:
-                        rctag = rchild.tag.split("}")[-1]
-                        if rctag == "t" and rchild.text:
-                            run_buf.append(rchild.text)
-                        elif rctag == "tab":
-                            run_buf.append("    ")
-                        elif rctag == "br":
-                            run_buf.append("\n")
-                        elif rctag == "object":
-                            img_html, is_wmf = _ole_preview_img_html(zf, rels, rchild)
-                            if is_wmf:
-                                mathtype_wmf_count += 1
-                            run_buf.append(img_html)
-                        elif rctag == "drawing":
-                            # Embedded picture inside question
-                            for blip in rchild.iter(f"{A_NS}blip"):
-                                rid = blip.get(f"{R_NS}embed")
-                                if rid and rid in rels:
-                                    target = rels[rid]
-                                    zp = target if target.startswith("word/") else f"word/{target}"
-                                    if zp in zf.namelist():
-                                        ext = zp.lower().rsplit(".", 1)[-1]
-                                        if ext in ("png", "jpg", "jpeg", "gif", "webp"):
-                                            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
-                                            b64 = base64.b64encode(zf.read(zp)).decode("ascii")
-                                            run_buf.append(f'<div class="q-figure"><img src="data:{mime};base64,{b64}" style="max-width:100%;max-height:280px;" /></div>')
-                    run_str = "".join(run_buf)
-                    if marked and run_str.strip():
-                        line_parts.append(f"«KEY»{run_str}«/KEY»")
-                    else:
-                        line_parts.append(run_str)
-                elif stag in ("oMath", "oMathPara"):
-                    tex = omml_to_latex(sub).strip()
-                    if tex:
-                        line_parts.append(f"${tex}$")
-            line = "".join(line_parts).strip()
+            line, wf = _extract_paragraph_text(zf, rels, child, mark_keys=True)
+            mathtype_wmf_count += wf
             if line:
                 extracted_lines.append(line)
 
         elif ctag == "tbl":
-            # Convert Word table into HTML table
-            tbl_rows = []
+            tbl_rows: list[list[str]] = []
             for tr in child.findall(f"{W_NS}tr"):
                 cells = []
                 for tc in tr.findall(f"{W_NS}tc"):
                     cell_parts = []
                     for p in tc.findall(f"{W_NS}p"):
-                        pbuf = []
-                        for sub in p:
-                            stag = sub.tag.split("}")[-1]
-                            if stag == "r":
-                                for t in sub.findall(f"{W_NS}t"):
-                                    if t.text:
-                                        pbuf.append(t.text)
-                            elif stag in ("oMath", "oMathPara"):
-                                tex = omml_to_latex(sub).strip()
-                                if tex:
-                                    pbuf.append(f"${tex}$")
-                        if pbuf:
-                            cell_parts.append("".join(pbuf))
+                        ptxt, wf = _extract_paragraph_text(zf, rels, p, mark_keys=True)
+                        mathtype_wmf_count += wf
+                        if ptxt:
+                            cell_parts.append(ptxt)
                     cells.append(" ".join(cell_parts).strip())
                 tbl_rows.append(cells)
+
             if tbl_rows:
-                trs_html = []
-                for ri, row in enumerate(tbl_rows):
-                    tag = "th" if ri == 0 else "td"
-                    trs_html.append("<tr>" + "".join(f"<{tag}>{c}</{tag}>" for c in row) + "</tr>")
-                extracted_lines.append(f'<table class="q-table"><tbody>{"".join(trs_html)}</tbody></table>')
+                # Detect Vietnamese Part II True/False 4-row statement table: ['a)', 'statement...', 'Đúng', 'Sai']
+                tf_lines: list[str] = []
+                if len(tbl_rows) >= 2 and all(
+                    len(r) >= 2 and re.match(r"^(?:«KEY»)?[a-d][\)\.](?:«/KEY»)?$", r[0].strip(), re.IGNORECASE)
+                    for r in tbl_rows
+                ):
+                    for r in tbl_rows:
+                        lbl = r[0].replace("«KEY»", "").replace("«/KEY»", "").strip().lower()
+                        if lbl.endswith("."):
+                            lbl = lbl[:-1] + ")"
+                        stmt_txt = r[1].strip()
+                        tf_lines.append(f"{lbl} {stmt_txt}")
+                if tf_lines:
+                    extracted_lines.extend(tf_lines)
+                else:
+                    trs_html = []
+                    for ri, row in enumerate(tbl_rows):
+                        tag = "th" if ri == 0 else "td"
+                        clean_row = [c.replace("«KEY»", "").replace("«/KEY»", "") for c in row]
+                        trs_html.append("<tr>" + "".join(f"<{tag}>{c}</{tag}>" for c in clean_row) + "</tr>")
+                    extracted_lines.append(f'<table class="q-table"><tbody>{"".join(trs_html)}</tbody></table>')
 
     full_text = "\n".join(extracted_lines)
 
@@ -1210,7 +1393,7 @@ def parse_docx_bytes(raw_bytes: bytes, filename: str = "") -> dict:
     if mathtype_wmf_count > 0:
         res["warnings"].insert(
             0,
-            f"Phát hiện {mathtype_wmf_count} đối tượng MathType dạng WMF. Mẹo: Trong Word, mở tab MathType → chọn 'Toggle TeX' để chuyển toàn bộ công thức MathType sang LaTeX rồi nạp lại sẽ hiển thị sắc nét 100%!",
+            f"Còn {mathtype_wmf_count} đối tượng MathType chưa đọc được tự động. Mẹo: Trong Word, mở tab MathType → chọn 'Toggle TeX' rồi nạp lại.",
         )
     return res
 
@@ -1235,6 +1418,23 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
     if "\\begin{ex}" in text:
         return parse_extest_latex(text.replace("«KEY»", "").replace("«/KEY»", ""), filename=filename)
 
+    # Protect embedded HTML media tags (<div class="q-figure">...</div>, <img ...>)
+    # so base64 payloads can never accidentally trigger text regexes (e.g. "KQ", "A.", "a)").
+    protected_html: list[str] = []
+
+    def _stash_html(m: re.Match) -> str:
+        idx = len(protected_html)
+        protected_html.append(m.group(0))
+        return f"«HTMLTAG_{idx}»"
+
+    text = re.sub(r'<div class="q-figure">[\s\S]*?</div>', _stash_html, text)
+    text = re.sub(r"<img\b[^>]*>", _stash_html, text)
+
+    def _restore_html(s: str) -> str:
+        if not protected_html or "«HTMLTAG_" not in s:
+            return s
+        return re.sub(r"«HTMLTAG_(\d+)»", lambda m: protected_html[int(m.group(1))], s)
+
     # Extract trailing "BẢNG ĐÁP ÁN" if present
     answer_table_p1: dict[int, str] = {}
     m_ans_sec = re.search(r"(?:^|\n)\s*(BẢNG\s+ĐÁP\s+ÁN|ĐÁP\s+ÁN\s+THAM\s+KHẢO)[\s\S]*$", text, flags=re.IGNORECASE)
@@ -1258,20 +1458,24 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
         current_buf = []
 
     for line in text.splitlines():
-        plain = line.replace("«KEY»", "").replace("«/KEY»", "").strip()
+        plain = line.replace("«KEY»", "").replace("«/KEY»", "").replace("\xa0", " ").strip()
         if not plain:
             continue
 
-        # Detect PHẦN I / II / III
-        m_part = re.match(r"^(?:PHẦN|Phần)\s+(III|II|I|3|2|1)\b", plain)
+        # Ignore trailing "------ HẾT ------" markers
+        if re.match(r"^[-–—=\s]*HẾT[-–—=\s\.]*$", plain, flags=re.IGNORECASE):
+            continue
+
+        # Detect PHẦN I / II / III / IV
+        m_part = re.match(r"^(?:PHẦN|Phần)\s+(IV|III|II|I|4|3|2|1)\b", plain)
         if m_part:
             flush()
             tok = m_part.group(1).upper()
-            current_part = {"I": 1, "1": 1, "II": 2, "2": 2, "III": 3, "3": 3}[tok]
+            current_part = {"I": 1, "1": 1, "II": 2, "2": 2, "III": 3, "3": 3, "IV": 4, "4": 4}[tok]
             continue
 
         # Detect Câu N. or Câu N:
-        m_q = re.match(r"^(?:«KEY»)?(?:Câu|Bài)\s+(\d+)\s*[\.:\)]\s*(.*)$", line.strip(), flags=re.IGNORECASE)
+        m_q = re.match(r"^(?:«KEY»)?(?:Câu|Bài)\s+(\d+)\s*[\.:\)]\s*(.*)$", line.replace("\xa0", " ").strip(), flags=re.IGNORECASE)
         if m_q:
             flush()
             current_q_num = int(m_q.group(1))
@@ -1288,6 +1492,7 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
     part1 = []
     part2 = []
     part3 = []
+    part4 = []
     stamp = hex(int(time.time() * 1000))[2:][-5:]
 
     for pnum, qnum, body in part_blocks:
@@ -1373,15 +1578,24 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
                 "explanation": explanation,
             })
 
+        elif effective_part == 4:
+            clean_body = body.replace("«KEY»", "").replace("«/KEY»", "").strip()
+            part4.append({
+                "id": f"{source_format}-p4-{len(part4)+1}-{stamp}",
+                "topic": "",
+                "stem": clean_body.replace("\n", "<br/>"),
+                "explanation": explanation,
+            })
+
         else:
             clean_body = body.replace("«KEY»", "").replace("«/KEY»", "").strip()
             ans_val = ""
-            m_ans = re.search(r"(?:Đáp án|Đáp số|Trả lời|KQ)\s*[:=]?\s*([\-0-9,\.]+)", clean_body, flags=re.IGNORECASE)
+            m_ans = re.search(r"\b(?:Đáp án|Đáp số|Trả lời|KQ)\s*[:=]?\s*([\-0-9,\.]+)", clean_body, flags=re.IGNORECASE)
             if m_ans:
                 ans_val = m_ans.group(1).strip()
                 clean_body = clean_body[:m_ans.start()].strip()
             elif explanation:
-                m_ans2 = re.search(r"(?:Đáp án|Đáp số|Trả lời|KQ)\s*[:=]?\s*([\-0-9,\.]+)", explanation, flags=re.IGNORECASE)
+                m_ans2 = re.search(r"\b(?:Đáp án|Đáp số|Trả lời|KQ)\s*[:=]?\s*([\-0-9,\.]+)", explanation, flags=re.IGNORECASE)
                 if m_ans2:
                     ans_val = m_ans2.group(1).strip()
             if not ans_val:
@@ -1395,7 +1609,25 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
                 "explanation": explanation,
             })
 
-    if len(part1) + len(part2) + len(part3) == 0:
+    if protected_html:
+        for q in part1:
+            q["stem"] = _restore_html(q["stem"])
+            q["explanation"] = _restore_html(q["explanation"])
+            for o in q["options"]:
+                o["text"] = _restore_html(o["text"])
+        for q in part2:
+            q["stem"] = _restore_html(q["stem"])
+            q["explanation"] = _restore_html(q["explanation"])
+            for st in q["statements"]:
+                st["text"] = _restore_html(st["text"])
+        for q in part3:
+            q["stem"] = _restore_html(q["stem"])
+            q["explanation"] = _restore_html(q["explanation"])
+        for q in part4:
+            q["stem"] = _restore_html(q["stem"])
+            q["explanation"] = _restore_html(q["explanation"])
+
+    if len(part1) + len(part2) + len(part3) + len(part4) == 0:
         raise ValueError(
             "Không nhận diện được cấu trúc câu hỏi (Câu 1., Câu 2., ...). "
             "Hãy đảm bảo đề có đánh số 'Câu 1.' và các phương án 'A. B. C. D.' hoặc dùng định dạng LaTeX ex_test."
@@ -1419,7 +1651,45 @@ def parse_structured_exam_text(raw_text: str, filename: str = "", source_format:
             "part1": part1,
             "part2": part2,
             "part3": part3,
+            "part4": part4,
         },
         "warnings": warnings,
         "sourceFormat": source_format,
+    }
+
+
+def parse_presentation_source(source_type: str, content: str, filename: str = "") -> dict:
+    """
+    Parse Word (.docx base64), PDF extracted text, or LaTeX (.tex) into a clean 4-part lecture slide deck:
+    - part1: Multiple Choice (grouped 1 / 2 / 3 per slide on frontend)
+    - part2: True/False (1 question per slide)
+    - part3: Short Answer (1 question per slide)
+    - part4: Essay / Tự luận (1 question per slide)
+    """
+    stype = str(source_type or "").strip().lower()
+    if stype in ("docx", "docx_base64"):
+        raw_bytes = base64.b64decode(content)
+        res = parse_docx_bytes(raw_bytes, filename=filename)
+    elif stype in ("latex", "tex", "extest"):
+        res = parse_extest_latex(content, filename=filename)
+    else:
+        res = parse_structured_exam_text(content, filename=filename, source_format="pdf")
+
+    ex = res.get("exam") or {}
+    # Filter out exam-grading-only warnings (e.g. missing answer key) for clean slide projection
+    clean_warnings = [
+        w
+        for w in (res.get("warnings") or [])
+        if "Chưa nhận diện được đáp án đúng" not in w and "Chưa thấy đáp số ngắn" not in w
+    ]
+    return {
+        "deck": {
+            "title": ex.get("title") or "Bài giảng trình chiếu",
+            "part1": ex.get("part1") or [],
+            "part2": ex.get("part2") or [],
+            "part3": ex.get("part3") or [],
+            "part4": ex.get("part4") or [],
+        },
+        "warnings": clean_warnings,
+        "sourceFormat": res.get("sourceFormat", stype),
     }
