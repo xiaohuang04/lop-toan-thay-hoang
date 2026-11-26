@@ -459,7 +459,6 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                       <span class="badge ${asgType === 'test' ? 'badge-danger' : 'badge-p1'}">
                         ${asgType === 'test' ? 'Bài kiểm tra' : 'Bài tập'}
                       </span>
-                      <span class="badge badge-p2">Làm Online</span>
                       <h3 class="exam-card-title" style="margin:0;">${escapeHtml(asg.title)}</h3>
                     </div>
                     ${asg.note ? `<p class="exam-card-desc">${escapeHtml(asg.note)}</p>` : ''}
@@ -483,7 +482,6 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                         <span class="badge badge-neutral">
                           ${escapeHtml(ex.subject || 'Toán học')} • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
                         </span>
-                        <span class="badge badge-neutral">Nội dung &amp; cấu trúc đề được ẩn cho đến giờ mở đề</span>
                       </div>
                     `
                     : `
