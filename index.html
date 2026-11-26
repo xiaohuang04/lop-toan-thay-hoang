@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-  <link rel="stylesheet" href="/css/styles.css?v=20261126u" />
+  <link rel="stylesheet" href="/css/styles.css?v=20261126y" />
 </head>
 <body>
   <!-- AUTH SCREEN (Shown when not logged in) -->
@@ -58,6 +58,11 @@
         <button type="submit" class="btn btn-primary btn-lg" style="width:100%;" id="btnLoginSubmit">
           Đăng nhập
         </button>
+        <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); text-align:center;">
+          <button type="button" class="btn btn-secondary" style="width:100%;" id="btnGuestOpenReview">
+            📖 Ôn tập kiến thức Toán THPT (Không cần đăng nhập) →
+          </button>
+        </div>
         <div id="authQuickSwitchWrap" class="hidden" style="text-align:center; margin-top:12px;">
           <button type="button" class="btn btn-ghost btn-sm" id="btnSwitchFullLogin">Đăng nhập bằng tài khoản khác</button>
         </div>
@@ -98,6 +103,13 @@
             </svg>
             <span>Mô hình tương tác</span>
           </button>
+          <button class="main-tab" role="tab" aria-selected="false" data-tab="review" id="tabBtnReview">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+            </svg>
+            <span>Ôn tập</span>
+          </button>
           <button class="main-tab hidden" role="tab" aria-selected="false" data-tab="slides" id="tabBtnSlides">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -135,6 +147,7 @@
         </nav>
 
         <div class="header-user-bar" id="headerUserBar">
+          <button type="button" class="btn btn-primary btn-sm hidden" id="btnGuestGoLogin">Đăng nhập</button>
           <div class="user-menu-wrap u408-menu" id="userMenuWrap">
             <button type="button" class="u408-av" id="userMenuTrigger" aria-label="Mở menu tài khoản" aria-haspopup="menu" aria-expanded="false">
               <img class="u408-av-img hidden" id="userAvatarImg" alt="Ảnh đại diện" />
@@ -209,6 +222,10 @@
         <div id="labRoot"></div>
       </section>
 
+      <section id="panel-review" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnReview">
+        <div id="reviewRoot"></div>
+      </section>
+
       <section id="panel-slides" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnSlides">
         <div id="slidesRoot"></div>
       </section>
@@ -245,6 +262,6 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/app.js?v=20261126v"></script>
+  <script type="module" src="/js/app.js?v=20261126y"></script>
 </body>
 </html>

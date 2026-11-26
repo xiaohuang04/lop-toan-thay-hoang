@@ -6,6 +6,7 @@ import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125l';
 import { createLectureSlidesController } from './lecture-slides.js?v=20261126n';
+import { createMathReviewController } from './math-review.js?v=20261126y';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
@@ -297,6 +298,10 @@ function parseRouteFromLocation() {
   if (raw === '/trinh-chieu' || raw.startsWith('/trinh-chieu/')) {
     return { tab: 'slides', grade: null, manage: false };
   }
+  if (raw === '/on-tap' || raw.startsWith('/on-tap/')) {
+    const rest = raw.slice('/on-tap'.length).replace(/^\/+/, '');
+    return { tab: 'review', subRoute: rest || '', grade: null, manage: false };
+  }
   if (raw === '/game-tuong-tac' || raw.startsWith('/game-tuong-tac/')) {
     return { tab: 'live-game', grade: null, manage: false };
   }
@@ -360,17 +365,32 @@ const gradebookCtrl = createGradebookController({
   },
 });
 
-// 4-Tab Navigation (Tab 3 & 4 Admin-only) + Clean History API URL Routing (/lop-hoc, /mo-hinh, /so-bao-giang, /so-diem)
+const mathReviewCtrl = createMathReviewController({
+  rootEl: document.getElementById('reviewRoot'),
+  uiHelpers,
+  onRouteChange: (subPath, opts) => {
+    if (panels.review?.classList.contains('active')) {
+      syncBrowserUrl(subPath, opts);
+    }
+  },
+});
+
+// Top-level Navigation + Clean History API URL Routing
 const tabButtons = document.querySelectorAll('.main-tab');
+const tabBtnExam = document.getElementById('tabBtnExam');
 const tabBtnLab = document.getElementById('tabBtnLab');
+const tabBtnReview = document.getElementById('tabBtnReview');
 const tabBtnSlides = document.getElementById('tabBtnSlides');
 const tabBtnTeachingLog = document.getElementById('tabBtnTeachingLog');
 const tabBtnGradebook = document.getElementById('tabBtnGradebook');
 const tabBtnLiveGame = document.getElementById('tabBtnLiveGame');
 const tabExamLabel = document.getElementById('tabExamLabel');
+const btnGuestGoLogin = document.getElementById('btnGuestGoLogin');
+const btnGuestOpenReview = document.getElementById('btnGuestOpenReview');
 const panels = {
   exam: document.getElementById('panel-exam'),
   lab: document.getElementById('panel-lab'),
+  review: document.getElementById('panel-review'),
   slides: document.getElementById('panel-slides'),
   'teaching-log': document.getElementById('panel-teaching-log'),
   gradebook: document.getElementById('panel-gradebook'),
@@ -411,6 +431,8 @@ function updateDocumentTitle(tabName) {
     document.title = 'Sổ điểm — Lớp toán thầy Hoàng';
   } else if (tabName === 'teaching-log') {
     document.title = 'Sổ báo giảng — Lớp toán thầy Hoàng';
+  } else if (tabName === 'review') {
+    document.title = 'Ôn tập kiến thức Toán THPT — Lớp toán thầy Hoàng';
   } else if (tabName === 'lab') {
     document.title = 'Mô hình tương tác — Lớp toán thầy Hoàng';
   } else if (currentUser?.role === 'admin') {
@@ -421,6 +443,10 @@ function updateDocumentTitle(tabName) {
 }
 
 function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = null } = {}) {
+  // Zero-Friction Guest Mode only allows the public 'review' tab
+  if (!currentUser) {
+    tabName = 'review';
+  }
   // Guard Admin-only Trình chiếu, Sổ báo giảng, Sổ điểm & Game tương tác tabs
   if ((tabName === 'slides' || tabName === 'teaching-log' || tabName === 'gradebook' || tabName === 'live-game') && currentUser?.role !== 'admin') {
     tabName = 'exam';
@@ -484,6 +510,12 @@ function switchTab(tabName, { updateUrl = true, replaceUrl = false, routeOpts = 
       syncBrowserUrl(targetUrl, { replace: replaceUrl });
     }
     teachingLogCtrl.init(routeOpts);
+  } else if (tabName === 'review') {
+    if (updateUrl) {
+      const targetUrl = routeOpts?.subRoute ? `/on-tap/${routeOpts.subRoute}` : '/on-tap';
+      syncBrowserUrl(targetUrl, { replace: replaceUrl });
+    }
+    mathReviewCtrl.init(routeOpts);
   } else if (tabName === 'lab') {
     if (updateUrl) {
       const targetUrl = routeOpts?.manage
@@ -506,13 +538,24 @@ tabButtons.forEach((btn) => {
 });
 
 document.getElementById('brandHome').addEventListener('click', () => {
+  if (!currentUser) {
+    switchTab('review');
+    return;
+  }
   switchTab('exam');
   activeRoleCtrl?.goHome();
 });
 
 window.addEventListener('popstate', () => {
-  if (!currentUser) return;
   const route = parseRouteFromLocation();
+  if (!currentUser) {
+    if (route.tab === 'review') {
+      enterGuestReviewMode(route, { updateUrl: false });
+    } else {
+      showAuthScreen();
+    }
+    return;
+  }
   switchTab(route.tab, { updateUrl: false, routeOpts: route });
 });
 
@@ -684,6 +727,10 @@ function updateUserHeader() {
     menuItemAiSettings.classList.toggle('hidden', !isAdmin);
   }
   syncUserMenuStagger();
+  userMenuWrap?.classList.remove('hidden');
+  btnGuestGoLogin?.classList.add('hidden');
+  tabBtnExam?.classList.remove('hidden');
+  tabBtnReview?.classList.remove('hidden');
   if (tabBtnLab) {
     tabBtnLab.classList.toggle('hidden', !isAdmin && modelsVisibilityMode === 'admin_only');
   }
@@ -1550,6 +1597,32 @@ function showAuthScreen() {
   configureAuthMode(route.tab === 'teaching-log');
 }
 
+function enterGuestReviewMode(routeOpts = null, { updateUrl = true } = {}) {
+  currentUser = null;
+  activeRoleCtrl = null;
+  authScreen.classList.add('hidden');
+  appShell.classList.remove('hidden');
+  userMenuWrap?.classList.add('hidden');
+  btnGuestGoLogin?.classList.remove('hidden');
+  tabBtnExam?.classList.add('hidden');
+  tabBtnLab?.classList.add('hidden');
+  tabBtnSlides?.classList.add('hidden');
+  tabBtnTeachingLog?.classList.add('hidden');
+  tabBtnGradebook?.classList.add('hidden');
+  tabBtnLiveGame?.classList.add('hidden');
+  tabBtnReview?.classList.remove('hidden');
+  switchTab('review', { updateUrl, replaceUrl: true, routeOpts });
+}
+
+btnGuestOpenReview?.addEventListener('click', () => {
+  enterGuestReviewMode({ tab: 'review', subRoute: '' });
+});
+
+btnGuestGoLogin?.addEventListener('click', () => {
+  syncBrowserUrl('/lop-hoc');
+  showAuthScreen();
+});
+
 async function enterApp(user) {
   labCtrl.reset();
   currentUser = user;
@@ -1574,6 +1647,12 @@ async function enterApp(user) {
     activeRoleCtrl.init();
   } else if (initialRoute.tab === 'teaching-log' && user.role === 'admin') {
     switchTab('teaching-log', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    activeRoleCtrl.init();
+  } else if (initialRoute.tab === 'slides' && user.role === 'admin') {
+    switchTab('slides', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
+    activeRoleCtrl.init();
+  } else if (initialRoute.tab === 'review') {
+    switchTab('review', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
     activeRoleCtrl.init();
   } else if (initialRoute.tab === 'lab') {
     switchTab('lab', { updateUrl: true, replaceUrl: true, routeOpts: initialRoute });
@@ -1663,6 +1742,11 @@ menuItemLogout?.addEventListener('click', async () => {
   setToken('');
   canSwitchBackToAdmin = false;
   showToast('Đã đăng xuất khỏi hệ thống.');
+  const initRoute = parseRouteFromLocation();
+  if (initRoute.tab === 'review') {
+    enterGuestReviewMode(initRoute, { updateUrl: false });
+    return;
+  }
   showAuthScreen();
 });
 
@@ -1805,6 +1889,11 @@ async function boot() {
     }
   } catch {
     setToken('');
+  }
+  const initRoute = parseRouteFromLocation();
+  if (initRoute.tab === 'review') {
+    enterGuestReviewMode(initRoute, { updateUrl: false });
+    return;
   }
   showAuthScreen();
 }

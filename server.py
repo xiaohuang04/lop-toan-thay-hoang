@@ -1231,6 +1231,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 or path.startswith("/so-diem/")
                 or path == "/trinh-chieu"
                 or path.startswith("/trinh-chieu/")
+                or path == "/on-tap"
+                or path.startswith("/on-tap/")
                 or path == "/game-tuong-tac"
                 or path.startswith("/game-tuong-tac/")
             ):
