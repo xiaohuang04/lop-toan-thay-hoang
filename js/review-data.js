@@ -115,34 +115,37 @@ export const REVIEW_CURRICULUM = [
                   </ul>
                 `,
               },
-              {
-                id: 'b1-card-4',
-                type: 'warning',
-                title: 'Lưu ý nhanh',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li>Có dãy không tăng cũng không giảm, VD: $u_n = (-1)^n$.</li>
-                    <li>Thử $u_1, u_2, u_3$ chỉ để dự đoán; chứng minh phải biến đổi với mọi $n \\in \\mathbb{N}^*$.</li>
-                  </ul>
-                `,
-              },
             ],
             flipCards: [
               {
                 id: 'b1-flip-1',
-                title: 'Xét tỉ số dãy âm',
-                frontError:
-                  'Cho $u_n = -2^n$. Lập $\\dfrac{u_{n+1}}{u_n} = \\dfrac{-2^{n+1}}{-2^n} = 2 > 1 \\Rightarrow$ kết luận dãy tăng. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Xét $\\dfrac{u_{n+1}}{u_n} > 1$ chỉ áp dụng khi $u_n > 0$. Vì $u_n = -2^n < 0$, nhân chéo phải đổi chiều $\\Rightarrow u_{n+1} < u_n$ (<strong>dãy giảm</strong>).',
+                trapCategory: 'index',
+                trapLabel: 'Bẫy thay chỉ số (n + 1)',
+                problem: 'Cho dãy số $(u_n)$ với $u_n = 3n - 2$. Tính hiệu $u_{n+1} - u_n$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['3'],
+                trapExplanation: 'Viết nhầm $u_{n+1} = 3n - 2 + 1 = 3n - 1 \\Rightarrow$ ra $1$.',
+                correctExplanation: 'Thay $n$ bởi $(n + 1)$: $u_{n+1} = 3(n + 1) - 2 = 3n + 1 \\Rightarrow u_{n+1} - u_n = \\mathbf{3}$.',
               },
               {
                 id: 'b1-flip-2',
-                title: 'Thay chỉ số $u_{n+1}$',
-                frontError:
-                  'Cho $u_n = \\dfrac{2n - 1}{n + 1}$, viết $u_{n+1} = \\dfrac{2n - 1 + 1}{n + 1 + 1} = \\dfrac{2n}{n + 2}$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Phải thay mọi chữ $n$ bằng cụm $(n + 1)$:<br/>$u_{n+1} = \\dfrac{2(n + 1) - 1}{(n + 1) + 1} = \\dfrac{2n + 1}{n + 2}$.',
+                trapCategory: 'sign',
+                trapLabel: 'Bẫy xét tỉ số dãy âm',
+                problem: 'Cho dãy số $u_n = -2^n$ ($n \\in \\mathbb{N}^*$). Tìm giá trị lớn nhất của $u_n$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['-2'],
+                trapExplanation: 'Lập $\\dfrac{u_{n+1}}{u_n} = 2 > 1$ tưởng dãy tăng (quên $u_n < 0$ làm đổi chiều BĐT).',
+                correctExplanation: 'Dãy giảm ngặt ($-2, -4, -8, \\dots$) nên số hạng lớn nhất là $u_1 = \\mathbf{-2}$.',
+              },
+              {
+                id: 'b1-flip-3',
+                trapCategory: 'alternating',
+                trapLabel: 'Bẫy dãy đan dấu (−1)ⁿ',
+                problem: 'Cho dãy số $u_n = (-1)^n \\cdot 2 + 3$. Tính tổng $u_1 + u_2$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['6'],
+                trapExplanation: 'Quên $(-1)^1 = -1$ hoặc nhầm dãy hằng nên cộng ra $10$ hoặc $0$.',
+                correctExplanation: '$u_1 = -2 + 3 = 1$, $u_2 = 2 + 3 = 5 \\Rightarrow u_1 + u_2 = \\mathbf{6}$ (dãy đan dấu không tăng, không giảm).',
               },
             ],
             examples: [
@@ -329,19 +332,23 @@ export const REVIEW_CURRICULUM = [
             flipCards: [
               {
                 id: 'b2-flip-1',
-                title: 'Nhầm hệ số của $d$',
-                frontError:
-                  'Cho $u_1 = 3, d = 2$. Tính $u_{10} = 3 + 10 \\cdot 2 = 23$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Quên trừ $1$ ở hệ số công sai!<br/>$u_n = u_1 + (n - 1)d \\Rightarrow u_{10} = 3 + 9 \\cdot 2 = 21$.',
+                trapCategory: 'index',
+                trapLabel: 'Bẫy nhầm hệ số (n − 1)',
+                problem: 'Cho cấp số cộng có $u_1 = 3$ và công sai $d = 2$. Tính $u_{10}$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['21'],
+                trapExplanation: 'Nhẩm $u_{10} = u_1 + 10d = 3 + 20 = 23$ (quên trừ $1$ ở hệ số của $d$).',
+                correctExplanation: '$u_{10} = u_1 + 9d = 3 + 9 \\cdot 2 = \\mathbf{21}$.',
               },
               {
                 id: 'b2-flip-2',
-                title: 'Thiếu hệ số $2u_1$ trong $S_n$',
-                frontError:
-                  'Cho $u_1 = 3, d = 2$. Tính $S_{10} = \\dfrac{10}{2}[u_1 + 9d] = 105$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Thiếu số $2$ trước $u_1$!<br/>$S_{10} = \\dfrac{10}{2}[2u_1 + 9d] = 5(2 \\cdot 3 + 18) = 120$.',
+                trapCategory: 'coeff',
+                trapLabel: 'Bẫy thiếu hệ số 2u₁',
+                problem: 'Cho cấp số cộng có $u_1 = 3$ và công sai $d = 2$. Tính tổng $S_{10}$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['120'],
+                trapExplanation: 'Viết $S_{10} = \\dfrac{10}{2}[u_1 + 9d] = 105$ (quên nhân $2$ trước $u_1$).',
+                correctExplanation: '$S_{10} = \\dfrac{10}{2}[2u_1 + 9d] = 5(6 + 18) = \\mathbf{120}$.',
               },
             ],
             examples: [
@@ -529,42 +536,47 @@ export const REVIEW_CURRICULUM = [
                   </ul>
                 `,
               },
-              {
-                id: 'b3-card-3',
-                type: 'warning',
-                title: 'Hai bẫy hay gặp',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>$q = 1$:</strong> $S_n = n \\cdot u_1$ (không áp dụng phân thức mẫu $1 - q$).</li>
-                    <li><strong>Mũ chẵn</strong> ($q^2 = 9, x^2 = 36$): lấy đủ <strong>cả $\\pm$</strong> nếu đề không cho dương.</li>
-                  </ul>
-                `,
-              },
             ],
             flipCards: [
               {
                 id: 'b3-flip-1',
-                title: 'Bỏ sót nghiệm âm',
-                frontError:
-                  'Ba số $2; x; 18$ lập thành CSN $\\Rightarrow x^2 = 36 \\Rightarrow$ kết luận chỉ có $x = 6$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Thiếu nghiệm âm! $x^2 = 36 \\Leftrightarrow x = \\pm 6$ (ứng với $q = 3$ và $q = -3$ đều thỏa mãn).',
+                trapCategory: 'sign',
+                trapLabel: 'Bẫy bỏ sót nghiệm âm (±)',
+                problem: 'Ba số $2; x; 18$ theo thứ tự lập thành cấp số nhân. Tìm $x$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedMultiSet: ['-6', '6'],
+                trapExplanation: 'Khai căn $x^2 = 36$ chỉ lấy $x = 6$ mà bỏ quên nghiệm âm $x = -6$.',
+                correctExplanation: '$x^2 = 2 \\cdot 18 = 36 \\iff x = \\mathbf{6}$ hoặc $x = \\mathbf{-6}$ (ứng với $q = \\pm 3$).',
               },
               {
                 id: 'b3-flip-2',
-                title: 'Nhầm mũ $n$ với $n - 1$',
-                frontError:
-                  'Cho CSN $u_1 = 2, q = 3$. Tính $u_5 = 2 \\cdot 3^5 = 486$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Số mũ chuẩn là $n - 1$:<br/>$u_5 = u_1 \\cdot q^4 = 2 \\cdot 3^4 = 162$.',
+                trapCategory: 'index',
+                trapLabel: 'Bẫy nhầm mũ n với n − 1',
+                problem: 'Cho cấp số nhân có $u_1 = 2$ và công bội $q = 3$. Tính $u_5$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['162'],
+                trapExplanation: 'Tính nhầm $u_5 = 2 \\cdot 3^5 = 486$ (dùng mũ $5$ thay vì mũ $4$).',
+                correctExplanation: '$u_5 = u_1 \\cdot q^{5 - 1} = 2 \\cdot 3^4 = \\mathbf{162}$.',
               },
               {
                 id: 'b3-flip-3',
-                title: 'Lệch mốc $t = 0$',
-                frontError:
-                  'Ban đầu $100$ vi khuẩn, mỗi giờ nhân đôi. Sau $8$ giờ tính $u_8 = 100 \\cdot 2^7 = 12800$. <strong>Sai ở đâu?</strong>',
-                backCorrection:
-                  'Ban đầu là $t = 0$. Sau $1$ giờ mới là $u_1 = 200 \\Rightarrow$ sau $8$ giờ: $u_8 = 200 \\cdot 2^7 = 100 \\cdot 2^8 = 25600$.',
+                trapCategory: 'time',
+                trapLabel: 'Bẫy lệch mốc ban đầu t = 0',
+                problem: 'Ban đầu có $100$ vi khuẩn, sau mỗi giờ nhân đôi. Hỏi sau $8$ giờ có bao nhiêu con?',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['25600'],
+                trapExplanation: 'Gán nhầm $u_1 = 100$ rồi tính $u_8 = 100 \\cdot 2^7 = 12800$ (thiếu $1$ lần nhân đôi).',
+                correctExplanation: 'Ban đầu là $t = 0$. Sau $1$ giờ: $u_1 = 200 \\Rightarrow u_8 = 200 \\cdot 2^7 = \\mathbf{25600}$.',
+              },
+              {
+                id: 'b3-flip-4',
+                trapCategory: 'domain',
+                trapLabel: 'Bẫy suy biến công bội q = 1',
+                problem: 'Cho cấp số nhân có $u_1 = 5$ và công bội $q = 1$. Tính tổng $S_{10}$.',
+                placeholder: 'Nhập đáp án...',
+                acceptedAnswers: ['50'],
+                trapExplanation: 'Ốp công thức $\\dfrac{1 - q^n}{1 - q}$ bị mẫu bằng $0$ (hoặc nhầm $S_{10} = 5$).',
+                correctExplanation: 'Khi $q = 1$, mọi số hạng đều bằng $5 \\Rightarrow S_{10} = 10 \\cdot u_1 = \\mathbf{50}$.',
               },
             ],
             examples: [

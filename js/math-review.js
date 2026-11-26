@@ -1,4 +1,4 @@
-import { REVIEW_CURRICULUM } from './review-data.js?v=20261127a';
+import { REVIEW_CURRICULUM } from './review-data.js?v=20261127c';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
@@ -20,6 +20,33 @@ const CARD_TYPE_META = {
     badge: 'Lưu ý',
     cls: 'is-warning',
     iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.7.6 1 1.4 1 2.3h6c0-.9.3-1.7 1-2.3A7 7 0 0 0 12 2z"/></svg>`,
+  },
+};
+
+const TRAP_CATEGORY_META = {
+  index: {
+    cls: 'cat-index',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
+  },
+  sign: {
+    cls: 'cat-sign',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="4" x2="12" y2="14"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="19" x2="17" y2="19"/></svg>`,
+  },
+  alternating: {
+    cls: 'cat-alternating',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+  },
+  coeff: {
+    cls: 'cat-coeff',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  },
+  time: {
+    cls: 'cat-time',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  },
+  domain: {
+    cls: 'cat-domain',
+    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
   },
 };
 
@@ -109,6 +136,62 @@ function normalizeShortAnswer(raw) {
   return s.toLowerCase();
 }
 
+function checkTrapAnswer(fc, rawInput) {
+  const raw = String(rawInput ?? '').trim();
+  if (!raw) return false;
+
+  // Strip optional variable prefix like "x =", "u_5 =", "S10 ="
+  const stripped = raw
+    .replace(/[−–—]/g, '-')
+    .replace(/\b[a-zA-Z_][a-zA-Z0-9_{}]*\s*=\s*/g, ' ')
+    .trim();
+
+  if (Array.isArray(fc.acceptedMultiSet) && fc.acceptedMultiSet.length > 0) {
+    const expected = new Set(fc.acceptedMultiSet.map((v) => normalizeShortAnswer(v)));
+
+    // Accept shorthand ±6, +-6, -+6, +/-6
+    const pmMatch = stripped.match(/^(?:±|\+-|-\+|\+\/-)\s*(\d+(?:[.,]\d+)?)$/);
+    if (pmMatch) {
+      const mag = pmMatch[1];
+      const got = new Set([normalizeShortAnswer(mag), normalizeShortAnswer(`-${mag}`)]);
+      return got.size === expected.size && Array.from(expected).every((x) => got.has(x));
+    }
+
+    const parts = stripped
+      .split(/\s*(?:;|,|\||\/|\bvà\b|\bva\b|\bhoặc\b|\bhoac\b|\bhay\b|\bor\b|\band\b)\s*|\s+/i)
+      .map((p) => normalizeShortAnswer(p))
+      .filter(Boolean);
+
+    const got = new Set(parts);
+    return (
+      parts.length === expected.size &&
+      got.size === expected.size &&
+      Array.from(expected).every((x) => got.has(x))
+    );
+  }
+
+  const normGot = normalizeShortAnswer(stripped);
+  return (fc.acceptedAnswers || []).some((ans) => normalizeShortAnswer(ans) === normGot);
+}
+
+function renderTrapVerdictHtml(attempt) {
+  if (!attempt) return '';
+  if (attempt.isCorrect) {
+    return `
+      <div class="rv-trap-verdict is-won">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span><strong>Chúc mừng!</strong> Tỉnh táo vượt bẫy · Đáp án: <b>${escapeHtml(attempt.raw)}</b></span>
+      </div>
+    `;
+  }
+  return `
+    <div class="rv-trap-verdict is-trapped">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span><strong>Mắc bẫy rồi!</strong> Bạn vừa nhập: <b>${escapeHtml(attempt.raw)}</b></span>
+    </div>
+  `;
+}
+
 function loadJsonStorage(key, fallback) {
   try {
     const raw = window.localStorage.getItem(key);
@@ -134,6 +217,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
   // Flatten all available lessons with chapter/grade metadata for fast lookup & search
   const lessonsIndex = [];
   const lessonsById = new Map();
+  const flipCardsById = new Map();
   const cardsIndex = []; // for Instant Search & Bookmarks
 
   REVIEW_CURRICULUM.forEach((gradeObj) => {
@@ -167,18 +251,19 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         });
 
         (lesson.flipCards || []).forEach((fc) => {
-          const plain = stripHtmlAndTags(`${fc.title} ${fc.frontError} ${fc.backCorrection}`);
+          flipCardsById.set(fc.id, fc);
+          const plain = stripHtmlAndTags(`${fc.trapLabel} ${fc.problem} ${fc.trapExplanation} ${fc.correctExplanation}`);
           cardsIndex.push({
             kind: 'flip',
             cardType: 'flip',
             id: fc.id,
-            title: fc.title || 'Bắt lỗi sai kinh điển',
+            title: fc.trapLabel || 'Bẫy hay sai',
             lessonId: lesson.id,
             lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
             touchTab: 'touch1',
             card: fc,
             searchHay: `${plain} ${stripAccents(plain)}`,
-            snippet: stripHtmlAndTags(fc.frontError).slice(0, 130),
+            snippet: stripHtmlAndTags(fc.problem).slice(0, 130),
           });
         });
 
@@ -226,6 +311,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     bookmarks: new Set(Array.isArray(savedBookmarks) ? savedBookmarks : []),
     progress: typeof savedProgress === 'object' && savedProgress ? savedProgress : {},
     flippedIds: new Set(),
+    // Per-trap-card student attempt: { [fcId]: { raw: string, isCorrect: boolean } }
+    trapAttempts: {},
     // Per-example reveal state: { [exId]: { hint: bool, stepCount: number, answer: bool } }
     exampleState: {},
     // Per-lesson quiz state: { [lessonId]: { mc: {}, tf: {}, sa: {}, submitted: bool, summary: null } }
@@ -322,15 +409,18 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const host = scopeEl || rootEl;
     if (!host) return;
     const equalizeRow = window.innerWidth > 640;
+    const handled = new Set();
+
     host.querySelectorAll('.rv-flip-grid').forEach((grid) => {
       const cards = Array.from(grid.querySelectorAll('.rv-flip-card'));
+      cards.forEach((c) => handled.add(c));
       const heights = cards.map((card) => {
         const front = card.querySelector('.rv-flip-front');
         const back = card.querySelector('.rv-flip-back');
-        if (!front || !back) return 206;
+        if (!front || !back) return 212;
         front.style.height = 'auto';
         back.style.height = 'auto';
-        return Math.max(front.scrollHeight, back.scrollHeight, 206);
+        return Math.max(front.scrollHeight, back.scrollHeight, 212);
       });
       const rowMax = equalizeRow && heights.length ? Math.max(...heights) : 0;
       cards.forEach((card, idx) => {
@@ -342,6 +432,21 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         if (front) front.style.height = `${h}px`;
         if (back) back.style.height = `${h}px`;
       });
+    });
+
+    // Also measure standalone bookmarked flip cards inside Sổ tay
+    host.querySelectorAll('.rv-flip-card').forEach((card) => {
+      if (handled.has(card)) return;
+      const inner = card.querySelector('.rv-flip-inner');
+      const front = card.querySelector('.rv-flip-front');
+      const back = card.querySelector('.rv-flip-back');
+      if (!front || !back) return;
+      front.style.height = 'auto';
+      back.style.height = 'auto';
+      const h = Math.max(front.scrollHeight, back.scrollHeight, 212);
+      if (inner) inner.style.minHeight = `${h}px`;
+      front.style.height = `${h}px`;
+      back.style.height = `${h}px`;
     });
   }
 
@@ -473,24 +578,27 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     `;
   }
 
-  function renderFlipCardHtml(fc, { showLessonMeta = '' } = {}) {
+  function renderFlipCardHtml(fc, { indexNum = 0, showLessonMeta = '' } = {}) {
     const isFlipped = state.flippedIds.has(fc.id);
     const isStarred = state.bookmarks.has(fc.id);
+    const attempt = state.trapAttempts[fc.id] || null;
+    const catMeta = TRAP_CATEGORY_META[fc.trapCategory] || TRAP_CATEGORY_META.index;
+    const backToneCls = attempt ? (attempt.isCorrect ? 'is-won' : 'is-trapped') : '';
+    const frontBadgeTxt = indexNum > 0 ? `Câu ${indexNum}` : 'Thử sức';
     const flipIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;
+    const enterIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>`;
+
     return `
       <div
         class="rv-flip-card ${isFlipped ? 'is-flipped' : ''}"
         id="rv-item-${escapeAttr(fc.id)}"
         data-flip-id="${escapeAttr(fc.id)}"
-        role="button"
-        tabindex="0"
-        aria-label="Chạm để lật thẻ"
       >
         <div class="rv-flip-inner">
-          <!-- FRONT: Common Mistake -->
+          <!-- FRONT: Clean Problem + Answer Input (Zero Trap Spoiler!) -->
           <div class="rv-flip-face rv-flip-front">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-front">⚠ ${fc.title || 'Sai ở đâu?'}</span>
+              <span class="rv-flip-badge is-front">${escapeHtml(frontBadgeTxt)}</span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
@@ -499,16 +607,42 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
               >${renderStarSvg(isStarred)}</button>
             </div>
             ${showLessonMeta ? `<div class="rv-flip-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
-            <div class="rv-flip-content">${fc.frontError}</div>
-            <div class="rv-flip-foot">
-              <span class="rv-flip-ico-btn" title="Lật thẻ">${flipIconSvg}</span>
+            <div class="rv-flip-problem"><div class="rv-flip-problem-txt">${fc.problem}</div></div>
+            <div class="rv-flip-front-bar">
+              <div class="rv-trap-form" data-trap-form="${escapeAttr(fc.id)}">
+                <input
+                  type="text"
+                  class="rv-trap-input"
+                  data-trap-inp="${escapeAttr(fc.id)}"
+                  placeholder="${escapeAttr(fc.placeholder || 'Nhập đáp án...')}"
+                  value="${escapeAttr(attempt?.raw || '')}"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="rv-trap-enter-btn"
+                  data-trap-submit="${escapeAttr(fc.id)}"
+                  title="Kiểm tra đáp án (Enter)"
+                  aria-label="Kiểm tra đáp án"
+                >${enterIconSvg}</button>
+              </div>
+              <button
+                type="button"
+                class="rv-flip-ico-btn"
+                data-flip-btn="${escapeAttr(fc.id)}"
+                title="Lật xem mặt sau"
+                aria-label="Lật thẻ"
+              >${flipIconSvg}</button>
             </div>
           </div>
 
-          <!-- BACK: Correct Reasoning -->
-          <div class="rv-flip-face rv-flip-back">
+          <!-- BACK: Full Trap Breakdown (Category Icon + Label, Verdict, Problem, Trap, Fix) -->
+          <div class="rv-flip-face rv-flip-back ${backToneCls}">
             <div class="rv-flip-top">
-              <span class="rv-flip-badge is-back">✓ Đúng</span>
+              <span class="rv-trap-cat-badge ${catMeta.cls}">
+                ${catMeta.iconSvg}
+                <span>${escapeHtml(fc.trapLabel || 'Bẫy hay sai')}</span>
+              </span>
               <button
                 type="button"
                 class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
@@ -516,9 +650,33 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
                 title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
               >${renderStarSvg(isStarred)}</button>
             </div>
-            <div class="rv-flip-content">${fc.backCorrection}</div>
+
+            <div class="rv-trap-verdict-slot" data-verdict-slot="${escapeAttr(fc.id)}">
+              ${renderTrapVerdictHtml(attempt)}
+            </div>
+
+            <div class="rv-flip-back-body">
+              <div class="rv-trap-recap">
+                <span class="rv-trap-recap-lbl">Đề:</span> ${fc.problem}
+              </div>
+              <div class="rv-trap-row is-trap">
+                <span class="rv-trap-pill-tag is-trap">Bẫy</span>
+                <div class="rv-trap-row-txt">${fc.trapExplanation}</div>
+              </div>
+              <div class="rv-trap-row is-fix">
+                <span class="rv-trap-pill-tag is-fix">Đúng</span>
+                <div class="rv-trap-row-txt">${fc.correctExplanation}</div>
+              </div>
+            </div>
+
             <div class="rv-flip-foot">
-              <span class="rv-flip-ico-btn is-back" title="Lật lại">${flipIconSvg}</span>
+              <button
+                type="button"
+                class="rv-flip-ico-btn is-back"
+                data-flip-btn="${escapeAttr(fc.id)}"
+                title="Lật lại mặt trước"
+                aria-label="Lật lại mặt trước"
+              >${flipIconSvg}</button>
             </div>
           </div>
         </div>
@@ -545,7 +703,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
                 </div>
               </div>
               <div class="rv-flip-grid">
-                ${lesson.flipCards.map((fc) => renderFlipCardHtml(fc)).join('')}
+                ${lesson.flipCards.map((fc, idx) => renderFlipCardHtml(fc, { indexNum: idx + 1 })).join('')}
               </div>
             </section>
           `
@@ -973,15 +1131,16 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         ${
           lesson.flipCards?.length
             ? `
-              <h3 class="rv-print-sec-title">II. CÁC LỖI SAI KINH ĐIỂN CẦN TRÁNH</h3>
+              <h3 class="rv-print-sec-title">II. BẪY HAY SAI CẦN TRÁNH</h3>
               <div class="rv-print-cards">
                 ${lesson.flipCards
                   .map(
                     (fc) => `
                       <div class="rv-print-card is-warning">
-                        <div class="rv-print-card-title">${escapeHtml(fc.title)}</div>
-                        <div><strong>• Lỗi hay gặp:</strong> ${fc.frontError}</div>
-                        <div style="margin-top:4px;"><strong>• Cách sửa chuẩn:</strong> ${fc.backCorrection}</div>
+                        <div class="rv-print-card-title">${escapeHtml(fc.trapLabel || 'Bẫy hay sai')}</div>
+                        <div><strong>• Đề bài:</strong> ${fc.problem}</div>
+                        <div style="margin-top:3px;"><strong>• Bẫy dễ mắc:</strong> ${fc.trapExplanation}</div>
+                        <div style="margin-top:3px;"><strong>• Lời giải chuẩn:</strong> ${fc.correctExplanation}</div>
                       </div>
                     `
                   )
@@ -1571,21 +1730,99 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       });
     });
 
-    // 3D Flip Cards
+    // 3D Interactive Trap Flip Cards
+    const submitTrapAttempt = (fid, cardEl) => {
+      const fc = flipCardsById.get(fid);
+      if (!fc || !cardEl) return;
+      const inpEl = cardEl.querySelector(`[data-trap-inp="${CSS.escape(fid)}"]`);
+      const raw = String(inpEl?.value ?? '').trim();
+      if (!raw) {
+        const formEl = cardEl.querySelector('.rv-trap-form');
+        if (formEl) {
+          formEl.classList.remove('is-shake');
+          void formEl.offsetWidth;
+          formEl.classList.add('is-shake');
+        }
+        inpEl?.focus();
+        return;
+      }
+
+      const isCorrect = checkTrapAnswer(fc, raw);
+      const attempt = { raw, isCorrect };
+      state.trapAttempts[fid] = attempt;
+
+      const backEl = cardEl.querySelector('.rv-flip-back');
+      const slotEl = cardEl.querySelector(`[data-verdict-slot="${CSS.escape(fid)}"]`);
+      if (slotEl) slotEl.innerHTML = renderTrapVerdictHtml(attempt);
+      if (backEl) {
+        backEl.classList.toggle('is-won', isCorrect);
+        backEl.classList.toggle('is-trapped', !isCorrect);
+      }
+
+      inpEl?.blur();
+      syncFlipCardHeights(rootEl);
+
+      state.flippedIds.add(fid);
+      cardEl.classList.add('is-flipped');
+    };
+
+    rootEl.querySelectorAll('[data-trap-form]').forEach((formEl) => {
+      formEl.addEventListener('click', (e) => e.stopPropagation());
+    });
+
+    rootEl.querySelectorAll('[data-trap-inp]').forEach((inpEl) => {
+      const fid = inpEl.dataset.trapInp;
+      const cardEl = inpEl.closest('[data-flip-id]');
+      inpEl.addEventListener('click', (e) => e.stopPropagation());
+      inpEl.addEventListener('input', () => {
+        if (state.trapAttempts[fid]) {
+          state.trapAttempts[fid].raw = inpEl.value;
+        }
+      });
+      inpEl.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitTrapAttempt(fid, cardEl);
+        }
+      });
+    });
+
+    rootEl.querySelectorAll('[data-trap-submit]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fid = btn.dataset.trapSubmit;
+        const cardEl = btn.closest('[data-flip-id]');
+        submitTrapAttempt(fid, cardEl);
+      });
+    });
+
+    rootEl.querySelectorAll('[data-flip-btn]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fid = btn.dataset.flipBtn;
+        const cardEl = btn.closest('[data-flip-id]');
+        if (!fid || !cardEl) return;
+        if (state.flippedIds.has(fid)) state.flippedIds.delete(fid);
+        else state.flippedIds.add(fid);
+        cardEl.classList.toggle('is-flipped', state.flippedIds.has(fid));
+      });
+    });
+
     rootEl.querySelectorAll('[data-flip-id]').forEach((cardEl) => {
-      const toggleFlip = (e) => {
-        if (e.target.closest?.('[data-star-id]')) return;
+      cardEl.addEventListener('click', (e) => {
+        if (
+          e.target.closest?.('[data-star-id]') ||
+          e.target.closest?.('[data-trap-form]') ||
+          e.target.closest?.('[data-flip-btn]')
+        ) {
+          return;
+        }
+        if (window.getSelection?.()?.toString()?.trim()) return;
         const fid = cardEl.dataset.flipId;
         if (state.flippedIds.has(fid)) state.flippedIds.delete(fid);
         else state.flippedIds.add(fid);
         cardEl.classList.toggle('is-flipped', state.flippedIds.has(fid));
-      };
-      cardEl.addEventListener('click', toggleFlip);
-      cardEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggleFlip(e);
-        }
       });
     });
 

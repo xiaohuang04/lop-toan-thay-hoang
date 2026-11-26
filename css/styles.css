@@ -14244,14 +14244,14 @@ body:has(#panel-review.active) {
   color: #f59e0b;
 }
 
-/* Rock-Solid 3D Flip Cards (Zero Hover Specificity Conflict, Zero Edge Jitter!) */
+/* Rock-Solid 3D Blind-Trap Flip Cards (Zero Hover Specificity Conflict, Zero Edge Jitter!) */
 .rv-pitfalls-section {
   padding-top: 28px;
 }
 
 .rv-flip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
   gap: 20px;
 }
 
@@ -14267,7 +14267,7 @@ body:has(#panel-review.active) {
 .rv-flip-inner {
   position: relative;
   width: 100%;
-  min-height: 184px;
+  min-height: 212px;
   transform-style: preserve-3d;
   -webkit-transform-style: preserve-3d;
   transform: rotateY(0deg);
@@ -14285,25 +14285,37 @@ body:has(#panel-review.active) {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   border-radius: 18px;
-  padding: 18px 20px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .rv-flip-front {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #1e293b;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 4px 16px -10px rgba(15, 23, 42, 0.08);
   transform: rotateY(0deg) translateZ(1px);
 }
 
 .rv-flip-back {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #14532d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 42%);
+  border: 1.5px solid #fed7aa;
+  color: #1e293b;
+  box-shadow: 0 6px 20px -10px rgba(15, 23, 42, 0.1);
   transform: rotateY(180deg) translateZ(1px);
+}
+
+.rv-flip-back.is-trapped {
+  border-color: #fda4af;
+  background: linear-gradient(180deg, #fff1f2 0%, #ffffff 44%);
+}
+
+.rv-flip-back.is-won {
+  border-color: #86efac;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 44%);
 }
 
 .rv-flip-card:not(.is-flipped) .rv-flip-back {
@@ -14316,12 +14328,11 @@ body:has(#panel-review.active) {
 
 .rv-flip-card:hover .rv-flip-front {
   border-color: #cbd5e1;
-  box-shadow: 0 10px 26px -12px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px -14px rgba(15, 23, 42, 0.14);
 }
 
 .rv-flip-card:hover .rv-flip-back {
-  border-color: #86efac;
-  box-shadow: 0 10px 26px -12px rgba(22, 163, 74, 0.16);
+  box-shadow: 0 12px 28px -14px rgba(15, 23, 42, 0.14);
 }
 
 .rv-flip-top {
@@ -14329,24 +14340,20 @@ body:has(#panel-review.active) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .rv-flip-badge {
-  font-size: 0.74rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   padding: 3px 10px;
   border-radius: 999px;
 }
 
 .rv-flip-badge.is-front {
-  background: #ffedd5;
-  color: #c2410c;
-}
-
-.rv-flip-badge.is-back {
-  background: #dcfce7;
-  color: #15803d;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .rv-flip-crumb {
@@ -14355,40 +14362,289 @@ body:has(#panel-review.active) {
   margin-bottom: 4px;
 }
 
-.rv-flip-content {
-  font-size: 0.94rem;
-  line-height: 1.78;
+.rv-flip-problem {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 6px 0 12px;
+}
+
+.rv-flip-problem-txt {
+  display: block;
+  width: 100%;
+  font-size: 0.96rem;
+  line-height: 1.82;
+  color: #0f172a;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Front Face Answer Input Bar */
+.rv-flip-front-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rv-trap-form {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 12px;
+  border-radius: 11px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  cursor: text;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.rv-trap-form:hover {
+  border-color: #cbd5e1;
+}
+
+.rv-trap-form:focus-within {
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.rv-trap-form.is-shake {
+  animation: rvTrapShake 0.32s ease;
+}
+
+@keyframes rvTrapShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-3px); }
+}
+
+.rv-trap-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0f172a;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.rv-trap-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.rv-trap-enter-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: #eff6ff;
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.rv-trap-form:focus-within .rv-trap-enter-btn,
+.rv-trap-enter-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.rv-trap-enter-btn:active {
+  transform: scale(0.93);
+}
+
+/* Back Face Trap Category Icon Badge + Verdict + Full Breakdown */
+.rv-trap-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.25;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+  min-width: 0;
+}
+
+.rv-trap-cat-badge svg {
+  flex-shrink: 0;
+}
+
+.rv-trap-cat-badge.cat-index {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+
+.rv-trap-cat-badge.cat-sign {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+.rv-trap-cat-badge.cat-alternating {
+  background: #faf5ff;
+  color: #7e22ce;
+  border-color: #e9d5ff;
+}
+
+.rv-trap-cat-badge.cat-coeff {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.rv-trap-cat-badge.cat-time {
+  background: #f0f9ff;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.rv-trap-cat-badge.cat-domain {
+  background: #f0fdfa;
+  color: #0f766e;
+  border-color: #99f6e4;
+}
+
+.rv-trap-verdict-slot:empty {
+  display: none;
+}
+
+.rv-trap-verdict {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin-bottom: 7px;
+}
+
+.rv-trap-verdict svg {
+  flex-shrink: 0;
+}
+
+.rv-trap-verdict.is-won {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #15803d;
+}
+
+.rv-trap-verdict.is-trapped {
+  background: #ffe4e6;
+  border: 1px solid #fda4af;
+  color: #be123c;
+}
+
+.rv-flip-back-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+}
+
+.rv-trap-recap {
+  font-size: 0.84rem;
+  line-height: 1.62;
+  color: #475569;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.rv-trap-recap-lbl {
+  font-weight: 800;
+  color: #334155;
+  margin-right: 3px;
+}
+
+.rv-trap-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.88rem;
+  line-height: 1.66;
+  color: #1e293b;
+}
+
+.rv-trap-pill-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.rv-trap-pill-tag.is-trap {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.rv-trap-pill-tag.is-fix {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.rv-trap-row-txt {
+  min-width: 0;
   flex: 1;
 }
 
 .rv-flip-foot {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .rv-flip-ico-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   color: #64748b;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 
 .rv-flip-ico-btn.is-back {
-  border-color: #bbf7d0;
-  color: #15803d;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
-.rv-flip-card:hover .rv-flip-ico-btn {
-  transform: rotate(22deg);
+.rv-flip-ico-btn:hover {
+  transform: rotate(20deg);
   color: #0f172a;
   border-color: #cbd5e1;
+  background: #f8fafc;
 }
 
 /* Chạm 2: Step-by-Step Progressive Examples */
