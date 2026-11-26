@@ -555,7 +555,10 @@ export function createLectureSlidesController({ uiHelpers }) {
       part3: Array.isArray(deck.part3) ? deck.part3 : [],
       part4: Array.isArray(deck.part4) ? deck.part4 : [],
     };
-    state.warnings = Array.isArray(warnings) ? warnings : [];
+    const answerWarnRe = /(\\True|tạm đặt đáp án|chưa có đáp án|đáp án đúng|đáp số ngắn|chưa thấy đáp số|tạm đặt\s+[A0])/i;
+    state.warnings = Array.isArray(warnings)
+      ? warnings.filter((w) => w && !answerWarnRe.test(String(w)))
+      : [];
     state.lastLatexSource = String(latexSource || '');
     state.slideIdx = 0;
     state.showIndex = false;

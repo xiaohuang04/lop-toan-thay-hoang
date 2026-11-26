@@ -1693,11 +1693,16 @@ def parse_presentation_source(source_type: str, content: str, filename: str = ""
         res = parse_structured_exam_text(content, filename=filename, source_format="pdf")
 
     ex = res.get("exam") or {}
-    # Filter out exam-grading-only warnings (e.g. missing answer key) for clean slide projection
+    # Presentation mode does NOT grade answers — completely ignore all answer-key warnings
+    # (missing \True, default answer A/0, missing short-answer key, etc.) while keeping them in Exam Bank.
+    answer_warn_re = re.compile(
+        r"(\\True|tạm đặt đáp án|chưa có đáp án|đáp án đúng|đáp số ngắn|chưa thấy đáp số|tạm đặt\s+[A0])",
+        flags=re.IGNORECASE,
+    )
     clean_warnings = [
         w
         for w in (res.get("warnings") or [])
-        if "Chưa nhận diện được đáp án đúng" not in w and "Chưa thấy đáp số ngắn" not in w
+        if not answer_warn_re.search(str(w or ""))
     ]
     return {
         "deck": {
