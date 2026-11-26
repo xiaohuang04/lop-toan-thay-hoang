@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="#DCFCE7"/>
+  <!-- Cute coiled tail & lower body -->
+  <ellipse cx="100" cy="148" rx="60" ry="26" fill="#16A34A"/>
+  <ellipse cx="100" cy="146" rx="50" ry="18" fill="#22C55E"/>
+  <path d="M58 148 Q78 138 100 148 Q122 158 142 148" fill="none" stroke="#86EFAC" stroke-width="6" stroke-linecap="round"/>
+  <!-- Playful tail tip peeking on the right -->
+  <path d="M150 144 C168 138 172 118 160 108 C154 103 148 110 152 118 C156 125 148 132 140 135 Z" fill="#22C55E"/>
+  <!-- Neck -->
+  <path d="M84 142 C82 126 86 114 100 114 C114 114 118 126 116 142 Z" fill="#4ADE80"/>
+  <!-- Rounded cute head -->
+  <ellipse cx="100" cy="96" rx="50" ry="40" fill="#22C55E"/>
+  <!-- Soft lighter crown & belly chin -->
+  <ellipse cx="100" cy="112" rx="34" ry="19" fill="#BBF7D0"/>
+  <!-- Cute diamond markings on forehead -->
+  <path d="M100 62 L106 70 L100 78 L94 70 Z" fill="#15803D" opacity="0.65"/>
+  <circle cx="84" cy="70" r="4" fill="#15803D" opacity="0.55"/>
+  <circle cx="116" cy="70" r="4" fill="#15803D" opacity="0.55"/>
+  <!-- Rosy cheeks -->
+  <circle cx="64" cy="108" r="8.5" fill="#FF9AA2" opacity="0.58"/>
+  <circle cx="136" cy="108" r="8.5" fill="#FF9AA2" opacity="0.58"/>
+  <!-- Big glossy eyes -->
+  <circle cx="77" cy="92" r="9" fill="#2B2D42"/>
+  <circle cx="123" cy="92" r="9" fill="#2B2D42"/>
+  <circle cx="74" cy="88.5" r="3" fill="#FFFFFF"/>
+  <circle cx="120" cy="88.5" r="3" fill="#FFFFFF"/>
+  <!-- Tiny nostrils -->
+  <circle cx="94" cy="105" r="2.2" fill="#15803D"/>
+  <circle cx="106" cy="105" r="2.2" fill="#15803D"/>
+  <!-- Cute smile & forked pink tongue -->
+  <path d="M88 114 Q100 123 112 114" fill="none" stroke="#2B2D42" stroke-width="3.6" stroke-linecap="round"/>
+  <path d="M100 119 L100 132 M100 132 L95 137 M100 132 L105 137" fill="none" stroke="#F43F5E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

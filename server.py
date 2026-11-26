@@ -730,6 +730,13 @@ def format_post_for_user(post: dict, viewer: dict | None, users_by_id: dict) -> 
     is_admin = isinstance(viewer, dict) and viewer.get("role") == "admin"
 
     out = {k: v for k, v in post.items() if k not in ("likes", "likedBy")}
+    author_user = users_by_id.get(post.get("authorId", "")) or next(
+        (u for u in users_by_id.values() if u.get("role") == "admin"),
+        None,
+    )
+    out["authorAvatarUrl"] = str(author_user.get("avatarUrl", "")).strip() if author_user else ""
+    if author_user and author_user.get("fullName"):
+        out["authorName"] = author_user["fullName"]
     out["likeCount"] = len(clean_likes)
     out["likedByMe"] = bool(viewer_id and viewer_id in seen)
 
@@ -1428,6 +1435,12 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     subs_by_asg.setdefault(s["assignmentId"], []).append(s)
 
                 assigned_list = []
+                safe_exams_by_id: dict[str, dict] = {}
+                for s in my_subs:
+                    sub_ex_id = s.get("examId", "")
+                    if sub_ex_id and sub_ex_id in exams_by_id:
+                        safe_exams_by_id[sub_ex_id] = exams_by_id[sub_ex_id]
+
                 for asg in db["assignments"]:
                     if not student_matches_assignment(user, asg):
                         continue
@@ -1460,6 +1473,20 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     if not exam:
                         continue
                     asg_subs = sorted(subs_by_asg.get(asg["id"], []), key=lambda x: x["submittedAt"], reverse=True)
+                    not_open = is_before_open(asg.get("openAt"))
+                    # Never leak question counts, part breakdown, or exam content before openAt
+                    if not_open and not asg_subs:
+                        exam_payload = {
+                            "id": exam["id"],
+                            "title": exam.get("title", ""),
+                            "subject": exam.get("subject", ""),
+                            "durationMinutes": exam.get("durationMinutes", 45),
+                            "locked": True,
+                        }
+                    else:
+                        exam_payload = exam
+                        safe_exams_by_id[exam["id"]] = exam
+
                     sanitized = {k: v for k, v in asg.items() if k != "manualChecks"}
                     assigned_list.append({
                         **sanitized,
@@ -1468,9 +1495,9 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                         "openAt": asg.get("openAt", ""),
                         "linkedPostId": asg.get("linkedPostId", ""),
                         "allowRetake": False,
-                        "isNotOpen": is_before_open(asg.get("openAt")),
+                        "isNotOpen": not_open,
                         "isExpired": is_past_due(asg.get("dueAt")),
-                        "exam": exam,
+                        "exam": exam_payload,
                         "mySubmissions": asg_subs,
                     })
 
@@ -1494,7 +1521,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "user": public_user(user),
                     "assignments": assigned_list,
                     "submissions": sorted(my_subs, key=lambda x: x["submittedAt"], reverse=True),
-                    "examsById": exams_by_id,
+                    "examsById": safe_exams_by_id,
                     "posts": visible_posts,
                     "tuition": build_student_tuition_payload(user, ensure_tuition(db)),
                 })

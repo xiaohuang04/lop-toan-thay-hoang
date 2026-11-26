@@ -1,7 +1,7 @@
 import { api, setToken } from './api.js?v=20261126l';
 import { createExamRunner } from './exam-runner.js?v=20261125l';
-import { createTeacherController } from './teacher-ui.js?v=20261126p';
-import { createStudentController } from './student-ui.js?v=20261126l';
+import { createTeacherController } from './teacher-ui.js?v=20261126r';
+import { createStudentController } from './student-ui.js?v=20261126r';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125l';
@@ -624,7 +624,7 @@ function computeAvatarInitials(name) {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
-const PRESET_AVATAR_VER = '20261124f';
+const PRESET_AVATAR_VER = '20261126r';
 
 function avatarDisplaySrc(url) {
   const s = String(url || '').trim();
@@ -1114,6 +1114,11 @@ const PRESET_ANIMAL_AVATARS = [
   { id: 'capybara', label: 'Capybara', url: '/assets/avatars/capybara.svg' },
   { id: 'hamster', label: 'Hamster', url: '/assets/avatars/hamster.svg' },
   { id: 'owl', label: 'Cú mèo', url: '/assets/avatars/owl.svg' },
+  { id: 'snake', label: 'Rắn xanh', url: '/assets/avatars/snake.svg' },
+  { id: 'scorpion', label: 'Bò cạp', url: '/assets/avatars/scorpion.svg' },
+  { id: 'dragon', label: 'Rồng con', url: '/assets/avatars/dragon.svg' },
+  { id: 'wolf', label: 'Sói xám', url: '/assets/avatars/wolf.svg' },
+  { id: 'tiger', label: 'Hổ con', url: '/assets/avatars/tiger.svg' },
 ];
 
 function isPresetAvatarUrl(url) {
@@ -1172,7 +1177,7 @@ menuItemProfile?.addEventListener('click', () => {
           <div class="prof-preset-box">
             <div class="prof-preset-head">
               <strong>Hoặc chọn nhanh avatar con vật dễ thương</strong>
-              <span>10 mẫu có sẵn</span>
+              <span>${PRESET_ANIMAL_AVATARS.length} mẫu có sẵn</span>
             </div>
             <div class="prof-preset-grid" id="gProfPresetGrid" role="radiogroup" aria-label="Chọn ảnh đại diện con vật có sẵn">
               ${PRESET_ANIMAL_AVATARS.map((av) => {
@@ -1188,7 +1193,7 @@ menuItemProfile?.addEventListener('click', () => {
                     title="${escapeAttr(av.label)}"
                   >
                     <span class="prof-preset-img-wrap">
-                      <img src="${escapeAttr(avatarDisplaySrc(av.url))}" alt="${escapeAttr(av.label)}" loading="lazy" />
+                      <img src="${escapeAttr(avatarDisplaySrc(av.url))}" alt="${escapeAttr(av.label)}" />
                       <span class="prof-preset-check" aria-hidden="true">✓</span>
                     </span>
                     <span class="prof-preset-lbl">${escapeHtml(av.label)}</span>

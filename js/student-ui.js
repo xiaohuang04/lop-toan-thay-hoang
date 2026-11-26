@@ -7,7 +7,7 @@ import {
   formatDateTimeVN,
   getDeadlineStatus,
 } from './exam-engine.js?v=20261123d';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261126l';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261126r';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -446,7 +446,8 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
             const ex = asg.exam;
             if (!ex) return '';
             const latestSub = asg.mySubmissions?.[0] || null;
-            const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
+            const isLocked = Boolean((notOpen || ex.locked) && !latestSub);
+            const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0) + (ex.part4?.length || 0);
             const canStart = !notOpen && !expired && !latestSub;
             const durationMins = asg.durationMinutes || ex.durationMinutes || 45;
 
@@ -475,14 +476,28 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                   </div>
                 </div>
 
-                <div class="exam-card-badges">
-                  <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
-                  <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
-                  <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
-                  <span class="badge badge-neutral">
-                    ${escapeHtml(ex.subject)} • ${totalQ} câu • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
-                  </span>
-                </div>
+                ${
+                  isLocked
+                    ? `
+                      <div class="exam-card-badges">
+                        <span class="badge badge-neutral">
+                          ${escapeHtml(ex.subject || 'Toán học')} • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
+                        </span>
+                        <span class="badge badge-neutral">Nội dung &amp; cấu trúc đề được ẩn cho đến giờ mở đề</span>
+                      </div>
+                    `
+                    : `
+                      <div class="exam-card-badges">
+                        <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
+                        <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
+                        <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
+                        ${ex.part4?.length ? `<span class="badge badge-neutral">Phần IV: ${ex.part4.length} câu (Tự luận)</span>` : ''}
+                        <span class="badge badge-neutral">
+                          ${escapeHtml(ex.subject)} • ${totalQ} câu • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
+                        </span>
+                      </div>
+                    `
+                }
 
                 <div class="exam-card-footer">
                   <div class="exam-meta-inline" style="flex-wrap:wrap;">
@@ -629,13 +644,21 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     });
   }
 
-  function startAssignment(asgId) {
-    const asg = state.data.assignments.find((a) => a.id === asgId);
+  async function startAssignment(asgId) {
+    let asg = state.data.assignments.find((a) => a.id === asgId);
     if (!asg || !asg.exam) return;
     const dl = getDeadlineStatus(asg.dueAt, asg.openAt);
     if (dl.notOpen) {
       showToast(`Chưa đến thời gian mở đề (${formatDateTimeVN(asg.openAt)}).`, 'error');
       return;
+    }
+    if (asg.exam.locked) {
+      await refresh();
+      asg = state.data.assignments.find((a) => a.id === asgId);
+      if (!asg || !asg.exam || asg.exam.locked) {
+        showToast(`Chưa đến thời gian mở đề (${formatDateTimeVN(asg?.openAt)}).`, 'error');
+        return;
+      }
     }
     if (dl.expired) {
       showToast('Bài này đã hết hạn nộp.', 'error');

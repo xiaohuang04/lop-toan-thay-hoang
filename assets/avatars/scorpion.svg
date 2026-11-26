@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="#FEF3C7"/>
+  <!-- Arched segmented tail behind the head -->
+  <path d="M100 154 C146 152 162 112 146 72 C136 48 114 38 96 44" fill="none" stroke="#B91C1C" stroke-width="18" stroke-linecap="round"/>
+  <path d="M100 154 C146 152 162 112 146 72 C136 48 114 38 96 44" fill="none" stroke="#EF4444" stroke-width="12" stroke-linecap="round"/>
+  <!-- Tail segment rings -->
+  <circle cx="148" cy="116" r="7.5" fill="#DC2626"/>
+  <circle cx="147" cy="88" r="7.5" fill="#DC2626"/>
+  <circle cx="136" cy="60" r="7" fill="#DC2626"/>
+  <circle cx="116" cy="45" r="6.5" fill="#DC2626"/>
+  <!-- Cute golden stinger bulb -->
+  <path d="M98 44 C86 38 78 46 82 55 C85 60 92 56 96 52 Z" fill="#F59E0B"/>
+  <!-- Little side legs -->
+  <path d="M62 132 L46 144 M64 142 L50 156 M138 132 L154 144 M136 142 L150 156" stroke="#B91C1C" stroke-width="5.5" stroke-linecap="round"/>
+  <!-- Cute symmetrical pincer arms -->
+  <path d="M68 124 C46 122 38 104 42 88" fill="none" stroke="#DC2626" stroke-width="10" stroke-linecap="round"/>
+  <path d="M132 124 C154 122 162 104 158 88" fill="none" stroke="#DC2626" stroke-width="10" stroke-linecap="round"/>
+  <!-- Left pincer claw -->
+  <path d="M42 94 C26 88 24 68 38 60 C38 70 43 74 47 74 C49 66 54 62 58 64 C62 76 56 92 42 94 Z" fill="#EF4444"/>
+  <!-- Right pincer claw -->
+  <path d="M158 94 C174 88 176 68 162 60 C162 70 157 74 153 74 C151 66 146 62 142 64 C138 76 144 92 158 94 Z" fill="#EF4444"/>
+  <!-- Chubby carapace body/head -->
+  <ellipse cx="100" cy="122" rx="46" ry="38" fill="#EF4444"/>
+  <ellipse cx="100" cy="134" rx="32" ry="20" fill="#FCA5A5" opacity="0.55"/>
+  <!-- Forehead shield highlight -->
+  <path d="M78 96 Q100 86 122 96" fill="none" stroke="#FCA5A5" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+  <!-- Rosy cheeks -->
+  <circle cx="68" cy="130" r="8" fill="#FF9AA2" opacity="0.65"/>
+  <circle cx="132" cy="130" r="8" fill="#FF9AA2" opacity="0.65"/>
+  <!-- Big glossy eyes -->
+  <circle cx="80" cy="116" r="8.5" fill="#2B2D42"/>
+  <circle cx="120" cy="116" r="8.5" fill="#2B2D42"/>
+  <circle cx="77" cy="112.5" r="2.8" fill="#FFFFFF"/>
+  <circle cx="117" cy="112.5" r="2.8" fill="#FFFFFF"/>
+  <!-- Friendly little smile -->
+  <path d="M90 132 Q100 140 110 132" fill="none" stroke="#2B2D42" stroke-width="3.6" stroke-linecap="round"/>
+</svg>

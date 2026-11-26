@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="#FFEDD5"/>
+  <!-- Round tiger cub ears -->
+  <circle cx="58" cy="68" r="20" fill="#F97316"/>
+  <circle cx="58" cy="68" r="11" fill="#FDE68A"/>
+  <circle cx="142" cy="68" r="20" fill="#F97316"/>
+  <circle cx="142" cy="68" r="11" fill="#FDE68A"/>
+  <!-- Chubby tiger head -->
+  <ellipse cx="100" cy="116" rx="58" ry="50" fill="#F97316"/>
+  <!-- Classic tiger stripes (forehead & cheeks) -->
+  <path d="M100 66 L100 84 M86 70 L90 83 M114 70 L110 83" stroke="#2B2D42" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M44 106 L58 110 M43 118 L57 120 M156 106 L142 110 M157 118 L143 120" stroke="#2B2D42" stroke-width="5" stroke-linecap="round"/>
+  <!-- Soft cream muzzle -->
+  <ellipse cx="100" cy="134" rx="31" ry="22" fill="#FFF7ED"/>
+  <!-- Rosy cheeks -->
+  <circle cx="64" cy="127" r="8.5" fill="#FF9AA2" opacity="0.55"/>
+  <circle cx="136" cy="127" r="8.5" fill="#FF9AA2" opacity="0.55"/>
+  <!-- Big glossy eyes -->
+  <circle cx="76" cy="108" r="8" fill="#2B2D42"/>
+  <circle cx="124" cy="108" r="8" fill="#2B2D42"/>
+  <circle cx="73.5" cy="105" r="2.7" fill="#FFFFFF"/>
+  <circle cx="121.5" cy="105" r="2.7" fill="#FFFFFF"/>
+  <!-- Cute pink triangle nose & cat smile -->
+  <path d="M93 123 Q100 120 107 123 L100 131 Z" fill="#FB7185"/>
+  <path d="M89 135 Q94.5 142 100 135 Q105.5 142 111 135" fill="none" stroke="#2B2D42" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

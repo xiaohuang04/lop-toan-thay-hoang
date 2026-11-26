@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="#DBEAFE"/>
+  <!-- Pointed wolf ears -->
+  <path d="M50 100 L44 40 C44 35 50 33 55 37 L88 68 Z" fill="#475569"/>
+  <path d="M56 86 L53 52 L77 72 Z" fill="#CBD5E1"/>
+  <path d="M150 100 L156 40 C156 35 150 33 145 37 L112 68 Z" fill="#475569"/>
+  <path d="M144 86 L147 52 L123 72 Z" fill="#CBD5E1"/>
+  <!-- Main head with fluffy cheek tufts -->
+  <path d="M40 116 C40 78 68 64 100 64 C132 64 160 78 160 116 L166 124 L152 132 C144 152 124 164 100 164 C76 164 56 152 48 132 L34 124 Z" fill="#64748B"/>
+  <!-- Forehead tuft -->
+  <path d="M90 66 L100 54 L110 66 Z" fill="#475569"/>
+  <!-- White wolf face mask -->
+  <path d="M48 122 Q74 108 100 128 Q126 108 152 122 C146 148 126 164 100 164 C74 164 54 148 48 122 Z" fill="#F8FAFC"/>
+  <!-- Cool subtle eyebrows -->
+  <path d="M66 96 Q76 91 84 96" fill="none" stroke="#CBD5E1" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M116 96 Q124 91 134 96" fill="none" stroke="#CBD5E1" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- Rosy cheeks -->
+  <circle cx="64" cy="131" r="7.5" fill="#FF9AA2" opacity="0.45"/>
+  <circle cx="136" cy="131" r="7.5" fill="#FF9AA2" opacity="0.45"/>
+  <!-- Glossy dark eyes -->
+  <circle cx="76" cy="109" r="8" fill="#2B2D42"/>
+  <circle cx="124" cy="109" r="8" fill="#2B2D42"/>
+  <circle cx="73.5" cy="106" r="2.6" fill="#FFFFFF"/>
+  <circle cx="121.5" cy="106" r="2.6" fill="#FFFFFF"/>
+  <!-- Wolf nose & smile -->
+  <path d="M92 127 Q100 123 108 127 L100 136 Z" fill="#1E293B"/>
+  <path d="M90 140 Q95 146 100 140 Q105 146 110 140" fill="none" stroke="#2B2D42" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

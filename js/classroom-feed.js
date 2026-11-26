@@ -405,15 +405,33 @@ export function renderFeedPostCard(
     ? `<span class="badge badge-neutral">Tất cả lớp</span>`
     : (post.targetClasses || []).map((c) => `<span class="badge badge-p1">Lớp ${escapeHtml(c)}</span>`).join('');
 
+  const authorName = post.authorName || 'Lê Viết Hoàng';
+  const rawAuthorAv = String(post.authorAvatarUrl || '').trim();
+  const authorAvSrc =
+    rawAuthorAv && rawAuthorAv.startsWith('/assets/avatars/') && !rawAuthorAv.includes('?')
+      ? `${rawAuthorAv}?v=20261126r`
+      : rawAuthorAv;
+  const authorWords = authorName.trim().split(/\s+/).filter(Boolean);
+  const authorInitials =
+    authorWords.length >= 2
+      ? `${authorWords[0][0]}${authorWords[authorWords.length - 1][0]}`.toUpperCase()
+      : (authorWords[0] || 'TH').slice(0, 2).toUpperCase();
+
   return `
     <article class="card feed-post-card ${post.pinned ? 'is-pinned' : ''}" data-post-id="${escapeAttr(post.id)}">
       <!-- Post Header -->
       <div class="feed-post-head">
         <div class="feed-author-wrap">
-          <div class="feed-avatar" aria-hidden="true">TH</div>
+          <div class="feed-avatar ${authorAvSrc ? 'is-img' : ''}" ${authorAvSrc ? '' : 'aria-hidden="true"'}>
+            ${
+              authorAvSrc
+                ? `<img src="${escapeAttr(authorAvSrc)}" alt="${escapeAttr(authorName)}" loading="lazy" />`
+                : escapeHtml(authorInitials)
+            }
+          </div>
           <div>
             <div class="feed-author-row">
-              <strong class="feed-author-name">${escapeHtml(post.authorName || 'Lê Viết Hoàng')}</strong>
+              <strong class="feed-author-name">${escapeHtml(authorName)}</strong>
               ${post.pinned ? `<span class="badge badge-warning">Đã ghim</span>` : ''}
               ${targetBadge}
             </div>

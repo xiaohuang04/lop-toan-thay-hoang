@@ -24,7 +24,7 @@ import {
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261126l';
+} from './classroom-feed.js?v=20261126r';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,

@@ -3373,7 +3373,21 @@ body.test-lock-active .exam-sidebar {
   justify-content: center;
   flex-shrink: 0;
   letter-spacing: 0.02em;
+  overflow: hidden;
   box-shadow: 0 4px 10px rgba(37, 99, 235, 0.24);
+}
+
+.feed-avatar.is-img {
+  background: #f1f5f9;
+  border: 1.5px solid rgba(37, 99, 235, 0.16);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.1);
+}
+
+.feed-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .feed-author-row {
