@@ -1872,6 +1872,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                         "part1": item.get("part1", []),
                         "part2": item.get("part2", []),
                         "part3": item.get("part3", []),
+                        "part4": item.get("part4", []),
                         "updatedAt": now_iso(),
                     }
                     # Ensure unique id
@@ -2155,6 +2156,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "part1": body.get("part1", existing.get("part1", [])),
                     "part2": body.get("part2", existing.get("part2", [])),
                     "part3": body.get("part3", existing.get("part3", [])),
+                    "part4": body.get("part4", existing.get("part4", [])),
                     "updatedAt": now_iso(),
                 }
                 db["exams"][idx] = updated

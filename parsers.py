@@ -730,25 +730,41 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         # Unwrap top-level \immini[thm]{arg1}{arg2} BEFORE splitting \choice / \choiceTF / \shortans
         # so cases where \choice or \shortans sits inside arg1 still keep the figure (arg2) in the stem!
         def _unwrap_immini_block(a1: str, a2: str) -> str:
-            m_inner = re.search(r"\\(choiceTFt?|choice(?:fix)?|shortans)\b", a1, flags=re.IGNORECASE)
+            m_inner = re.search(
+                r"\\(choiceTF(?:t|fix|w|h)?|choice(?:fix|t|w|h)?|shortansw?)\b",
+                a1,
+                flags=re.IGNORECASE,
+            )
             if m_inner:
                 return a1[:m_inner.start()].rstrip() + "\n" + a2.strip() + "\n" + a1[m_inner.start():]
             return a1.strip() + "\n" + a2.strip()
 
         block = replace_command_2args(block, "immini", _unwrap_immini_block)
         block = replace_command_2args(block, "setlength", lambda a1, a2: "")
-        for _wcmd in ("choicew", "choiceh", "choiceTFw", "choiceTFh", "shortansw"):
-            block = replace_command_1arg(block, _wcmd, lambda a: "")
+
+        # Handle \choicew{width} / \choiceTFw{width} safely:
+        # - If followed by \choice / \choiceTF later in the same block -> strip it as a width modifier.
+        # - If NOT followed by \choice / \choiceTF (used directly as \choicew{0.4\textwidth}{A}{B}{C}{D})
+        #   -> replace it with \choice / \choiceTF so options are preserved!
+        has_explicit_tf = bool(re.search(r"\\choiceTF(?:t|fix)?\b", block, flags=re.IGNORECASE))
+        has_explicit_mc = bool(re.search(r"\\choice(?:fix|t)?\b", block))
+        for _wcmd in ("choiceTFw", "choiceTFh"):
+            block = replace_command_1arg(block, _wcmd, (lambda a: "") if has_explicit_tf else (lambda a: "\\choiceTF "))
+        for _wcmd in ("choicew", "choiceh"):
+            block = replace_command_1arg(block, _wcmd, (lambda a: "") if has_explicit_mc else (lambda a: "\\choice "))
+        block = replace_command_1arg(block, "shortansw", lambda a: "")
 
         # Detect question type inside remaining block:
-        # Priority: \choiceTF / \choiceTFt -> Part II; \shortans -> Part III; \choice -> Part I
-        m_tf = re.search(r"\\choiceTFt?\b", block, flags=re.IGNORECASE)
+        # Priority: \choiceTF / \choiceTFt / \choiceTFfix -> Part II; \shortans -> Part III; \choice / \choicefix / \choicet -> Part I
+        m_tf = re.search(r"\\choiceTF(?:t|fix)?\b", block, flags=re.IGNORECASE)
         m_sa = re.search(r"\\shortans\b", block, flags=re.IGNORECASE)
-        m_mc = re.search(r"\\choice(?:fix)?\b", block)
+        m_mc = re.search(r"\\choice(?:fix|t)?\b", block)
 
         if m_tf:
             stem_raw = block[:m_tf.start()].strip()
             p = skip_ws(block, m_tf.end())
+            while p < len(block) and block[p] in "*!":
+                p = skip_ws(block, p + 1)
             while p < len(block) and block[p] == "[":
                 _, p = read_balanced(block, p, "[", "]")
                 p = skip_ws(block, p)
@@ -783,6 +799,8 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         elif m_sa:
             stem_raw = block[:m_sa.start()].strip()
             p = skip_ws(block, m_sa.end())
+            while p < len(block) and block[p] in "*!":
+                p = skip_ws(block, p + 1)
             while p < len(block) and block[p] == "[":
                 _, p = read_balanced(block, p, "[", "]")
                 p = skip_ws(block, p)
@@ -807,6 +825,8 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         elif m_mc:
             stem_raw = block[:m_mc.start()].strip()
             p = skip_ws(block, m_mc.end())
+            while p < len(block) and block[p] in "*!":
+                p = skip_ws(block, p + 1)
             while p < len(block) and block[p] == "[":
                 _, p = read_balanced(block, p, "[", "]")
                 p = skip_ws(block, p)

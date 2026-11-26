@@ -320,7 +320,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
               </div>`
             : exams
                 .map((ex) => {
-                  const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
+                  const p4n = ex.part4?.length || 0;
+                  const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0) + p4n;
                   return `
                     <article class="exam-card" style="cursor:default;">
                       <div class="exam-card-top">
@@ -335,6 +336,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                         <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
                         <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
                         <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
+                        ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV: ${p4n} câu (Tự luận)</span>` : ''}
                         <span class="badge badge-neutral">${escapeHtml(ex.subject || 'Chưa phân môn')} • ${ex.durationMinutes} phút • ${totalQ} câu</span>
                       </div>
 
@@ -392,6 +394,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       ],
       part2: [],
       part3: [],
+      part4: [],
     };
     state.editorPartTab = 'part1';
     render();
@@ -405,18 +408,29 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     state.editingExam.part1 = state.editingExam.part1 || [];
     state.editingExam.part2 = state.editingExam.part2 || [];
     state.editingExam.part3 = state.editingExam.part3 || [];
+    state.editingExam.part4 = state.editingExam.part4 || [];
     state.editingExam.scoring = state.editingExam.scoring || {
       part1PerQuestion: 0.25,
       part2Progressive: [0, 0.1, 0.25, 0.5, 1.0],
       part3PerQuestion: 0.5,
     };
-    state.editorPartTab = 'part1';
+    state.editorPartTab =
+      state.editingExam.part1.length > 0
+        ? 'part1'
+        : state.editingExam.part2.length > 0
+          ? 'part2'
+          : state.editingExam.part3.length > 0
+            ? 'part3'
+            : state.editingExam.part4.length > 0
+              ? 'part4'
+              : 'part1';
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function renderExamEditor() {
     const ex = state.editingExam;
+    ex.part4 = ex.part4 || [];
     const isNew = !ex.id;
     const pTab = state.editorPartTab;
 
@@ -425,7 +439,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="exam-topbar-info">
           <h2>${isNew ? 'Tạo đề thi mới (Chuẩn BGD 2025)' : `Tinh chỉnh đề thi: ${escapeHtml(ex.title)}`}</h2>
           <div class="exam-topbar-meta">
-            <span>Phần I: <strong>${ex.part1.length}</strong> câu • Phần II: <strong>${ex.part2.length}</strong> câu • Phần III: <strong>${ex.part3.length}</strong> câu</span>
+            <span>Phần I: <strong>${ex.part1.length}</strong> câu • Phần II: <strong>${ex.part2.length}</strong> câu • Phần III: <strong>${ex.part3.length}</strong> câu${ex.part4.length ? ` • Phần IV: <strong>${ex.part4.length}</strong> câu` : ''}</span>
           </div>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -480,14 +494,18 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           <button class="subtab-btn ${pTab === 'part3' ? 'active' : ''}" data-ed-part="part3">
             Phần III — Trả lời ngắn (${ex.part3.length})
           </button>
+          <button class="subtab-btn ${pTab === 'part4' ? 'active' : ''}" data-ed-part="part4">
+            Phần IV — Tự luận (${ex.part4.length})
+          </button>
         </div>
-        <button class="btn btn-primary btn-sm" id="btnAddQuestion">+ Thêm câu hỏi vào ${pTab === 'part1' ? 'Phần I' : pTab === 'part2' ? 'Phần II' : 'Phần III'}</button>
+        <button class="btn btn-primary btn-sm" id="btnAddQuestion">+ Thêm câu hỏi vào ${pTab === 'part1' ? 'Phần I' : pTab === 'part2' ? 'Phần II' : pTab === 'part3' ? 'Phần III' : 'Phần IV'}</button>
       </div>
 
       <div id="editorQuestionsList">
         ${pTab === 'part1' ? renderEditorPart1(ex.part1) : ''}
         ${pTab === 'part2' ? renderEditorPart2(ex.part2) : ''}
         ${pTab === 'part3' ? renderEditorPart3(ex.part3) : ''}
+        ${pTab === 'part4' ? renderEditorPart4(ex.part4) : ''}
       </div>
     `;
 
@@ -612,6 +630,32 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       .join('');
   }
 
+  function renderEditorPart4(list) {
+    if (!list.length) {
+      return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi tự luận nào ở Phần IV. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
+    }
+    return list
+      .map(
+        (q, idx) => `
+      <div class="card editor-q-card" data-q-idx="${idx}">
+        <div class="editor-q-head">
+          <span class="badge badge-neutral">Phần IV (Tự luận) • Câu ${idx + 1}</span>
+          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+        </div>
+        <div class="form-group">
+          <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
+          <textarea class="input-control" rows="3" data-field="stem">${escapeHtml(q.stem)}</textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Lời giải / Hướng dẫn chấm (tùy chọn)</label>
+          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+        </div>
+      </div>
+    `
+      )
+      .join('');
+  }
+
   function syncEditorMetadataFromDom() {
     const ex = state.editingExam;
     if (!ex) return;
@@ -714,12 +758,20 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           ],
           explanation: '',
         });
-      } else {
+      } else if (p === 'part3') {
         state.editingExam.part3.push({
           id: uid,
           topic: '',
           stem: '',
           answer: '0',
+          explanation: '',
+        });
+      } else {
+        state.editingExam.part4 = state.editingExam.part4 || [];
+        state.editingExam.part4.push({
+          id: uid,
+          topic: '',
+          stem: '',
           explanation: '',
         });
       }
@@ -744,7 +796,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         showToast('Vui lòng nhập tên đề thi.', 'error');
         return;
       }
-      if (ex.part1.length + ex.part2.length + ex.part3.length === 0) {
+      if (ex.part1.length + ex.part2.length + ex.part3.length + (ex.part4?.length || 0) === 0) {
         showToast('Đề thi cần có ít nhất 1 câu hỏi.', 'error');
         return;
       }
@@ -2372,7 +2424,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           const p1n = ex.part1?.length || 0;
           const p2n = ex.part2?.length || 0;
           const p3n = ex.part3?.length || 0;
-          const sampleQ = ex.part1?.[0] || ex.part2?.[0] || ex.part3?.[0];
+          const p4n = ex.part4?.length || 0;
+          const sampleQ = ex.part1?.[0] || ex.part2?.[0] || ex.part3?.[0] || ex.part4?.[0];
 
           previewEl.innerHTML = `
             <div class="import-preview-card">
@@ -2385,6 +2438,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   <span class="badge badge-p1">Phần I: ${p1n} câu</span>
                   <span class="badge badge-p2">Phần II: ${p2n} câu</span>
                   <span class="badge badge-p3">Phần III: ${p3n} câu</span>
+                  ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV (Tự luận): ${p4n} câu</span>` : ''}
                   ${
                     res.latexSource
                       ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCopyParsedLatex">Sao chép mã LaTeX</button>`
@@ -2501,6 +2555,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             (q.statements || []).forEach((st) => (st.text = replaceTokens(st.text)));
           });
           (ex.part3 || []).forEach((q) => {
+            q.stem = replaceTokens(q.stem);
+            q.explanation = replaceTokens(q.explanation);
+          });
+          (ex.part4 || []).forEach((q) => {
             q.stem = replaceTokens(q.stem);
             q.explanation = replaceTokens(q.explanation);
           });
@@ -2645,9 +2703,17 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           if (!parsedResult?.exam) return;
           const titleEl = m.querySelector('#impExamTitleEdit');
           if (titleEl && titleEl.value.trim()) parsedResult.exam.title = titleEl.value.trim();
-          state.editingExam = { ...parsedResult.exam, id: null };
+          state.editingExam = { ...parsedResult.exam, part4: parsedResult.exam.part4 || [], id: null };
           state.editorPartTab =
-            state.editingExam.part1.length > 0 ? 'part1' : state.editingExam.part2.length > 0 ? 'part2' : 'part3';
+            state.editingExam.part1.length > 0
+              ? 'part1'
+              : state.editingExam.part2.length > 0
+                ? 'part2'
+                : state.editingExam.part3.length > 0
+                  ? 'part3'
+                  : state.editingExam.part4.length > 0
+                    ? 'part4'
+                    : 'part1';
           closeModal();
           render();
           window.scrollTo({ top: 0, behavior: 'smooth' });
