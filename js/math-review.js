@@ -1,54 +1,141 @@
-import { REVIEW_CURRICULUM } from './review-data.js?v=20261127c';
+import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261127j';
 import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
+import {
+  renderBoxIconSvg,
+  deriveBoxColorsFromHex,
+  resolveBoxPreset,
+  ensureCoreCardItems,
+  friendlyInlineToHtml,
+  parseItemForFriendlyEdit,
+  buildItemHtmlFromFriendly,
+  renderEditorCommandBarHtml,
+  renderBoxPresetManagerHtml,
+  renderLessonMetaEditorHtml,
+  renderTouch1EditorHtml,
+  renderTouch3EditorHtml,
+  applyTextareaSnippet,
+} from './math-review-editor.js?v=20261127k';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
 const LS_PROGRESS_KEY = 'math_review_progress';
 const LS_LAST_LESSON_KEY = 'math_review_last_lesson';
 
-const CARD_TYPE_META = {
-  theory: {
-    badge: 'Lý thuyết',
-    cls: 'is-theory',
-    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
-  },
-  formula: {
-    badge: 'Công thức',
-    cls: 'is-formula',
-    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4H6l6 8-6 8h12"/></svg>`,
-  },
-  warning: {
-    badge: 'Lưu ý',
-    cls: 'is-warning',
-    iconSvg: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.7.6 1 1.4 1 2.3h6c0-.9.3-1.7 1-2.3A7 7 0 0 0 12 2z"/></svg>`,
-  },
-};
+function genReviewId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
-const TRAP_CATEGORY_META = {
-  index: {
-    cls: 'cat-index',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
-  },
-  sign: {
-    cls: 'cat-sign',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="4" x2="12" y2="14"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="19" x2="17" y2="19"/></svg>`,
-  },
-  alternating: {
-    cls: 'cat-alternating',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
-  },
-  coeff: {
-    cls: 'cat-coeff',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
-  },
-  time: {
-    cls: 'cat-time',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
-  },
-  domain: {
-    cls: 'cat-domain',
-    iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
-  },
-};
+function deepCloneJson(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function cloneCurriculumWithGenerators(grades, builtinGeneratorsMap, builtinCoreCardsMap = null, builtinFlipCardsMap = null) {
+  return (grades || []).map((g) => ({
+    grade: Number(g.grade),
+    label: String(g.label || `Toán ${g.grade}`),
+    chapters: (g.chapters || []).map((c) => ({
+      id: String(c.id || genReviewId('chap')),
+      grade: Number(c.grade || g.grade),
+      code: String(c.code || 'Chương'),
+      title: String(c.title || 'Chương mới'),
+      comingSoon: Boolean(c.comingSoon && !(c.lessons?.length)),
+      lessons: (c.lessons || []).map((ls) => {
+        const cloned = deepCloneJson({
+          id: ls.id || genReviewId('ls'),
+          code: ls.code || 'Bài mới',
+          title: ls.title || 'Chưa đặt tên',
+          summary: ls.summary || '',
+          coreCards: Array.isArray(ls.coreCards) ? ls.coreCards : [],
+          flipCards: Array.isArray(ls.flipCards) ? ls.flipCards : [],
+          examples: Array.isArray(ls.examples) ? ls.examples : [],
+          quizzes: {
+            multipleChoice: Array.isArray(ls.quizzes?.multipleChoice) ? ls.quizzes.multipleChoice : [],
+            trueFalse: Array.isArray(ls.quizzes?.trueFalse) ? ls.quizzes.trueFalse : [],
+            shortAnswer: Array.isArray(ls.quizzes?.shortAnswer) ? ls.quizzes.shortAnswer : [],
+          },
+        });
+        // Non-destructively upgrade legacy `content`-only coreCards saved before `items[]` existed,
+        // preserving teacher text edits while attaching built-in per-line examples where missing.
+        if (builtinCoreCardsMap) {
+          cloned.coreCards.forEach((card) => {
+            if (!Array.isArray(card.items)) {
+              const migrated = ensureCoreCardItems(card);
+              const builtin = builtinCoreCardsMap.get(card.id);
+              if (builtin && Array.isArray(builtin.items)) {
+                migrated.forEach((it, idx) => {
+                  const bIt = builtin.items[idx];
+                  if (bIt && bIt.hasExample && bIt.example && !it.hasExample && !it.example) {
+                    it.hasExample = true;
+                    it.example = deepCloneJson(bIt.example);
+                  }
+                });
+              }
+            }
+          });
+        }
+        // Upgrade legacy plain-text built-in trapLabels to LaTeX `$...$` format when unchanged
+        if (builtinFlipCardsMap) {
+          cloned.flipCards.forEach((fc) => {
+            const bFc = builtinFlipCardsMap.get(fc.id);
+            if (bFc && bFc.trapLabel && bFc.trapLabel.includes('$') && fc.trapLabel && !fc.trapLabel.includes('$')) {
+              fc.trapLabel = bFc.trapLabel;
+            }
+          });
+        }
+        const gens = builtinGeneratorsMap.get(cloned.id);
+        if (gens?.length) cloned.generators = gens;
+        return cloned;
+      }),
+    })),
+  }));
+}
+
+function serializeCurriculumForServer(grades) {
+  return (grades || []).map((g) => ({
+    grade: Number(g.grade),
+    label: String(g.label || `Toán ${g.grade}`),
+    chapters: (g.chapters || []).map((c) => ({
+      id: c.id,
+      grade: Number(c.grade || g.grade),
+      code: c.code,
+      title: c.title,
+      comingSoon: !(c.lessons && c.lessons.length > 0),
+      lessons: (c.lessons || []).map((ls) => ({
+        id: ls.id,
+        code: ls.code,
+        title: ls.title,
+        summary: ls.summary || '',
+        coreCards: ls.coreCards || [],
+        flipCards: ls.flipCards || [],
+        examples: ls.examples || [],
+        quizzes: {
+          multipleChoice: ls.quizzes?.multipleChoice || [],
+          trueFalse: ls.quizzes?.trueFalse || [],
+          shortAnswer: ls.quizzes?.shortAnswer || [],
+        },
+      })),
+    })),
+  }));
+}
+
+function mergeBoxPresets(savedPresets) {
+  const defaults = deepCloneJson(DEFAULT_BOX_PRESETS);
+  if (!Array.isArray(savedPresets) || !savedPresets.length) return defaults;
+  const byId = new Map(savedPresets.map((p) => [p.id, p]));
+  const merged = defaults.map((d) => {
+    const ov = byId.get(d.id);
+    return ov ? { ...d, ...ov, builtin: true } : d;
+  });
+  savedPresets.forEach((p) => {
+    if (p && p.id && !merged.some((m) => m.id === p.id)) {
+      merged.push({
+        ...deriveBoxColorsFromHex(p.accent || '#2563eb'),
+        ...p,
+        builtin: false,
+      });
+    }
+  });
+  return merged;
+}
 
 function renderStarSvg(filled) {
   return filled
@@ -178,17 +265,17 @@ function renderTrapVerdictHtml(attempt) {
   if (!attempt) return '';
   if (attempt.isCorrect) {
     return `
-      <div class="rv-trap-verdict is-won">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <span><strong>Chúc mừng!</strong> Tỉnh táo vượt bẫy · Đáp án: <b>${escapeHtml(attempt.raw)}</b></span>
-      </div>
+      <span class="rv-trap-mark is-won" title="Chúc mừng! Bạn không mắc bẫy">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Đúng · <b>${escapeHtml(attempt.raw)}</b></span>
+      </span>
     `;
   }
   return `
-    <div class="rv-trap-verdict is-trapped">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      <span><strong>Mắc bẫy rồi!</strong> Bạn vừa nhập: <b>${escapeHtml(attempt.raw)}</b></span>
-    </div>
+    <span class="rv-trap-mark is-trapped" title="Bạn đã mắc bẫy với đáp án này">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span>Mắc bẫy · <b>${escapeHtml(attempt.raw)}</b></span>
+    </span>
   `;
 }
 
@@ -211,80 +298,107 @@ function saveJsonStorage(key, val) {
   }
 }
 
-export function createMathReviewController({ rootEl, uiHelpers, onRouteChange }) {
+export function createMathReviewController({ rootEl, uiHelpers, api, getUser, onRouteChange }) {
   const { showToast, renderMath } = uiHelpers;
+  const isAdmin = () => getUser?.()?.role === 'admin';
 
-  // Flatten all available lessons with chapter/grade metadata for fast lookup & search
-  const lessonsIndex = [];
-  const lessonsById = new Map();
-  const flipCardsById = new Map();
-  const cardsIndex = []; // for Instant Search & Bookmarks
-
-  REVIEW_CURRICULUM.forEach((gradeObj) => {
-    (gradeObj.chapters || []).forEach((chap) => {
-      (chap.lessons || []).forEach((lesson) => {
-        const enriched = {
-          ...lesson,
-          grade: gradeObj.grade,
-          gradeLabel: gradeObj.label,
-          chapterId: chap.id,
-          chapterCode: chap.code,
-          chapterTitle: chap.title,
-        };
-        lessonsIndex.push(enriched);
-        lessonsById.set(lesson.id, enriched);
-
-        (lesson.coreCards || []).forEach((c) => {
-          const plain = stripHtmlAndTags(`${c.title} ${c.content}`);
-          cardsIndex.push({
-            kind: 'core',
-            cardType: c.type,
-            id: c.id,
-            title: c.title,
-            lessonId: lesson.id,
-            lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
-            touchTab: 'touch1',
-            card: c,
-            searchHay: `${plain} ${stripAccents(plain)}`,
-            snippet: plain.slice(0, 130),
-          });
+  // Preserve built-in dynamic generators (JS functions) & built-in per-line examples for legacy migration
+  const builtinGeneratorsMap = new Map();
+  const builtinCoreCardsMap = new Map();
+  const builtinFlipCardsMap = new Map();
+  REVIEW_CURRICULUM.forEach((g) => {
+    (g.chapters || []).forEach((c) => {
+      (c.lessons || []).forEach((ls) => {
+        if (ls.generators?.length) builtinGeneratorsMap.set(ls.id, ls.generators);
+        (ls.coreCards || []).forEach((card) => {
+          if (card?.id) builtinCoreCardsMap.set(card.id, card);
         });
-
-        (lesson.flipCards || []).forEach((fc) => {
-          flipCardsById.set(fc.id, fc);
-          const plain = stripHtmlAndTags(`${fc.trapLabel} ${fc.problem} ${fc.trapExplanation} ${fc.correctExplanation}`);
-          cardsIndex.push({
-            kind: 'flip',
-            cardType: 'flip',
-            id: fc.id,
-            title: fc.trapLabel || 'Bẫy hay sai',
-            lessonId: lesson.id,
-            lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
-            touchTab: 'touch1',
-            card: fc,
-            searchHay: `${plain} ${stripAccents(plain)}`,
-            snippet: stripHtmlAndTags(fc.problem).slice(0, 130),
-          });
-        });
-
-        (lesson.examples || []).forEach((ex) => {
-          const plain = stripHtmlAndTags(`${ex.title} ${ex.problem} ${ex.hint}`);
-          cardsIndex.push({
-            kind: 'example',
-            cardType: 'example',
-            id: ex.id,
-            title: ex.title,
-            lessonId: lesson.id,
-            lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
-            touchTab: 'touch2',
-            card: ex,
-            searchHay: `${plain} ${stripAccents(plain)}`,
-            snippet: stripHtmlAndTags(ex.problem).slice(0, 130),
-          });
+        (ls.flipCards || []).forEach((fc) => {
+          if (fc?.id) builtinFlipCardsMap.set(fc.id, fc);
         });
       });
     });
   });
+
+  let curriculum = cloneCurriculumWithGenerators(
+    REVIEW_CURRICULUM,
+    builtinGeneratorsMap,
+    builtinCoreCardsMap,
+    builtinFlipCardsMap
+  );
+  let boxPresets = deepCloneJson(DEFAULT_BOX_PRESETS);
+
+  // Flattened lookup indexes (rebuilt whenever curriculum changes)
+  let lessonsIndex = [];
+  let lessonsById = new Map();
+  let flipCardsById = new Map();
+  let cardsIndex = [];
+
+  function rebuildIndexes() {
+    lessonsIndex = [];
+    lessonsById = new Map();
+    flipCardsById = new Map();
+    cardsIndex = [];
+
+    curriculum.forEach((gradeObj) => {
+      (gradeObj.chapters || []).forEach((chap) => {
+        (chap.lessons || []).forEach((lesson) => {
+          const enriched = {
+            ...lesson,
+            _raw: lesson,
+            _chapter: chap,
+            _gradeObj: gradeObj,
+            grade: gradeObj.grade,
+            gradeLabel: gradeObj.label,
+            chapterId: chap.id,
+            chapterCode: chap.code,
+            chapterTitle: chap.title,
+          };
+          lessonsIndex.push(enriched);
+          lessonsById.set(lesson.id, enriched);
+
+          (lesson.coreCards || []).forEach((c) => {
+            const items = ensureCoreCardItems(c);
+            const itemsText = items
+              .map((it) => `${it.html || ''} ${it.hasExample && it.example ? `${it.example.title || ''} ${it.example.problem || ''} ${it.example.solution || ''}` : ''}`)
+              .join(' ');
+            const plain = stripHtmlAndTags(`${c.title} ${itemsText}`);
+            cardsIndex.push({
+              kind: 'core',
+              cardType: c.type,
+              id: c.id,
+              title: c.title,
+              lessonId: lesson.id,
+              lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
+              touchTab: 'touch1',
+              card: c,
+              searchHay: `${plain} ${stripAccents(plain)}`,
+              snippet: plain.slice(0, 130),
+            });
+          });
+
+          (lesson.flipCards || []).forEach((fc) => {
+            flipCardsById.set(fc.id, fc);
+            const plain = stripHtmlAndTags(`${fc.trapLabel} ${fc.problem} ${fc.trapExplanation} ${fc.correctExplanation}`);
+            cardsIndex.push({
+              kind: 'flip',
+              cardType: 'flip',
+              id: fc.id,
+              title: fc.trapLabel || 'Bẫy hay sai',
+              lessonId: lesson.id,
+              lessonLabel: `${gradeObj.label} • ${lesson.code}: ${lesson.title}`,
+              touchTab: 'touch1',
+              card: fc,
+              searchHay: `${plain} ${stripAccents(plain)}`,
+              snippet: stripHtmlAndTags(fc.problem).slice(0, 130),
+            });
+          });
+        });
+      });
+    });
+  }
+
+  rebuildIndexes();
 
   const defaultLessonId = lessonsIndex[0]?.id || '';
   const savedBookmarks = loadJsonStorage(LS_BOOKMARKS_KEY, []);
@@ -300,9 +414,17 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
   const state = {
     mounted: false,
+    serverLoaded: false,
     viewMode: 'lesson', // 'lesson' | 'bookmarks'
+    editMode: false,
+    isDirty: false,
+    isSaving: false,
+    showPresetManager: false,
+    draftPreset: { name: '', accent: '#2563eb', icon: 'star', style: 'tinted' },
+    collapsedEditNodes: new Set(),
+    openExampleClouds: new Set(),
     activeLessonId: savedLastLesson,
-    touchTab: 'touch1', // 'touch1' | 'touch2' | 'touch3'
+    touchTab: 'touch1', // 'touch1' | 'touch3'
     activeRecall: false,
     drawerOpen: false,
     searchQuery: '',
@@ -320,6 +442,63 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     // Per-lesson dynamic generator state: { [lessonId]: { item, userInput, checked, isCorrect, showSol, streak } }
     genState: {},
   };
+
+  function markDirty() {
+    state.isDirty = true;
+    const badge = rootEl?.querySelector('.rv-ed-dirty-badge');
+    if (badge) {
+      badge.classList.add('is-dirty');
+      badge.classList.remove('is-saved');
+      badge.textContent = '● Có thay đổi chưa lưu';
+    }
+  }
+
+  async function loadCurriculumFromServer() {
+    if (state.serverLoaded || !api?.getReviewCurriculum) return;
+    state.serverLoaded = true;
+    try {
+      const res = await api.getReviewCurriculum();
+      const rc = res?.reviewCurriculum;
+      if (rc && Array.isArray(rc.grades) && rc.grades.length > 0) {
+        curriculum = cloneCurriculumWithGenerators(
+          rc.grades,
+          builtinGeneratorsMap,
+          builtinCoreCardsMap,
+          builtinFlipCardsMap
+        );
+        boxPresets = mergeBoxPresets(rc.boxPresets);
+        rebuildIndexes();
+        if (!lessonsById.has(state.activeLessonId) && lessonsIndex[0]) {
+          state.activeLessonId = lessonsIndex[0].id;
+        }
+        if (state.mounted) render();
+      }
+    } catch {
+      // keep built-in default curriculum silently
+    }
+  }
+
+  async function saveCurriculumToServer() {
+    if (!isAdmin() || !api?.saveReviewCurriculum || state.isSaving) return;
+    state.isSaving = true;
+    render();
+    try {
+      const payload = {
+        version: 1,
+        boxPresets,
+        grades: serializeCurriculumForServer(curriculum),
+      };
+      await api.saveReviewCurriculum(payload);
+      state.isDirty = false;
+      rebuildIndexes();
+      showToast?.('Đã lưu toàn bộ nội dung Ôn tập lên máy chủ!', 'success');
+    } catch (err) {
+      showToast?.(err?.message || 'Không thể lưu dữ liệu Ôn tập.', 'error');
+    } finally {
+      state.isSaving = false;
+      render();
+    }
+  }
 
   let resizeObserverCleanup = null;
 
@@ -374,6 +553,51 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     persistBookmarks();
   }
 
+  /**
+   * Keep every inline KaTeX formula atomically grouped with any immediate trailing punctuation
+   * (., ; : ? ! )) so formulas NEVER split mid-expression (`u_{n+1} -` / `u_n`) or orphan punctuation!
+   */
+  function groupInlineMathAtoms(scopeEl) {
+    const el = scopeEl || rootEl;
+    if (!el) return;
+    el.querySelectorAll('.katex').forEach((kEl) => {
+      if (kEl.closest('.katex-display') || kEl.closest('.rv-math-atom')) return;
+      const parent = kEl.parentNode;
+      if (!parent) return;
+
+      const atom = document.createElement('span');
+      atom.className = 'rv-math-atom';
+      parent.insertBefore(atom, kEl);
+      atom.appendChild(kEl);
+
+      // Pull immediate leading opening bracket (`(`, `[`) into the same unbroken atom
+      const prev = atom.previousSibling;
+      if (prev && prev.nodeType === Node.TEXT_NODE && prev.nodeValue) {
+        const pm = prev.nodeValue.match(/([(\[]+)$/);
+        if (pm) {
+          prev.nodeValue = prev.nodeValue.slice(0, prev.nodeValue.length - pm[1].length);
+          atom.insertBefore(document.createTextNode(pm[1]), atom.firstChild);
+        }
+      }
+
+      // Pull immediate trailing punctuation (e.g. `.`, `,`, `;`, `)`, `:`, `?`) into the same unbroken atom
+      const next = atom.nextSibling;
+      if (next && next.nodeType === Node.TEXT_NODE && next.nodeValue) {
+        const m = next.nodeValue.match(/^([.,;:?!)\]]+)/);
+        if (m) {
+          atom.appendChild(document.createTextNode(m[1]));
+          next.nodeValue = next.nodeValue.slice(m[1].length);
+        }
+      }
+
+      // Safety check: only allow wrapping if an unusually long inline formula overflows narrow mobile screens
+      const box = atom.closest('.rv-flip-problem-txt, .rv-sec-body, .rv-trap-recap, .rv-trap-row-txt, .rv-ex-problem, .rv-q-stem');
+      if (box && box.clientWidth > 60 && atom.getBoundingClientRect().width > box.clientWidth - 4) {
+        atom.classList.add('is-allow-wrap');
+      }
+    });
+  }
+
   function triggerMathRender(targetEl) {
     const el = targetEl || rootEl;
     if (!el) return;
@@ -387,6 +611,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
               { left: '\\(', right: '\\)', display: false },
               { left: '\\[', right: '\\]', display: true },
             ],
+            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+            ignoredClasses: ['rv-ed-fmt-bar', 'rv-ed-sub', 'rv-ed-snippet'],
             throwOnError: false,
           });
         } catch {
@@ -395,7 +621,12 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       } else {
         renderMath?.(el);
       }
+      groupInlineMathAtoms(el);
       syncFlipCardHeights(el);
+      requestAnimationFrame(() => syncFlipCardHeights(el));
+      if (document.fonts?.ready) {
+        document.fonts.ready.then(() => syncFlipCardHeights(el)).catch(() => {});
+      }
     };
 
     if (window.renderMathInElement) {
@@ -411,17 +642,23 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const equalizeRow = window.innerWidth > 640;
     const handled = new Set();
 
+    const measureCard = (card) => {
+      const inner = card.querySelector('.rv-flip-inner');
+      const front = card.querySelector('.rv-flip-front');
+      const back = card.querySelector('.rv-flip-back');
+      if (!front || !back) return 224;
+      if (inner) inner.style.minHeight = '';
+      front.style.height = 'auto';
+      back.style.height = 'auto';
+      const fh = Math.ceil(Math.max(front.scrollHeight, front.getBoundingClientRect().height));
+      const bh = Math.ceil(Math.max(back.scrollHeight, back.getBoundingClientRect().height));
+      return Math.max(fh, bh, 224) + 6;
+    };
+
     host.querySelectorAll('.rv-flip-grid').forEach((grid) => {
       const cards = Array.from(grid.querySelectorAll('.rv-flip-card'));
       cards.forEach((c) => handled.add(c));
-      const heights = cards.map((card) => {
-        const front = card.querySelector('.rv-flip-front');
-        const back = card.querySelector('.rv-flip-back');
-        if (!front || !back) return 212;
-        front.style.height = 'auto';
-        back.style.height = 'auto';
-        return Math.max(front.scrollHeight, back.scrollHeight, 212);
-      });
+      const heights = cards.map(measureCard);
       const rowMax = equalizeRow && heights.length ? Math.max(...heights) : 0;
       cards.forEach((card, idx) => {
         const h = equalizeRow ? rowMax : heights[idx];
@@ -437,17 +674,22 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     // Also measure standalone bookmarked flip cards inside Sổ tay
     host.querySelectorAll('.rv-flip-card').forEach((card) => {
       if (handled.has(card)) return;
+      const h = measureCard(card);
       const inner = card.querySelector('.rv-flip-inner');
       const front = card.querySelector('.rv-flip-front');
       const back = card.querySelector('.rv-flip-back');
-      if (!front || !back) return;
-      front.style.height = 'auto';
-      back.style.height = 'auto';
-      const h = Math.max(front.scrollHeight, back.scrollHeight, 212);
       if (inner) inner.style.minHeight = `${h}px`;
-      front.style.height = `${h}px`;
-      back.style.height = `${h}px`;
+      if (front) front.style.height = `${h}px`;
+      if (back) back.style.height = `${h}px`;
     });
+  }
+
+  function triggerCardWrongShake(cardEl) {
+    if (!cardEl || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    cardEl.classList.remove('is-wrong-shake');
+    void cardEl.offsetWidth;
+    cardEl.classList.add('is-wrong-shake');
+    setTimeout(() => cardEl.classList.remove('is-wrong-shake'), 520);
   }
 
   // =========================================================================
@@ -456,6 +698,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
   function renderSidebarHtml() {
     const bmCount = state.bookmarks.size;
+    const editingTree = state.editMode && isAdmin();
     return `
       <div class="rv-nav-inner">
         <div class="rv-nav-mobile-head">
@@ -475,62 +718,98 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           <span class="rv-nb-badge" id="rvNotebookCount">${bmCount}</span>
         </button>
 
-        <div class="rv-tree-heading">CHƯƠNG TRÌNH TOÁN THPT</div>
+        <div class="rv-tree-heading">
+          <span>CHƯƠNG TRÌNH TOÁN THPT</span>
+          ${editingTree ? `<span class="rv-tree-ed-pill">Đang sửa</span>` : ''}
+        </div>
 
         <div class="rv-tree">
-          ${REVIEW_CURRICULUM.map((g) => {
+          ${curriculum.map((g, gIdx) => {
             const gOpen = state.expandedGrades.has(g.grade);
-            const activeLessonCount = g.chapters.reduce((acc, c) => acc + (c.lessons?.length || 0), 0);
+            const activeLessonCount = (g.chapters || []).reduce((acc, c) => acc + (c.lessons?.length || 0), 0);
             return `
               <div class="rv-grade-group ${gOpen ? 'is-open' : ''}">
-                <button type="button" class="rv-grade-btn" data-toggle-grade="${g.grade}" aria-expanded="${gOpen}">
-                  <span class="rv-chevron" aria-hidden="true">▸</span>
-                  <span class="rv-grade-lbl">${escapeHtml(g.label)}</span>
-                  <span class="rv-grade-meta">${activeLessonCount ? `${activeLessonCount} bài` : 'Đang cập nhật'}</span>
-                </button>
+                <div class="rv-tree-row">
+                  <button type="button" class="rv-grade-btn" data-toggle-grade="${g.grade}" aria-expanded="${gOpen}">
+                    <span class="rv-chevron" aria-hidden="true">▸</span>
+                    <span class="rv-grade-lbl">${escapeHtml(g.label)}</span>
+                    <span class="rv-grade-meta">${activeLessonCount ? `${activeLessonCount} bài` : 'Đang cập nhật'}</span>
+                  </button>
+                </div>
                 <div class="rv-grade-children ${gOpen ? '' : 'hidden'}">
-                  ${g.chapters
-                    .map((chap) => {
+                  ${(g.chapters || [])
+                    .map((chap, cIdx) => {
                       const cOpen = state.expandedChapters.has(chap.id);
                       const hasLessons = (chap.lessons?.length || 0) > 0;
                       return `
                         <div class="rv-chap-group ${cOpen ? 'is-open' : ''}">
-                          <button
-                            type="button"
-                            class="rv-chap-btn ${!hasLessons ? 'is-muted' : ''}"
-                            data-toggle-chap="${escapeAttr(chap.id)}"
-                            aria-expanded="${cOpen}"
-                          >
-                            <span class="rv-chevron" aria-hidden="true">▸</span>
-                            <span class="rv-chap-text">
-                              <b>${escapeHtml(chap.code)}:</b> ${escapeHtml(chap.title)}
-                            </span>
-                            ${!hasLessons ? `<span class="rv-soon-tag">Sắp có</span>` : ''}
-                          </button>
+                          <div class="rv-tree-row">
+                            <button
+                              type="button"
+                              class="rv-chap-btn ${!hasLessons ? 'is-muted' : ''}"
+                              data-toggle-chap="${escapeAttr(chap.id)}"
+                              aria-expanded="${cOpen}"
+                            >
+                              <span class="rv-chevron" aria-hidden="true">▸</span>
+                              <span class="rv-chap-text">
+                                <b>${escapeHtml(chap.code)}:</b> ${escapeHtml(chap.title)}
+                              </span>
+                              ${!hasLessons && !editingTree ? `<span class="rv-soon-tag">Sắp có</span>` : ''}
+                            </button>
+                            ${
+                              editingTree
+                                ? `
+                                  <div class="rv-tree-mini-acts">
+                                    <button type="button" class="rv-tree-act" data-ed-chap-rename="${gIdx}:${cIdx}" title="Đổi tên chương">✎</button>
+                                    <button type="button" class="rv-tree-act" data-ed-lesson-add="${gIdx}:${cIdx}" title="Thêm bài học">+</button>
+                                    <button type="button" class="rv-tree-act is-del" data-ed-chap-del="${gIdx}:${cIdx}" title="Xóa chương">×</button>
+                                  </div>
+                                `
+                                : ''
+                            }
+                          </div>
                           ${
-                            hasLessons
+                            hasLessons || editingTree
                               ? `
                                 <div class="rv-lesson-list ${cOpen ? '' : 'hidden'}">
-                                  ${chap.lessons
-                                    .map((ls) => {
+                                  ${(chap.lessons || [])
+                                    .map((ls, lIdx) => {
                                       const isSelected = state.viewMode === 'lesson' && state.activeLessonId === ls.id;
                                       const doneRec = state.progress[ls.id];
                                       return `
-                                        <button
-                                          type="button"
-                                          class="rv-lesson-btn ${isSelected ? 'is-active' : ''}"
-                                          data-select-lesson="${escapeAttr(ls.id)}"
-                                        >
-                                          <span class="rv-lesson-dot ${doneRec ? 'is-done' : ''}" aria-hidden="true">
-                                            ${doneRec ? '✓' : ''}
-                                          </span>
-                                          <span class="rv-lesson-title">
-                                            <strong>${escapeHtml(ls.code)}:</strong> ${escapeHtml(ls.title)}
-                                          </span>
-                                        </button>
+                                        <div class="rv-tree-row">
+                                          <button
+                                            type="button"
+                                            class="rv-lesson-btn ${isSelected ? 'is-active' : ''}"
+                                            data-select-lesson="${escapeAttr(ls.id)}"
+                                          >
+                                            <span class="rv-lesson-dot ${doneRec ? 'is-done' : ''}" aria-hidden="true">
+                                              ${doneRec ? '✓' : ''}
+                                            </span>
+                                            <span class="rv-lesson-title">
+                                              <strong>${escapeHtml(ls.code)}:</strong> ${escapeHtml(ls.title)}
+                                            </span>
+                                          </button>
+                                          ${
+                                            editingTree
+                                              ? `
+                                                <div class="rv-tree-mini-acts">
+                                                  <button type="button" class="rv-tree-act" data-ed-lesson-move="${gIdx}:${cIdx}:${lIdx}:-1" ${lIdx === 0 ? 'disabled' : ''} title="Lên">↑</button>
+                                                  <button type="button" class="rv-tree-act" data-ed-lesson-move="${gIdx}:${cIdx}:${lIdx}:1" ${lIdx === chap.lessons.length - 1 ? 'disabled' : ''} title="Xuống">↓</button>
+                                                  <button type="button" class="rv-tree-act is-del" data-ed-lesson-del="${gIdx}:${cIdx}:${lIdx}" title="Xóa bài">×</button>
+                                                </div>
+                                              `
+                                              : ''
+                                          }
+                                        </div>
                                       `;
                                     })
                                     .join('')}
+                                  ${
+                                    editingTree
+                                      ? `<button type="button" class="rv-tree-add-btn" data-ed-lesson-add="${gIdx}:${cIdx}">+ Thêm bài học mới</button>`
+                                      : ''
+                                  }
                                 </div>
                               `
                               : ''
@@ -539,6 +818,11 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
                       `;
                     })
                     .join('')}
+                  ${
+                    editingTree
+                      ? `<button type="button" class="rv-tree-add-btn is-chap" data-ed-chap-add="${gIdx}">+ Thêm chương vào ${escapeHtml(g.label)}</button>`
+                      : ''
+                  }
                 </div>
               </div>
             `;
@@ -548,14 +832,65 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     `;
   }
 
-  function renderCoreCardHtml(card, { showLessonMeta = '' } = {}) {
-    const meta = CARD_TYPE_META[card.type] || CARD_TYPE_META.theory;
-    const isStarred = state.bookmarks.has(card.id);
+  function renderCharacterMascotSvg() {
     return `
-      <section class="rv-editorial-sec ${meta.cls}" id="rv-item-${escapeAttr(card.id)}" data-card-id="${escapeAttr(card.id)}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+      </svg>
+    `;
+  }
+
+  function renderInlineSpeechCloudHtml(cloudKey, example) {
+    if (!example) return '';
+    return `
+      <div class="rv-cloud-wrap" data-cloud-wrap="${escapeAttr(cloudKey)}">
+        <div class="rv-cloud-mascot-col">
+          <div class="rv-cloud-avatar">${renderCharacterMascotSvg()}</div>
+        </div>
+        <div class="rv-speech-cloud" role="region" aria-label="Ví dụ minh họa">
+          <svg class="rv-cloud-tail" width="14" height="20" viewBox="0 0 14 20" fill="none" aria-hidden="true">
+            <path d="M13.5 1.5C8.8 4.4 4.8 7.8 1.2 10.2C5.8 10.4 9.8 12.8 13.5 18.5" fill="#f8fbff" stroke="#dbeafe" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+          <div class="rv-cloud-head">
+            <span class="rv-cloud-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7L12 2z"/></svg>
+              <span>${escapeHtml(example.title || 'Ví dụ minh họa')}</span>
+            </span>
+            <button type="button" class="rv-cloud-close" data-close-cloud="${escapeAttr(cloudKey)}" title="Đóng ví dụ" aria-label="Đóng ví dụ">✕</button>
+          </div>
+          ${
+            example.problem
+              ? `<div class="rv-cloud-problem"><strong>Đề:</strong> ${example.problem}</div>`
+              : ''
+          }
+          ${
+            example.solution
+              ? `<div class="rv-cloud-solution"><strong>Giải:</strong> ${example.solution}</div>`
+              : ''
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCoreCardHtml(card, { showLessonMeta = '' } = {}) {
+    const preset = resolveBoxPreset(card.type, boxPresets);
+    const effStyle = card.boxStyle || preset.style || 'editorial';
+    const isStarred = state.bookmarks.has(card.id);
+    const typeCls = card.type === 'formula' ? 'is-formula' : card.type === 'warning' ? 'is-warning' : 'is-theory';
+    const items = ensureCoreCardItems(card);
+
+    return `
+      <section
+        class="rv-editorial-sec ${typeCls} rv-box-style-${escapeAttr(effStyle)}"
+        style="--rv-accent:${escapeAttr(preset.accent)}; --rv-bg:${escapeAttr(preset.bg)}; --rv-border:${escapeAttr(preset.border)};"
+        id="rv-item-${escapeAttr(card.id)}"
+        data-card-id="${escapeAttr(card.id)}"
+      >
         <div class="rv-sec-head">
           <div class="rv-sec-heading-inline">
-            <span class="rv-sec-ico ${meta.cls}" aria-hidden="true" title="${escapeAttr(meta.badge)}">${meta.iconSvg}</span>
+            <span class="rv-sec-ico is-custom" aria-hidden="true" title="${escapeAttr(preset.name)}">${renderBoxIconSvg(preset.icon)}</span>
             <div>
               <h2 class="rv-sec-title">${escapeHtml(card.title)}</h2>
               ${showLessonMeta ? `<div class="rv-card-lesson-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
@@ -572,7 +907,26 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           </button>
         </div>
         <div class="rv-sec-body">
-          ${transformRecallMasks(card.content)}
+          <ul class="rv-bullet-list">
+            ${items
+              .map((item) => {
+                const hasEx = Boolean(item.hasExample && item.example && (item.example.problem || item.example.solution));
+                const cloudKey = `${card.id}::${item.id}`;
+                const isOpen = hasEx && state.openExampleClouds.has(cloudKey);
+                return `
+                  <li
+                    class="rv-know-line ${hasEx ? 'has-inline-ex' : ''} ${isOpen ? 'is-cloud-open' : ''}"
+                    ${hasEx ? `data-ex-line="${escapeAttr(cloudKey)}" title="Click đúp để xem ví dụ minh họa"` : ''}
+                  >
+                    <div class="rv-know-line-main">
+                      <div class="rv-know-line-txt">${transformRecallMasks(item.html || '')}</div>
+                    </div>
+                    ${hasEx ? renderInlineSpeechCloudHtml(cloudKey, item.example) : ''}
+                  </li>
+                `;
+              })
+              .join('')}
+          </ul>
         </div>
       </section>
     `;
@@ -582,7 +936,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const isFlipped = state.flippedIds.has(fc.id);
     const isStarred = state.bookmarks.has(fc.id);
     const attempt = state.trapAttempts[fc.id] || null;
-    const catMeta = TRAP_CATEGORY_META[fc.trapCategory] || TRAP_CATEGORY_META.index;
+    const isClickFlippable = Boolean(attempt);
     const backToneCls = attempt ? (attempt.isCorrect ? 'is-won' : 'is-trapped') : '';
     const frontBadgeTxt = indexNum > 0 ? `Câu ${indexNum}` : 'Thử sức';
     const flipIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;
@@ -590,7 +944,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
     return `
       <div
-        class="rv-flip-card ${isFlipped ? 'is-flipped' : ''}"
+        class="rv-flip-card ${isFlipped ? 'is-flipped' : ''} ${isClickFlippable ? 'is-click-flippable' : ''}"
         id="rv-item-${escapeAttr(fc.id)}"
         data-flip-id="${escapeAttr(fc.id)}"
       >
@@ -636,12 +990,11 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
             </div>
           </div>
 
-          <!-- BACK: Full Trap Breakdown (Category Icon + Label, Verdict, Problem, Trap, Fix) -->
+          <!-- BACK: Full Trap Breakdown -->
           <div class="rv-flip-face rv-flip-back ${backToneCls}">
             <div class="rv-flip-top">
-              <span class="rv-trap-cat-badge ${catMeta.cls}">
-                ${catMeta.iconSvg}
-                <span>${escapeHtml(fc.trapLabel || 'Bẫy hay sai')}</span>
+              <span class="rv-trap-cat-badge">
+                <span class="rv-trap-cat-lbl">${fc.trapLabel || 'Bẫy hay sai'}</span>
               </span>
               <button
                 type="button"
@@ -651,25 +1004,27 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
               >${renderStarSvg(isStarred)}</button>
             </div>
 
-            <div class="rv-trap-verdict-slot" data-verdict-slot="${escapeAttr(fc.id)}">
-              ${renderTrapVerdictHtml(attempt)}
-            </div>
-
             <div class="rv-flip-back-body">
               <div class="rv-trap-recap">
-                <span class="rv-trap-recap-lbl">Đề:</span> ${fc.problem}
+                <span class="rv-trap-recap-lbl">Đề:</span>
+                <span class="rv-trap-recap-txt">${fc.problem}</span>
               </div>
-              <div class="rv-trap-row is-trap">
-                <span class="rv-trap-pill-tag is-trap">Bẫy</span>
-                <div class="rv-trap-row-txt">${fc.trapExplanation}</div>
-              </div>
-              <div class="rv-trap-row is-fix">
-                <span class="rv-trap-pill-tag is-fix">Đúng</span>
-                <div class="rv-trap-row-txt">${fc.correctExplanation}</div>
+              <div class="rv-trap-rows">
+                <div class="rv-trap-row is-trap">
+                  <span class="rv-trap-pill-tag is-trap">Bẫy</span>
+                  <div class="rv-trap-row-txt">${fc.trapExplanation}</div>
+                </div>
+                <div class="rv-trap-row is-fix">
+                  <span class="rv-trap-pill-tag is-fix">Đúng</span>
+                  <div class="rv-trap-row-txt">${fc.correctExplanation}</div>
+                </div>
               </div>
             </div>
 
             <div class="rv-flip-foot">
+              <div class="rv-trap-verdict-slot" data-verdict-slot="${escapeAttr(fc.id)}">
+                ${renderTrapVerdictHtml(attempt)}
+              </div>
               <button
                 type="button"
                 class="rv-flip-ico-btn is-back"
@@ -1117,11 +1472,29 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         <div class="rv-print-cards">
           ${(lesson.coreCards || [])
             .map((c) => {
-              const meta = CARD_TYPE_META[c.type] || CARD_TYPE_META.theory;
+              const preset = resolveBoxPreset(c.type, boxPresets);
+              const items = ensureCoreCardItems(c);
               return `
-                <div class="rv-print-card ${meta.cls}">
-                  <div class="rv-print-card-title">[${escapeHtml(meta.badge)}] ${escapeHtml(c.title)}</div>
-                  <div class="rv-print-card-body">${transformRecallMasks(c.content)}</div>
+                <div class="rv-print-card" style="border-left-color:${escapeAttr(preset.accent)};">
+                  <div class="rv-print-card-title">[${escapeHtml(preset.name)}] ${escapeHtml(c.title)}</div>
+                  <div class="rv-print-card-body">
+                    <ul class="rv-bullet-list">
+                      ${items
+                        .map(
+                          (it) => `
+                            <li>
+                              ${transformRecallMasks(it.html || '')}
+                              ${
+                                it.hasExample && it.example && (it.example.problem || it.example.solution)
+                                  ? `<div style="margin-top:3px; padding-left:10px; border-left:2px solid #93c5fd; font-size:0.92em;"><em><strong>VD:</strong> ${it.example.problem || ''} — <strong>Giải:</strong> ${it.example.solution || ''}</em></div>`
+                                  : ''
+                              }
+                            </li>
+                          `
+                        )
+                        .join('')}
+                    </ul>
+                  </div>
                 </div>
               `;
             })
@@ -1299,39 +1672,50 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     const lessonIdx = lessonsIndex.findIndex((l) => l.id === lesson.id);
     const prevLesson = lessonIdx > 0 ? lessonsIndex[lessonIdx - 1] : null;
     const nextLesson = lessonIdx >= 0 && lessonIdx < lessonsIndex.length - 1 ? lessonsIndex[lessonIdx + 1] : null;
+    const canEdit = isAdmin();
+    const editing = canEdit && state.editMode;
 
     return `
+      ${
+        editing
+          ? renderEditorCommandBarHtml({
+              isDirty: state.isDirty,
+              isSaving: state.isSaving,
+              showPresetManager: state.showPresetManager,
+            })
+          : ''
+      }
+      ${
+        editing && state.showPresetManager
+          ? renderBoxPresetManagerHtml({ boxPresets, draftPreset: state.draftPreset })
+          : ''
+      }
+
       <header class="rv-lesson-header">
         <div class="rv-lesson-head-left">
           <div class="rv-breadcrumb">
             ${escapeHtml(lesson.gradeLabel)} · ${escapeHtml(lesson.chapterCode)}
           </div>
-          <h1 class="rv-lesson-h1">${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</h1>
+          ${
+            editing
+              ? renderLessonMetaEditorHtml(lesson)
+              : `<h1 class="rv-lesson-h1">${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</h1>`
+          }
         </div>
       </header>
 
-      <!-- Clean Open Underline Tab Bar + Icon Tools -->
+      <!-- Clean Open Underline Tab Bar (2 Tabs: Kiến thức trọng tâm + Luyện nhanh) -->
       <div class="rv-tabbar-wrap">
         <div class="rv-touch-tabs" role="tablist" aria-label="Các phần ôn tập">
           <button
             type="button"
             role="tab"
-            aria-selected="${state.touchTab === 'touch1'}"
-            class="rv-touch-tab ${state.touchTab === 'touch1' ? 'is-active' : ''}"
+            aria-selected="${state.touchTab !== 'touch3'}"
+            class="rv-touch-tab ${state.touchTab !== 'touch3' ? 'is-active' : ''}"
             data-touch-tab="touch1"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
             <span>Kiến thức trọng tâm</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="${state.touchTab === 'touch2'}"
-            class="rv-touch-tab ${state.touchTab === 'touch2' ? 'is-active' : ''}"
-            data-touch-tab="touch2"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            <span>Ví dụ</span>
           </button>
           <button
             type="button"
@@ -1347,7 +1731,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
         <div class="rv-tabbar-tools">
           ${
-            state.touchTab === 'touch1'
+            !editing && state.touchTab !== 'touch3'
               ? `
                 ${
                   state.activeRecall
@@ -1375,20 +1759,45 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
               `
               : ''
           }
-          <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" data-tip="In phiếu ôn tập" aria-label="In phiếu ôn tập">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
-            </svg>
-            <span>In</span>
-          </button>
+          ${
+            canEdit && !editing
+              ? `
+                <button type="button" class="rv-print-ghost-btn is-edit-trigger" id="btnEnterReviewEdit" data-tip="Chỉnh sửa nội dung & ví dụ" aria-label="Soạn bài">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <span>Soạn</span>
+                </button>
+              `
+              : ''
+          }
+          ${
+            !editing
+              ? `
+                <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" data-tip="In phiếu ôn tập" aria-label="In phiếu ôn tập">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+                  </svg>
+                  <span>In</span>
+                </button>
+              `
+              : ''
+          }
         </div>
       </div>
 
-      <!-- Active Chạm Content -->
+      <!-- Active Tab Content (View or Hierarchical Editor) -->
       <div class="rv-touch-stage" id="rvTouchStage">
-        ${state.touchTab === 'touch1' ? renderTouch1Html(lesson) : ''}
-        ${state.touchTab === 'touch2' ? renderTouch2Html(lesson) : ''}
-        ${state.touchTab === 'touch3' ? renderTouch3Html(lesson) : ''}
+        ${
+          editing
+            ? state.touchTab === 'touch3'
+              ? renderTouch3EditorHtml(lesson._raw || lesson, { collapsedIds: state.collapsedEditNodes })
+              : renderTouch1EditorHtml(lesson._raw || lesson, boxPresets, {
+                  collapsedIds: state.collapsedEditNodes,
+                  transformRecallMasks,
+                })
+            : state.touchTab === 'touch3'
+              ? renderTouch3Html(lesson)
+              : renderTouch1Html(lesson)
+        }
       </div>
 
       <!-- Lesson Footer Navigation -->
@@ -1624,6 +2033,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       if (searchHost) {
         searchHost.innerHTML = renderSearchDropdownHtml();
         bindSearchResultClicks();
+        triggerMathRender(searchHost);
       }
     });
 
@@ -1666,7 +2076,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
           const dx = e.changedTouches[0].clientX - touchStartX;
           const dy = e.changedTouches[0].clientY - touchStartY;
           if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 2.1) {
-            const order = ['touch1', 'touch2', 'touch3'];
+            const order = ['touch1', 'touch3'];
             const idx = order.indexOf(state.touchTab);
             const nextIdx = dx < 0 ? idx + 1 : idx - 1;
             if (nextIdx >= 0 && nextIdx < order.length) {
@@ -1678,6 +2088,56 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         { passive: true }
       );
     }
+
+    // Inline Character Speech-Cloud Examples (Double-click on knowledge line OR click subtle bubble icon)
+    const toggleExampleCloud = (cloudKey, lineEl) => {
+      if (!cloudKey || !lineEl) return;
+      const willOpen = !state.openExampleClouds.has(cloudKey);
+      if (willOpen) state.openExampleClouds.add(cloudKey);
+      else state.openExampleClouds.delete(cloudKey);
+
+      lineEl.classList.toggle('is-cloud-open', willOpen);
+      const btn = lineEl.querySelector(`[data-toggle-cloud="${CSS.escape(cloudKey)}"]`);
+      if (btn) {
+        btn.classList.toggle('is-active', willOpen);
+        btn.setAttribute('aria-expanded', String(willOpen));
+      }
+    };
+
+    rootEl.querySelectorAll('.rv-know-line.has-inline-ex').forEach((lineEl) => {
+      const cloudKey = lineEl.dataset.exLine;
+      lineEl.addEventListener('dblclick', (e) => {
+        if (
+          e.target.closest?.('.rv-cloud-wrap') ||
+          e.target.closest?.('.rv-recall-mask') ||
+          e.target.closest?.('[data-toggle-cloud]')
+        ) {
+          return;
+        }
+        window.getSelection?.()?.removeAllRanges?.();
+        toggleExampleCloud(cloudKey, lineEl);
+      });
+    });
+
+    rootEl.querySelectorAll('[data-toggle-cloud]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cloudKey = btn.dataset.toggleCloud;
+        const lineEl = btn.closest('.rv-know-line');
+        toggleExampleCloud(cloudKey, lineEl);
+      });
+    });
+
+    rootEl.querySelectorAll('[data-close-cloud]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cloudKey = btn.dataset.closeCloud;
+        const lineEl = btn.closest('.rv-know-line');
+        if (state.openExampleClouds.has(cloudKey)) {
+          toggleExampleCloud(cloudKey, lineEl);
+        }
+      });
+    });
 
     // Active Recall global toggle + individual mask click
     rootEl.querySelector('#btnActiveRecallToggle')?.addEventListener('click', () => {
@@ -1731,6 +2191,8 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
     });
 
     // 3D Interactive Trap Flip Cards
+    // Rule: Before the student submits their 1st answer, ONLY Enter/submit OR the explicit ⇄ button flips the card.
+    // Once they have submitted at least 1 answer, clicking anywhere on the card flips smoothly back & forth!
     const submitTrapAttempt = (fid, cardEl) => {
       const fc = flipCardsById.get(fid);
       if (!fc || !cardEl) return;
@@ -1763,7 +2225,13 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       syncFlipCardHeights(rootEl);
 
       state.flippedIds.add(fid);
+      cardEl.classList.add('is-click-flippable');
       cardEl.classList.add('is-flipped');
+
+      // Gentle wiggle shake on wrong answer (no fireworks on right answer)
+      if (!isCorrect) {
+        setTimeout(() => triggerCardWrongShake(cardEl), 340);
+      }
     };
 
     rootEl.querySelectorAll('[data-trap-form]').forEach((formEl) => {
@@ -1818,13 +2286,897 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
         ) {
           return;
         }
-        if (window.getSelection?.()?.toString()?.trim()) return;
         const fid = cardEl.dataset.flipId;
+        // Click-anywhere-to-flip is ONLY enabled after the student has submitted an answer at least once!
+        if (!state.trapAttempts[fid]) return;
+        if (window.getSelection?.()?.toString()?.trim()) return;
         if (state.flippedIds.has(fid)) state.flippedIds.delete(fid);
         else state.flippedIds.add(fid);
         cardEl.classList.toggle('is-flipped', state.flippedIds.has(fid));
       });
     });
+
+    // =========================================================================
+    // ADMIN HIERARCHICAL EDITOR EVENTS (ALL 3 TABS + SIDEBAR TREE + BOX PRESETS)
+    // =========================================================================
+    rootEl.querySelector('#btnEnterReviewEdit')?.addEventListener('click', () => {
+      if (!isAdmin()) return;
+      state.editMode = true;
+      render();
+    });
+
+    rootEl.querySelector('#btnExitReviewEdit')?.addEventListener('click', () => {
+      state.editMode = false;
+      state.showPresetManager = false;
+      rebuildIndexes();
+      render();
+    });
+
+    rootEl.querySelector('#btnToggleBoxPresets')?.addEventListener('click', () => {
+      state.showPresetManager = !state.showPresetManager;
+      render();
+    });
+
+    rootEl.querySelector('#btnCloseBoxPresets')?.addEventListener('click', () => {
+      state.showPresetManager = false;
+      render();
+    });
+
+    rootEl.querySelector('#btnOpenNewPresetFromBar')?.addEventListener('click', () => {
+      state.showPresetManager = true;
+      render();
+      rootEl.querySelector('#inpNewPresetName')?.focus();
+    });
+
+    rootEl.querySelector('#btnSaveReviewCurriculum')?.addEventListener('click', saveCurriculumToServer);
+
+    if (state.editMode && isAdmin()) {
+      const enrichedLesson = lessonsById.get(state.activeLessonId);
+      const rawLesson = enrichedLesson?._raw || null;
+
+      const swapArr = (arr, idx, dir) => {
+        const next = idx + dir;
+        if (!Array.isArray(arr) || next < 0 || next >= arr.length) return false;
+        const tmp = arr[idx];
+        arr[idx] = arr[next];
+        arr[next] = tmp;
+        return true;
+      };
+
+      // --- Box Preset Manager ---
+      rootEl.querySelectorAll('[data-preset-style]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const p = boxPresets.find((x) => x.id === sel.dataset.presetStyle);
+          if (p) {
+            p.style = sel.value;
+            markDirty();
+            render();
+          }
+        });
+      });
+
+      rootEl.querySelectorAll('[data-preset-color]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const p = boxPresets.find((x) => x.id === inp.dataset.presetColor);
+          if (p) {
+            Object.assign(p, deriveBoxColorsFromHex(inp.value));
+            markDirty();
+          }
+        });
+        inp.addEventListener('change', () => render());
+      });
+
+      rootEl.querySelectorAll('[data-del-preset]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const pid = btn.dataset.delPreset;
+          const idx = boxPresets.findIndex((p) => p.id === pid && !p.builtin);
+          if (idx >= 0) {
+            boxPresets.splice(idx, 1);
+            markDirty();
+            render();
+          }
+        });
+      });
+
+      rootEl.querySelector('#inpNewPresetName')?.addEventListener('input', (e) => {
+        state.draftPreset.name = e.target.value;
+      });
+      rootEl.querySelector('#selNewPresetIcon')?.addEventListener('change', (e) => {
+        state.draftPreset.icon = e.target.value;
+      });
+      rootEl.querySelector('#selNewPresetStyle')?.addEventListener('change', (e) => {
+        state.draftPreset.style = e.target.value;
+      });
+      rootEl.querySelector('#inpNewPresetColor')?.addEventListener('input', (e) => {
+        state.draftPreset.accent = e.target.value;
+      });
+      rootEl.querySelectorAll('[data-pick-new-color]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.draftPreset.accent = btn.dataset.pickNewColor;
+          render();
+        });
+      });
+      rootEl.querySelector('#btnAddBoxPreset')?.addEventListener('click', () => {
+        const name = String(state.draftPreset.name || '').trim();
+        if (!name) {
+          showToast?.('Vui lòng nhập tên cho loại Box mới!', 'info');
+          rootEl.querySelector('#inpNewPresetName')?.focus();
+          return;
+        }
+        const colors = deriveBoxColorsFromHex(state.draftPreset.accent || '#2563eb');
+        boxPresets.push({
+          id: genReviewId('box'),
+          name,
+          ...colors,
+          icon: state.draftPreset.icon || 'star',
+          style: state.draftPreset.style || 'tinted',
+          builtin: false,
+        });
+        state.draftPreset = { name: '', accent: '#2563eb', icon: 'star', style: 'tinted' };
+        markDirty();
+        showToast?.(`Đã tạo loại Box "${name}"!`, 'success');
+        render();
+      });
+
+      // --- Sidebar Hierarchy Tree Editing ---
+      rootEl.querySelectorAll('[data-ed-chap-add]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const gIdx = Number(btn.dataset.edChapAdd);
+          const gradeObj = curriculum[gIdx];
+          if (!gradeObj) return;
+          const code = window.prompt('Nhập mã chương (VD: Chương IV):', `Chương ${(gradeObj.chapters?.length || 0) + 1}`);
+          if (code === null) return;
+          const title = window.prompt('Nhập tên chương:', 'Chương mới');
+          if (title === null) return;
+          const newChap = {
+            id: genReviewId(`toan${gradeObj.grade}-c`),
+            grade: gradeObj.grade,
+            code: code.trim() || 'Chương mới',
+            title: title.trim() || 'Chưa đặt tên',
+            comingSoon: false,
+            lessons: [],
+          };
+          gradeObj.chapters = gradeObj.chapters || [];
+          gradeObj.chapters.push(newChap);
+          state.expandedGrades.add(gradeObj.grade);
+          state.expandedChapters.add(newChap.id);
+          rebuildIndexes();
+          markDirty();
+          render();
+        });
+      });
+
+      rootEl.querySelectorAll('[data-ed-chap-rename]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const [gIdx, cIdx] = btn.dataset.edChapRename.split(':').map(Number);
+          const chap = curriculum[gIdx]?.chapters?.[cIdx];
+          if (!chap) return;
+          const nextCode = window.prompt('Mã chương:', chap.code);
+          if (nextCode === null) return;
+          const nextTitle = window.prompt('Tên chương:', chap.title);
+          if (nextTitle === null) return;
+          chap.code = nextCode.trim() || chap.code;
+          chap.title = nextTitle.trim() || chap.title;
+          rebuildIndexes();
+          markDirty();
+          render();
+        });
+      });
+
+      rootEl.querySelectorAll('[data-ed-chap-del]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const [gIdx, cIdx] = btn.dataset.edChapDel.split(':').map(Number);
+          const chap = curriculum[gIdx]?.chapters?.[cIdx];
+          if (!chap) return;
+          if (!window.confirm(`Xóa "${chap.code}: ${chap.title}" và toàn bộ bài học bên trong?`)) return;
+          curriculum[gIdx].chapters.splice(cIdx, 1);
+          rebuildIndexes();
+          if (!lessonsById.has(state.activeLessonId)) {
+            state.activeLessonId = lessonsIndex[0]?.id || '';
+          }
+          markDirty();
+          render();
+        });
+      });
+
+      rootEl.querySelectorAll('[data-ed-lesson-add]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const [gIdx, cIdx] = btn.dataset.edLessonAdd.split(':').map(Number);
+          const gradeObj = curriculum[gIdx];
+          const chap = gradeObj?.chapters?.[cIdx];
+          if (!chap) return;
+          chap.lessons = chap.lessons || [];
+          const num = chap.lessons.length + 1;
+          const newLs = {
+            id: genReviewId(`toan${gradeObj.grade}-b`),
+            code: `Bài ${num}`,
+            title: 'Bài học mới',
+            summary: '',
+            coreCards: [
+              {
+                id: genReviewId('card'),
+                type: 'theory',
+                title: 'Định nghĩa & Khái niệm cơ bản',
+                items: [
+                  {
+                    id: genReviewId('item'),
+                    html: '<strong>Ý chính:</strong> Nhập nội dung lý thuyết và công thức $...$ tại đây.',
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
+              },
+            ],
+            flipCards: [],
+            examples: [],
+            quizzes: { multipleChoice: [], trueFalse: [], shortAnswer: [] },
+          };
+          chap.lessons.push(newLs);
+          chap.comingSoon = false;
+          state.expandedGrades.add(gradeObj.grade);
+          state.expandedChapters.add(chap.id);
+          state.viewMode = 'lesson';
+          state.activeLessonId = newLs.id;
+          state.touchTab = 'touch1';
+          rebuildIndexes();
+          markDirty();
+          render();
+        });
+      });
+
+      rootEl.querySelectorAll('[data-ed-lesson-move]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const [gIdx, cIdx, lIdx, dir] = btn.dataset.edLessonMove.split(':').map(Number);
+          const lessons = curriculum[gIdx]?.chapters?.[cIdx]?.lessons;
+          if (swapArr(lessons, lIdx, dir)) {
+            rebuildIndexes();
+            markDirty();
+            render();
+          }
+        });
+      });
+
+      rootEl.querySelectorAll('[data-ed-lesson-del]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const [gIdx, cIdx, lIdx] = btn.dataset.edLessonDel.split(':').map(Number);
+          const lessons = curriculum[gIdx]?.chapters?.[cIdx]?.lessons;
+          const ls = lessons?.[lIdx];
+          if (!ls) return;
+          if (!window.confirm(`Xóa "${ls.code}: ${ls.title}"?`)) return;
+          lessons.splice(lIdx, 1);
+          rebuildIndexes();
+          if (!lessonsById.has(state.activeLessonId)) {
+            state.activeLessonId = lessonsIndex[0]?.id || '';
+          }
+          markDirty();
+          render();
+        });
+      });
+
+      // Collapse / Expand Editor Nodes
+      rootEl.querySelectorAll('[data-ed-toggle-node]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const k = btn.dataset.edToggleNode;
+          if (state.collapsedEditNodes.has(k)) state.collapsedEditNodes.delete(k);
+          else state.collapsedEditNodes.add(k);
+          render();
+        });
+      });
+
+      if (rawLesson) {
+        // Lesson Metadata (code, title, summary)
+        rootEl.querySelectorAll('[data-ed-lesson-field]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            rawLesson[inp.dataset.edLessonField] = inp.value;
+            rebuildIndexes();
+            markDirty();
+          });
+        });
+
+        // --- TAB 1: Core Boxes & Per-Line Inline Examples ---
+        rootEl.querySelectorAll('[data-ed-core-add]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const preset = resolveBoxPreset(btn.dataset.edCoreAdd, boxPresets);
+            rawLesson.coreCards = rawLesson.coreCards || [];
+            rawLesson.coreCards.push({
+              id: genReviewId('card'),
+              type: preset.id,
+              title: preset.name,
+              items: [
+                {
+                  id: genReviewId('item'),
+                  html: '<strong>Nội dung:</strong> Nhập kiến thức hoặc công thức $...$ tại đây.',
+                  hasExample: false,
+                  example: null,
+                },
+              ],
+            });
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-core-type]').forEach((sel) => {
+          sel.addEventListener('change', () => {
+            const idx = Number(sel.dataset.edCoreType);
+            if (rawLesson.coreCards?.[idx]) {
+              rawLesson.coreCards[idx].type = sel.value;
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-core-style]').forEach((sel) => {
+          sel.addEventListener('change', () => {
+            const idx = Number(sel.dataset.edCoreStyle);
+            if (rawLesson.coreCards?.[idx]) {
+              if (sel.value) rawLesson.coreCards[idx].boxStyle = sel.value;
+              else delete rawLesson.coreCards[idx].boxStyle;
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-core-title]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const idx = Number(inp.dataset.edCoreTitle);
+            if (rawLesson.coreCards?.[idx]) {
+              rawLesson.coreCards[idx].title = inp.value;
+              markDirty();
+            }
+          });
+        });
+
+        // Per-line knowledge item editing + Checkbox toggle for inline Example Drawer
+        rootEl.querySelectorAll('[data-ed-item-add]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const cardIdx = Number(btn.dataset.edItemAdd);
+            const card = rawLesson.coreCards?.[cardIdx];
+            if (!card) return;
+            const items = ensureCoreCardItems(card);
+            items.push({
+              id: genReviewId('item'),
+              html: '<strong>Ý mới:</strong> Nhập nội dung hoặc công thức $...$.',
+              hasExample: false,
+              example: null,
+            });
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-item-has-ex]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx] = btn.dataset.edItemHasEx.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            item.hasExample = !item.hasExample;
+            if (item.hasExample && !item.example) {
+              item.example = {
+                title: 'Ví dụ minh họa',
+                problem: '',
+                solution: '',
+              };
+            }
+            markDirty();
+            render();
+          });
+        });
+
+        let previewDebounce = null;
+        const syncLineItemFromFriendly = (cIdx, iIdx, nextParsed, rerender = false) => {
+          const card = rawLesson.coreCards?.[cIdx];
+          const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+          if (!item) return;
+          item.html = buildItemHtmlFromFriendly(nextParsed);
+          markDirty();
+          if (rerender) {
+            render();
+            return;
+          }
+          clearTimeout(previewDebounce);
+          previewDebounce = setTimeout(() => {
+            const prevEl = rootEl.querySelector(`#ed-prev-item-${cIdx}-${iIdx}`);
+            if (prevEl) {
+              prevEl.innerHTML = transformRecallMasks(item.html);
+              triggerMathRender(prevEl);
+            }
+          }, 140);
+        };
+
+        rootEl.querySelectorAll('[data-ed-item-text]').forEach((ta) => {
+          ta.addEventListener('input', () => {
+            const [cIdx, iIdx] = ta.dataset.edItemText.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            cur.text = ta.value;
+            syncLineItemFromFriendly(cIdx, iIdx, cur, false);
+          });
+          // Ctrl+B shortcut to bold selected text with **...**
+          ta.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+              e.preventDefault();
+              applyTextareaSnippet(ta, 'bold');
+            }
+          });
+        });
+
+        // Visual Tag / Chip Pill Builder handlers (Zero HTML!)
+        rootEl.querySelectorAll('[data-ed-tag-add]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx] = btn.dataset.edTagAdd.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            if (!cur.tagsKind) cur.tagsKind = 'chips';
+            cur.tags.push({ text: `Mục ${cur.tags.length + 1}`, tone: 'default' });
+            syncLineItemFromFriendly(cIdx, iIdx, cur, true);
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tag-kind-toggle]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx] = btn.dataset.edTagKindToggle.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            cur.tagsKind = cur.tagsKind === 'chips' ? 'cases' : 'chips';
+            syncLineItemFromFriendly(cIdx, iIdx, cur, true);
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tag-text]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const [cIdx, iIdx, tIdx] = inp.dataset.edTagText.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            if (cur.tags[tIdx]) {
+              cur.tags[tIdx].text = inp.value;
+              syncLineItemFromFriendly(cIdx, iIdx, cur, false);
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tag-tone]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx, tIdx] = btn.dataset.edTagTone.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            const order = ['default', 'up', 'down', 'flat'];
+            if (cur.tags[tIdx]) {
+              const nextIdx = (order.indexOf(cur.tags[tIdx].tone || 'default') + 1) % order.length;
+              cur.tags[tIdx].tone = order[nextIdx];
+              syncLineItemFromFriendly(cIdx, iIdx, cur, true);
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tag-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx, tIdx] = btn.dataset.edTagDel.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            const item = card ? ensureCoreCardItems(card)[iIdx] : null;
+            if (!item) return;
+            const cur = parseItemForFriendlyEdit(item.html || '');
+            cur.tags.splice(tIdx, 1);
+            if (!cur.tags.length) cur.tagsKind = '';
+            syncLineItemFromFriendly(cIdx, iIdx, cur, true);
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-item-ex]').forEach((el) => {
+          el.addEventListener('input', () => {
+            const [cIdx, iIdx, field] = el.dataset.edItemEx.split(':');
+            const card = rawLesson.coreCards?.[Number(cIdx)];
+            const item = card ? ensureCoreCardItems(card)[Number(iIdx)] : null;
+            if (!item) return;
+            if (!item.example) item.example = { title: 'Ví dụ minh họa', problem: '', solution: '' };
+            item.example[field] = field === 'title' ? el.value : friendlyInlineToHtml(el.value);
+            markDirty();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-item-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx] = btn.dataset.edItemMove.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            if (card && swapArr(ensureCoreCardItems(card), iIdx, Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-item-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [cIdx, iIdx] = btn.dataset.edItemDel.split(':').map(Number);
+            const card = rawLesson.coreCards?.[cIdx];
+            if (!card) return;
+            ensureCoreCardItems(card).splice(iIdx, 1);
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-fmt-target] [data-insert-snip]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const targetKey = btn.closest('[data-fmt-target]')?.dataset.fmtTarget;
+            const ta = rootEl.querySelector(`#ed-ta-${targetKey}`);
+            applyTextareaSnippet(ta, btn.dataset.insertSnip);
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-core-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.coreCards, Number(btn.dataset.edCoreMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-core-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.dataset.edCoreDel);
+            rawLesson.coreCards?.splice(idx, 1);
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        // --- TAB 1: Blind Trap Flip Cards ---
+        rootEl.querySelector('#btnEdAddFlip')?.addEventListener('click', () => {
+          rawLesson.flipCards = rawLesson.flipCards || [];
+          rawLesson.flipCards.push({
+            id: genReviewId('flip'),
+            trapCategory: 'index',
+            trapLabel: 'Bẫy hay sai mới',
+            problem: 'Nhập đề bài ngắn gọn (có công thức $...$)...',
+            placeholder: 'Nhập đáp án...',
+            acceptedAnswers: ['0'],
+            trapExplanation: 'Học sinh thường nhầm ở bước...',
+            correctExplanation: 'Lời giải chuẩn xác...',
+          });
+          rebuildIndexes();
+          markDirty();
+          render();
+        });
+
+        rootEl.querySelectorAll('[data-ed-flip-field]').forEach((el) => {
+          const evName = el.tagName === 'SELECT' ? 'change' : 'input';
+          el.addEventListener(evName, () => {
+            const idx = Number(el.dataset.edFlipIdx);
+            const field = el.dataset.edFlipField;
+            if (rawLesson.flipCards?.[idx]) {
+              rawLesson.flipCards[idx][field] =
+                field === 'trapLabel' ? el.value : friendlyInlineToHtml(el.value);
+              markDirty();
+            }
+          });
+        });
+
+        const syncFlipAnswers = (idx) => {
+          const fc = rawLesson.flipCards?.[idx];
+          if (!fc) return;
+          const modeSel = rootEl.querySelector(`[data-ed-flip-ansmode="${idx}"]`);
+          const ansInp = rootEl.querySelector(`[data-ed-flip-ans="${idx}"]`);
+          const tokens = String(ansInp?.value || '')
+            .split(';')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (modeSel?.value === 'multi') {
+            delete fc.acceptedAnswers;
+            fc.acceptedMultiSet = tokens.length ? tokens : ['0'];
+          } else {
+            delete fc.acceptedMultiSet;
+            fc.acceptedAnswers = tokens.length ? tokens : ['0'];
+          }
+          markDirty();
+        };
+
+        rootEl.querySelectorAll('[data-ed-flip-ansmode]').forEach((sel) => {
+          sel.addEventListener('change', () => syncFlipAnswers(Number(sel.dataset.edFlipAnsmode)));
+        });
+        rootEl.querySelectorAll('[data-ed-flip-ans]').forEach((inp) => {
+          inp.addEventListener('input', () => syncFlipAnswers(Number(inp.dataset.edFlipAns)));
+        });
+
+        rootEl.querySelectorAll('[data-ed-flip-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.flipCards, Number(btn.dataset.edFlipMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-flip-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            rawLesson.flipCards?.splice(Number(btn.dataset.edFlipDel), 1);
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        // --- TAB 2: Worked Examples + Nested Steps ---
+        rootEl.querySelector('#btnEdAddExample')?.addEventListener('click', () => {
+          rawLesson.examples = rawLesson.examples || [];
+          const n = rawLesson.examples.length + 1;
+          rawLesson.examples.push({
+            id: genReviewId('ex'),
+            title: `Ví dụ ${n} — Dạng bài mới`,
+            problem: 'Nhập đề bài ví dụ...',
+            hint: 'Nhập gợi ý hướng đi...',
+            steps: ['<strong>Bước 1:</strong> ...'],
+            finalAnswer: 'Đáp số...',
+          });
+          rebuildIndexes();
+          markDirty();
+          render();
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-field]').forEach((el) => {
+          el.addEventListener('input', () => {
+            const idx = Number(el.dataset.edExIdx);
+            const field = el.dataset.edExField;
+            if (rawLesson.examples?.[idx]) {
+              rawLesson.examples[idx][field] = el.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.examples, Number(btn.dataset.edExMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            rawLesson.examples?.splice(Number(btn.dataset.edExDel), 1);
+            rebuildIndexes();
+            markDirty();
+            render();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-add-step]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const ex = rawLesson.examples?.[Number(btn.dataset.edExAddStep)];
+            if (!ex) return;
+            ex.steps = ex.steps || [];
+            ex.steps.push(`<strong>Bước ${ex.steps.length + 1}:</strong> `);
+            markDirty();
+            render();
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-step]').forEach((ta) => {
+          ta.addEventListener('input', () => {
+            const [eIdx, sIdx] = ta.dataset.edExStep.split(':').map(Number);
+            if (rawLesson.examples?.[eIdx]?.steps) {
+              rawLesson.examples[eIdx].steps[sIdx] = ta.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-step-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [eIdx, sIdx] = btn.dataset.edExStepMove.split(':').map(Number);
+            if (swapArr(rawLesson.examples?.[eIdx]?.steps, sIdx, Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-ex-step-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [eIdx, sIdx] = btn.dataset.edExStepDel.split(':').map(Number);
+            rawLesson.examples?.[eIdx]?.steps?.splice(sIdx, 1);
+            markDirty();
+            render();
+          });
+        });
+
+        // --- TAB 3: Quizzes (MC, TF, SA) ---
+        rawLesson.quizzes = rawLesson.quizzes || { multipleChoice: [], trueFalse: [], shortAnswer: [] };
+
+        rootEl.querySelector('#btnEdAddMc')?.addEventListener('click', () => {
+          rawLesson.quizzes.multipleChoice.push({
+            id: genReviewId('mc'),
+            question: 'Nhập câu hỏi trắc nghiệm...',
+            options: ['$A$', '$B$', '$C$', '$D$'],
+            correctIndex: 0,
+            explanation: 'Lời giải ngắn gọn...',
+          });
+          markDirty();
+          render();
+        });
+
+        rootEl.querySelectorAll('[data-ed-mc-field]').forEach((el) => {
+          el.addEventListener('input', () => {
+            const q = rawLesson.quizzes.multipleChoice[Number(el.dataset.edMcIdx)];
+            if (q) {
+              q[el.dataset.edMcField] = el.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-mc-opt]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const [qIdx, oIdx] = inp.dataset.edMcOpt.split(':').map(Number);
+            const q = rawLesson.quizzes.multipleChoice[qIdx];
+            if (q?.options) {
+              q.options[oIdx] = inp.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-mc-correct]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [qIdx, oIdx] = btn.dataset.edMcCorrect.split(':').map(Number);
+            const q = rawLesson.quizzes.multipleChoice[qIdx];
+            if (q) {
+              q.correctIndex = oIdx;
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-mc-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.quizzes.multipleChoice, Number(btn.dataset.edMcMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-mc-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            rawLesson.quizzes.multipleChoice.splice(Number(btn.dataset.edMcDel), 1);
+            markDirty();
+            render();
+          });
+        });
+
+        // Part 2: True / False
+        rootEl.querySelector('#btnEdAddTf')?.addEventListener('click', () => {
+          rawLesson.quizzes.trueFalse.push({
+            id: genReviewId('tf'),
+            stem: 'Nhập đề dẫn chung cho câu Đúng/Sai...',
+            statements: ['a', 'b', 'c', 'd'].map((lbl) => ({
+              label: lbl,
+              text: `Mệnh đề ${lbl}...`,
+              isTrue: true,
+              explanation: 'Giải thích...',
+            })),
+          });
+          markDirty();
+          render();
+        });
+
+        rootEl.querySelectorAll('[data-ed-tf-stem]').forEach((ta) => {
+          ta.addEventListener('input', () => {
+            const q = rawLesson.quizzes.trueFalse[Number(ta.dataset.edTfStem)];
+            if (q) {
+              q.stem = ta.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tf-stmt]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const [qIdx, sIdx, field] = inp.dataset.edTfStmt.split(':');
+            const st = rawLesson.quizzes.trueFalse[Number(qIdx)]?.statements?.[Number(sIdx)];
+            if (st) {
+              st[field] = inp.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tf-bool]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const [qIdx, sIdx, val] = btn.dataset.edTfBool.split(':');
+            const st = rawLesson.quizzes.trueFalse[Number(qIdx)]?.statements?.[Number(sIdx)];
+            if (st) {
+              st.isTrue = val === 'true';
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tf-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.quizzes.trueFalse, Number(btn.dataset.edTfMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-tf-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            rawLesson.quizzes.trueFalse.splice(Number(btn.dataset.edTfDel), 1);
+            markDirty();
+            render();
+          });
+        });
+
+        // Part 3: Short Answer
+        rootEl.querySelector('#btnEdAddSa')?.addEventListener('click', () => {
+          rawLesson.quizzes.shortAnswer.push({
+            id: genReviewId('sa'),
+            question: 'Nhập đề bài câu trả lời ngắn...',
+            correctAnswer: '0',
+            explanation: 'Lời giải ngắn gọn...',
+          });
+          markDirty();
+          render();
+        });
+
+        rootEl.querySelectorAll('[data-ed-sa-field]').forEach((el) => {
+          el.addEventListener('input', () => {
+            const q = rawLesson.quizzes.shortAnswer[Number(el.dataset.edSaIdx)];
+            if (q) {
+              q[el.dataset.edSaField] = el.value;
+              markDirty();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-sa-move]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (swapArr(rawLesson.quizzes.shortAnswer, Number(btn.dataset.edSaMove), Number(btn.dataset.dir))) {
+              markDirty();
+              render();
+            }
+          });
+        });
+
+        rootEl.querySelectorAll('[data-ed-sa-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            rawLesson.quizzes.shortAnswer.splice(Number(btn.dataset.edSaDel), 1);
+            markDirty();
+            render();
+          });
+        });
+      }
+    }
 
     // Chạm 2: Progressive Examples
     rootEl.querySelectorAll('[data-ex-toggle-hint]').forEach((btn) => {
@@ -1981,6 +3333,10 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
 
   return {
     init(routeOpts = null) {
+      if (!isAdmin() && state.editMode) {
+        state.editMode = false;
+        state.showPresetManager = false;
+      }
       if (routeOpts?.subRoute === 'so-tay') {
         state.viewMode = 'bookmarks';
       } else if (routeOpts?.subRoute && lessonsById.has(routeOpts.subRoute)) {
@@ -1997,6 +3353,7 @@ export function createMathReviewController({ rootEl, uiHelpers, onRouteChange })
       }
       state.mounted = true;
       render();
+      loadCurriculumFromServer();
     },
   };
 }

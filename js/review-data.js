@@ -29,6 +29,69 @@ function fmtParenNeg(x) {
   return x < 0 ? `(${x})` : `${x}`;
 }
 
+export const DEFAULT_BOX_PRESETS = [
+  {
+    id: 'theory',
+    name: 'Định nghĩa / Lý thuyết',
+    accent: '#2563eb',
+    bg: '#eff6ff',
+    border: '#bfdbfe',
+    icon: 'book',
+    style: 'editorial',
+    builtin: true,
+  },
+  {
+    id: 'theorem',
+    name: 'Định lí / Tính chất',
+    accent: '#7c3aed',
+    bg: '#f5f3ff',
+    border: '#ddd6fe',
+    icon: 'award',
+    style: 'tinted',
+    builtin: true,
+  },
+  {
+    id: 'formula',
+    name: 'Công thức cốt lõi',
+    accent: '#db2777',
+    bg: '#fdf2f8',
+    border: '#fbcfe8',
+    icon: 'sigma',
+    style: 'editorial',
+    builtin: true,
+  },
+  {
+    id: 'method',
+    name: 'Phương pháp giải',
+    accent: '#0d9488',
+    bg: '#f0fdfa',
+    border: '#99f6e4',
+    icon: 'compass',
+    style: 'tinted',
+    builtin: true,
+  },
+  {
+    id: 'warning',
+    name: 'Lưu ý / Mẹo nhanh',
+    accent: '#ea580c',
+    bg: '#fff7ed',
+    border: '#fed7aa',
+    icon: 'bulb',
+    style: 'editorial',
+    builtin: true,
+  },
+  {
+    id: 'note',
+    name: 'Nhận xét / Ví dụ nhanh',
+    accent: '#16a34a',
+    bg: '#f0fdf4',
+    border: '#bbf7d0',
+    icon: 'check',
+    style: 'outlined',
+    builtin: true,
+  },
+];
+
 export const REVIEW_CURRICULUM = [
   {
     grade: 10,
@@ -84,43 +147,87 @@ export const REVIEW_CURRICULUM = [
                 id: 'b1-card-1',
                 type: 'theory',
                 title: 'Khái niệm & Cách cho dãy số',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>Dãy số vô hạn $(u_n)$:</strong> Hàm số trên $\\mathbb{N}^*$, dạng $u_1, u_2, \\dots, u_n, \\dots$ ($u_1$: số hạng đầu · $u_n$: số hạng tổng quát).</li>
-                    <li><strong>4 cách cho:</strong> Liệt kê · Diễn đạt lời · Công thức $u_n = f(n)$ · Hệ thức truy hồi.</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b1-c1-i1',
+                    html: '<strong>Dãy số vô hạn $(u_n)$:</strong> Hàm số xác định trên $\\mathbb{N}^*$, viết dạng khai triển $u_1, u_2, \\dots, u_n, \\dots$ (với $u_1$ là số hạng đầu, $u_n$ là số hạng tổng quát).',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b1-c1-i2',
+                    html: `<strong>4 cách cho một dãy số:</strong>
+                      <div class="rv-chip-list">
+                        <span class="rv-chip-item"><span class="rv-chip-num">1</span>Liệt kê các số hạng</span>
+                        <span class="rv-chip-item"><span class="rv-chip-num">2</span>Diễn đạt bằng lời</span>
+                        <span class="rv-chip-item"><span class="rv-chip-num">3</span>Công thức $u_n = f(n)$</span>
+                        <span class="rv-chip-item"><span class="rv-chip-num">4</span>Hệ thức truy hồi</span>
+                      </div>`,
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
               },
               {
                 id: 'b1-card-2',
                 type: 'formula',
                 title: 'Tính tăng, giảm (Đơn điệu)',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>Dãy tăng</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} > u_n$] $\\iff$ [CHE: $u_{n+1} - u_n > 0$].</li>
-                    <li><strong>Dãy giảm</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} < u_n$] $\\iff$ [CHE: $u_{n+1} - u_n < 0$].</li>
-                    <li><strong>Xét tỉ số</strong> (chỉ khi [CHE: $u_n > 0, \\forall n \\in \\mathbb{N}^*$]): Tăng $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$] · Giảm $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$].</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b1-c2-i1',
+                    html: '<strong>Dãy tăng</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} > u_n$] $\\iff$ [CHE: $u_{n+1} - u_n > 0$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b1-c2-i2',
+                    html: '<strong>Dãy giảm</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} < u_n$] $\\iff$ [CHE: $u_{n+1} - u_n < 0$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b1-c2-i3',
+                    html: `<strong>Xét tỉ số</strong> (chỉ khi [CHE: $u_n > 0, \\forall n \\in \\mathbb{N}^*$]):
+                      <div class="rv-case-row">
+                        <span class="rv-case-pill">Dãy tăng $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$]</span>
+                        <span class="rv-case-pill">Dãy giảm $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$]</span>
+                      </div>`,
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
               },
               {
                 id: 'b1-card-3',
                 type: 'formula',
                 title: 'Dãy số bị chặn',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>Bị chặn trên:</strong> $\\exists M$ sao cho [CHE: $u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
-                    <li><strong>Bị chặn dưới:</strong> $\\exists m$ sao cho [CHE: $u_n \\ge m, \\forall n \\in \\mathbb{N}^*$].</li>
-                    <li><strong>Bị chặn:</strong> Vừa chặn trên vừa chặn dưới $\\iff \\exists m, M:$ [CHE: $m \\le u_n \\le M, \\forall n \\in \\mathbb{N}^*$].</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b1-c3-i1',
+                    html: '<strong>Bị chặn trên:</strong> $\\exists M$ sao cho [CHE: $u_n \\le M, \\forall n \\in \\mathbb{N}^*$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b1-c3-i2',
+                    html: '<strong>Bị chặn dưới:</strong> $\\exists m$ sao cho [CHE: $u_n \\ge m, \\forall n \\in \\mathbb{N}^*$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b1-c3-i3',
+                    html: '<strong>Bị chặn:</strong> Vừa chặn trên vừa chặn dưới $\\iff \\exists m, M:$ [CHE: $m \\le u_n \\le M, \\forall n \\in \\mathbb{N}^*$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
               },
             ],
             flipCards: [
               {
                 id: 'b1-flip-1',
                 trapCategory: 'index',
-                trapLabel: 'Bẫy thay chỉ số (n + 1)',
+                trapLabel: 'Bẫy thay chỉ số $(n + 1)$',
                 problem: 'Cho dãy số $(u_n)$ với $u_n = 3n - 2$. Tính hiệu $u_{n+1} - u_n$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['3'],
@@ -130,7 +237,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b1-flip-2',
                 trapCategory: 'sign',
-                trapLabel: 'Bẫy xét tỉ số dãy âm',
+                trapLabel: 'Bẫy xét tỉ số dãy âm ($u_n < 0$)',
                 problem: 'Cho dãy số $u_n = -2^n$ ($n \\in \\mathbb{N}^*$). Tìm giá trị lớn nhất của $u_n$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['-2'],
@@ -140,7 +247,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b1-flip-3',
                 trapCategory: 'alternating',
-                trapLabel: 'Bẫy dãy đan dấu (−1)ⁿ',
+                trapLabel: 'Bẫy dãy đan dấu $(-1)^n$',
                 problem: 'Cho dãy số $u_n = (-1)^n \\cdot 2 + 3$. Tính tổng $u_1 + u_2$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['6'],
@@ -297,43 +404,114 @@ export const REVIEW_CURRICULUM = [
                 id: 'b2-card-1',
                 type: 'theory',
                 title: 'Định nghĩa & Nhận biết',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li>
-                      Mỗi số hạng (từ $u_2$) bằng số hạng liền trước cộng <strong>công sai $d$</strong> không đổi:
-                      $$u_{n+1} = u_n + d \\quad (\\forall n \\in \\mathbb{N}^*)$$
-                    </li>
-                    <li><strong>Nhận biết:</strong> $u_{n+1} - u_n = d$ (hằng số) · $d > 0$: tăng · $d < 0$: giảm · $d = 0$: không đổi.</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b2-c1-i1',
+                    html: 'Mỗi số hạng (từ $u_2$) bằng số hạng liền trước cộng <strong>công sai $d$</strong> không đổi: $$u_{n+1} = u_n + d \\quad (\\forall n \\in \\mathbb{N}^*)$$',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ về Định nghĩa CSC',
+                      problem: 'Xét dãy số $3; 7; 11; 15; \\dots$ có phải cấp số cộng không? Nếu có, chỉ ra $u_1$ và công sai $d$.',
+                      solution: 'Ta thấy $7 - 3 = 11 - 7 = 15 - 11 = 4$ (không đổi). Vậy đây là cấp số cộng với $u_1 = \\mathbf{3}$ và công sai $d = \\mathbf{4}$.',
+                    },
+                  },
+                  {
+                    id: 'b2-c1-i2',
+                    html: '<strong>Dấu hiệu nhận biết:</strong> Hiệu $u_{n+1} - u_n = d$ (hằng số không phụ thuộc $n$).',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Nhận biết CSC',
+                      problem: 'Chứng minh dãy số $(u_n)$ với $u_n = 5n - 2$ là một cấp số cộng và tìm công sai $d$.',
+                      solution: 'Xét hiệu $u_{n+1} - u_n = [5(n + 1) - 2] - (5n - 2) = \\mathbf{5}$ (hằng số với mọi $n \\in \\mathbb{N}^*$). Suy ra $(u_n)$ là CSC với công sai $d = \\mathbf{5}$.',
+                    },
+                  },
+                  {
+                    id: 'b2-c1-i3',
+                    html: `<strong>Tính đơn điệu theo công sai $d$:</strong>
+                      <div class="rv-case-row">
+                        <span class="rv-case-pill is-up">$d > 0$: Dãy tăng</span>
+                        <span class="rv-case-pill is-down">$d < 0$: Dãy giảm</span>
+                        <span class="rv-case-pill is-flat">$d = 0$: Dãy không đổi</span>
+                      </div>`,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Xét chiều tăng/giảm theo d',
+                      problem: 'Xét tính tăng, giảm của hai CSC: $(a_n)$ có $a_1 = 10, d = -3$ và $(b_n)$ có $b_1 = -5, d = 2$.',
+                      solution: '• Dãy $(a_n)$ có $d = -3 < 0$ nên là <strong>dãy giảm</strong> ($10; 7; 4; 1; \\dots$).<br/>• Dãy $(b_n)$ có $d = 2 > 0$ nên là <strong>dãy tăng</strong> ($-5; -3; -1; 1; \\dots$).',
+                    },
+                  },
+                ],
               },
               {
                 id: 'b2-card-2',
                 type: 'formula',
                 title: 'Công thức Cấp số cộng',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 + (n - 1)d$].</li>
-                    <li><strong>Liên hệ 2 số hạng:</strong> $u_m - u_k =$ [CHE: $(m - k)d$].</li>
-                    <li><strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $a + c = 2b$] $\\iff b =$ [CHE: $\\dfrac{a + c}{2}$].</li>
-                    <li><strong>Tổng $n$ số hạng đầu:</strong> $S_n =$ [CHE: $\\dfrac{n(u_1 + u_n)}{2}$] $=$ [CHE: $\\dfrac{n}{2}[2u_1 + (n - 1)d]$].</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b2-c2-i1',
+                    html: '<strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 + (n - 1)d$].',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Tính số hạng tổng quát',
+                      problem: 'Cho cấp số cộng $(u_n)$ có $u_1 = -2$ và công sai $d = 3$. Tính giá trị số hạng $u_{10}$.',
+                      solution: 'Áp dụng công thức $u_n = u_1 + (n - 1)d$:<br/>$$u_{10} = u_1 + 9d = -2 + 9 \\cdot 3 = \\mathbf{25}$$',
+                    },
+                  },
+                  {
+                    id: 'b2-c2-i2',
+                    html: '<strong>Liên hệ 2 số hạng:</strong> $u_m - u_k =$ [CHE: $(m - k)d$].',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Tìm nhanh công sai d',
+                      problem: 'Cho cấp số cộng $(u_n)$ biết $u_3 = 7$ và $u_8 = 22$. Tìm công sai $d$.',
+                      solution: 'Ta có $u_8 - u_3 = (8 - 3)d \\iff 22 - 7 = 5d \\iff 5d = 15 \\Rightarrow d = \\mathbf{3}$.',
+                    },
+                  },
+                  {
+                    id: 'b2-c2-i3',
+                    html: '<strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $a + c = 2b$] $\\iff b =$ [CHE: $\\dfrac{a + c}{2}$].',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Trung bình cộng 3 số',
+                      problem: 'Tìm $x$ để ba số $2; x; 14$ theo thứ tự đó lập thành một cấp số cộng.',
+                      solution: 'Theo tính chất CSC: $x = \\dfrac{2 + 14}{2} = \\mathbf{8}$ (ta được CSC $2; 8; 14$ có $d = 6$).',
+                    },
+                  },
+                  {
+                    id: 'b2-c2-i4',
+                    html: '<strong>Tổng $n$ số hạng đầu:</strong> $S_n =$ [CHE: $\\dfrac{n(u_1 + u_n)}{2}$] $=$ [CHE: $\\dfrac{n}{2}[2u_1 + (n - 1)d]$].',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Thực tế (Rạp chiếu phim)',
+                      problem: 'Một rạp chiếu phim có $15$ hàng ghế, hàng đầu $20$ ghế, mỗi hàng sau nhiều hơn hàng trước $3$ ghế. Hỏi rạp có tất cả bao nhiêu ghế?',
+                      solution: 'Số ghế các hàng lập thành CSC với $u_1 = 20, d = 3, n = 15$. Tổng số ghế:<br/>$$S_{15} = \\frac{15}{2}[2 \\cdot 20 + 14 \\cdot 3] = \\frac{15 \\cdot 82}{2} = \\mathbf{615}\\text{ ghế}$$',
+                    },
+                  },
+                ],
               },
               {
                 id: 'b2-card-3',
                 type: 'warning',
                 title: 'Mẹo giải hệ CSC',
-                content: `
-                  <p style="margin:0;">Đưa mọi số hạng $u_k$ về <strong>2 ẩn $u_1, d$</strong> qua $u_k = u_1 + (k - 1)d$ rồi bấm máy hệ bậc nhất.</p>
-                `,
+                items: [
+                  {
+                    id: 'b2-c3-i1',
+                    html: 'Đưa mọi số hạng $u_k$ về <strong>2 ẩn $u_1, d$</strong> qua $u_k = u_1 + (k - 1)d$ rồi bấm máy hệ bậc nhất.',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Giải hệ phương trình CSC',
+                      problem: 'Tìm $u_1, d$ của CSC thỏa mãn $\\begin{cases} u_2 + u_5 = 16 \\\\ u_3 + u_7 = 22 \\end{cases}$.',
+                      solution: 'Biểu diễn theo $u_1, d$: $\\begin{cases} (u_1 + d) + (u_1 + 4d) = 16 \\\\ (u_1 + 2d) + (u_1 + 6d) = 22 \\end{cases} \\iff \\begin{cases} 2u_1 + 5d = 16 \\\\ 2u_1 + 8d = 22 \\end{cases}$.<br/>Trừ vế theo vế: $3d = 6 \\Rightarrow d = \\mathbf{2}$, thay ngược lại được $u_1 = \\mathbf{3}$.',
+                    },
+                  },
+                ],
               },
             ],
             flipCards: [
               {
                 id: 'b2-flip-1',
                 trapCategory: 'index',
-                trapLabel: 'Bẫy nhầm hệ số (n − 1)',
+                trapLabel: 'Bẫy nhầm hệ số $(n - 1)$',
                 problem: 'Cho cấp số cộng có $u_1 = 3$ và công sai $d = 2$. Tính $u_{10}$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['21'],
@@ -343,7 +521,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b2-flip-2',
                 trapCategory: 'coeff',
-                trapLabel: 'Bẫy thiếu hệ số 2u₁',
+                trapLabel: 'Bẫy thiếu hệ số $2u_1$',
                 problem: 'Cho cấp số cộng có $u_1 = 3$ và công sai $d = 2$. Tính tổng $S_{10}$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['120'],
@@ -513,35 +691,62 @@ export const REVIEW_CURRICULUM = [
                 id: 'b3-card-1',
                 type: 'theory',
                 title: 'Định nghĩa & Nhận biết',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li>
-                      Mỗi số hạng (từ $u_2$) bằng số hạng liền trước nhân <strong>công bội $q$</strong> không đổi:
-                      $$u_{n+1} = u_n \\cdot q \\quad (\\forall n \\in \\mathbb{N}^*)$$
-                    </li>
-                    <li><strong>Nhận biết</strong> ($u_n \\neq 0$): $\\dfrac{u_{n+1}}{u_n} = q$ (hằng số).</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b3-c1-i1',
+                    html: 'Mỗi số hạng (từ $u_2$) bằng số hạng liền trước nhân <strong>công bội $q$</strong> không đổi: $$u_{n+1} = u_n \\cdot q \\quad (\\forall n \\in \\mathbb{N}^*)$$',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b3-c1-i2',
+                    html: '<strong>Nhận biết</strong> ($u_n \\neq 0$): $\\dfrac{u_{n+1}}{u_n} = q$ (hằng số).',
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
               },
               {
                 id: 'b3-card-2',
                 type: 'formula',
                 title: 'Công thức Cấp số nhân',
-                content: `
-                  <ul class="rv-bullet-list">
-                    <li><strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 \\cdot q^{n-1}$].</li>
-                    <li><strong>Liên hệ 2 số hạng</strong> ($u_k \\neq 0$): $\\dfrac{u_m}{u_k} =$ [CHE: $q^{m-k}$].</li>
-                    <li><strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $b^2 = a \\cdot c$] $\\iff |b| =$ [CHE: $\\sqrt{ac}$].</li>
-                    <li><strong>Tổng $n$ số hạng đầu:</strong> $q \\neq 1 \\Rightarrow S_n =$ [CHE: $u_1 \\cdot \\dfrac{1 - q^n}{1 - q}$] · $q = 1 \\Rightarrow S_n =$ [CHE: $n \\cdot u_1$].</li>
-                  </ul>
-                `,
+                items: [
+                  {
+                    id: 'b3-c2-i1',
+                    html: '<strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 \\cdot q^{n-1}$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b3-c2-i2',
+                    html: '<strong>Liên hệ 2 số hạng</strong> ($u_k \\neq 0$): $\\dfrac{u_m}{u_k} =$ [CHE: $q^{m-k}$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b3-c2-i3',
+                    html: '<strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $b^2 = a \\cdot c$] $\\iff |b| =$ [CHE: $\\sqrt{ac}$].',
+                    hasExample: false,
+                    example: null,
+                  },
+                  {
+                    id: 'b3-c2-i4',
+                    html: `<strong>Tổng $n$ số hạng đầu $S_n$:</strong>
+                      <div class="rv-case-row">
+                        <span class="rv-case-pill">Khi $q \\neq 1$: $S_n =$ [CHE: $u_1 \\cdot \\dfrac{1 - q^n}{1 - q}$]</span>
+                        <span class="rv-case-pill">Khi $q = 1$: $S_n =$ [CHE: $n \\cdot u_1$]</span>
+                      </div>`,
+                    hasExample: false,
+                    example: null,
+                  },
+                ],
               },
             ],
             flipCards: [
               {
                 id: 'b3-flip-1',
                 trapCategory: 'sign',
-                trapLabel: 'Bẫy bỏ sót nghiệm âm (±)',
+                trapLabel: 'Bẫy bỏ sót nghiệm âm ($\\pm$)',
                 problem: 'Ba số $2; x; 18$ theo thứ tự lập thành cấp số nhân. Tìm $x$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedMultiSet: ['-6', '6'],
@@ -551,7 +756,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b3-flip-2',
                 trapCategory: 'index',
-                trapLabel: 'Bẫy nhầm mũ n với n − 1',
+                trapLabel: 'Bẫy nhầm mũ $n$ với $n - 1$',
                 problem: 'Cho cấp số nhân có $u_1 = 2$ và công bội $q = 3$. Tính $u_5$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['162'],
@@ -561,7 +766,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b3-flip-3',
                 trapCategory: 'time',
-                trapLabel: 'Bẫy lệch mốc ban đầu t = 0',
+                trapLabel: 'Bẫy lệch mốc ban đầu $t = 0$',
                 problem: 'Ban đầu có $100$ vi khuẩn, sau mỗi giờ nhân đôi. Hỏi sau $8$ giờ có bao nhiêu con?',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['25600'],
@@ -571,7 +776,7 @@ export const REVIEW_CURRICULUM = [
               {
                 id: 'b3-flip-4',
                 trapCategory: 'domain',
-                trapLabel: 'Bẫy suy biến công bội q = 1',
+                trapLabel: 'Bẫy suy biến công bội $q = 1$',
                 problem: 'Cho cấp số nhân có $u_1 = 5$ và công bội $q = 1$. Tính tổng $S_{10}$.',
                 placeholder: 'Nhập đáp án...',
                 acceptedAnswers: ['50'],

@@ -1,7 +1,13 @@
 import { api } from './api.js?v=20261126l';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
+import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261127p';
 import { cropPdfFiguresFromFile, replaceTokensInExamOrDeck } from './pdf-reader.js?v=20261126l';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
+import {
+  normalizeImgKey,
+  readImageFileAsDataUrl,
+  scanMissingImages,
+  replaceMissingImageInExam,
+} from './exam-images.js?v=20261127q';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -193,16 +199,21 @@ function normalizeMathForSlides(html) {
       do {
         prev = out;
         out = out.replace(
-          /\$([^$\n]+)\$\s*(=|\+|-|−|<|>|≤|≥|≠|≈|×|·|±)\s*\$([^$\n]+)\$/g,
-          (_, lhs, op, rhs) => `$${lhs} ${OP_MAP[op] || op} ${rhs}$`
+          /(?<!\\)\$([^$]+?)(?<!\\)\$\s*(=|\+|-|−|<|>|≤|≥|≠|≈|×|·|±)\s*(?<!\\)\$([^$]+?)(?<!\\)\$/g,
+          (full, lhs, op, rhs) => {
+            // Never merge across multi-line environments like \begin{array} or \begin{cases}
+            if (/\\begin\{|\\end\{/.test(lhs) || /\\begin\{|\\end\{/.test(rhs)) return full;
+            return `$${lhs} ${OP_MAP[op] || op} ${rhs}$`;
+          }
         );
       } while (out !== prev);
 
       // Add breathing space when Vietnamese word or colon touches an opening $
       out = out.replace(/([A-Za-zÀ-ỹ:])(\$[^$\n]+\$)/g, '$1 $2');
 
-      // Pass 2: Auto-wrap plain-text math fragments (outside existing $...$ / \(...\))
-      const segs = out.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g);
+      // Pass 2: Auto-wrap plain-text math fragments (outside existing $...$ / $$...$$ / \(...\) / \[...\])
+      // Supports multi-line $...$ blocks such as $\Delta:\left\{\begin{array}{l} ... \end{array}\right.$
+      const segs = out.split(/(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|(?<!\\)\$(?!\$)[\s\S]+?(?<!\\)\$)/g);
       out = segs
         .map((seg) => {
           if (!seg) return seg;
@@ -224,6 +235,12 @@ function normalizeMathForSlides(html) {
             s = s.replace(/(?<!\\);(?:\\[,:! ]|\s)+/g, ';');
             s = s.replace(/(?<!\\)(?<!\{);(?!\})/g, '{;}');
             return s;
+          }
+
+          // Safety guard: if plain-text segment contains raw LaTeX commands (e.g. broken/unclosed math),
+          // never auto-wrap pieces with $...$ or it will corrupt the formula further.
+          if (/\\(?:begin|end|left|right|array|cases|aligned|frac|dfrac|Delta|overrightarrow)\b/.test(seg)) {
+            return seg;
           }
 
           // Plain text outside math: auto-wrap coordinates/intervals like (3; 1), A(-2; 5), [-2; +∞), (0; -1; 3)
@@ -279,9 +296,45 @@ function renderShortAnswerCellsHtml(val = '') {
   return out;
 }
 
-function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
+const BULB_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2v.3h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></svg>`;
+
+function renderQuestionSolutionHtml(q, solKey, isShown) {
+  const rawExp = String(q?.explanation || '').trim();
+  if (!rawExp || !isShown) return '';
+  return `
+    <div class="ls-solution-box" data-ls-sol-box="${escapeAttr(solKey)}">
+      <div class="ls-solution-head">
+        <span class="ls-solution-badge">${BULB_ICON_SVG} Lời giải</span>
+        <button type="button" class="ls-solution-close" data-ls-sol-toggle="${escapeAttr(solKey)}" title="Ẩn lời giải" aria-label="Ẩn lời giải">✕</button>
+      </div>
+      <div class="ls-solution-body">${normalizeMathForSlides(rawExp)}</div>
+    </div>
+  `;
+}
+
+function renderQuestionBulbBtnHtml(q, solKey, isShown) {
+  const hasExp = Boolean(String(q?.explanation || '').trim());
+  if (!hasExp) return '';
+  return `
+    <button
+      type="button"
+      class="ls-q-bulb-btn ${isShown ? 'is-on' : ''}"
+      data-ls-sol-toggle="${escapeAttr(solKey)}"
+      title="${isShown ? 'Ẩn lời giải' : 'Hiện lời giải'}"
+      aria-label="${isShown ? 'Ẩn lời giải' : 'Hiện lời giải'}"
+      aria-pressed="${isShown ? 'true' : 'false'}"
+    >${BULB_ICON_SVG}</button>
+  `;
+}
+
+function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks, shownSolutions }) {
   const { num, q } = item;
   const stemHtml = normalizeMathForSlides(q.stem || '');
+  const solKey = `${part}-${num}`;
+  const solShown = Boolean(shownSolutions?.has?.(solKey));
+  const bulbBtnHtml = renderQuestionBulbBtnHtml(q, solKey, solShown);
+  const solBoxHtml = renderQuestionSolutionHtml(q, solKey, solShown);
+
   if (part === 1) {
     const opts = Array.isArray(q.options) ? q.options : [];
     const cols = estimateOptionsCols(opts, dock, dockWidth);
@@ -289,6 +342,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
     return `
       <div class="ls-q-block is-p1" data-q-block="1-${num}">
         <div class="ls-q-stem">
+          ${bulbBtnHtml}
           <span class="ls-q-num">Câu ${num}.</span>
           <span class="ls-q-text">${stemHtml}</span>
         </div>
@@ -311,6 +365,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
             })
             .join('')}
         </div>
+        ${solBoxHtml}
       </div>
     `;
   }
@@ -320,6 +375,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
     return `
       <div class="ls-q-block is-p2" data-q-block="2-${num}">
         <div class="ls-q-stem">
+          ${bulbBtnHtml}
           <span class="ls-q-num">Câu ${num}.</span>
           <span class="ls-q-text">${stemHtml}</span>
         </div>
@@ -358,6 +414,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
             })
             .join('')}
         </div>
+        ${solBoxHtml}
       </div>
     `;
   }
@@ -367,6 +424,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
     return `
       <div class="ls-q-block is-p3" data-q-block="3-${num}">
         <div class="ls-q-stem">
+          ${bulbBtnHtml}
           <span class="ls-q-num">Câu ${num}.</span>
           <span class="ls-q-text">${stemHtml}</span>
         </div>
@@ -396,6 +454,7 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
             aria-label="Xóa đáp số"
           >✕</button>
         </div>
+        ${solBoxHtml}
       </div>
     `;
   }
@@ -404,9 +463,11 @@ function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks }) {
   return `
     <div class="ls-q-block is-p4" data-q-block="4-${num}">
       <div class="ls-q-stem">
+        ${bulbBtnHtml}
         <span class="ls-q-num">Câu ${num}.</span>
         <span class="ls-q-text">${stemHtml}</span>
       </div>
+      ${solBoxHtml}
     </div>
   `;
 }
@@ -440,6 +501,7 @@ export function createLectureSlidesController({ uiHelpers }) {
       p2: {}, // { [`${qNum}-${stmtKey}`]: 'T' | 'F' }
       p3: {}, // { [qNum]: string }
     },
+    shownSolutions: new Set(), // `${part}-${num}`
   };
 
   let mountEl = null;
@@ -563,6 +625,7 @@ export function createLectureSlidesController({ uiHelpers }) {
     state.slideIdx = 0;
     state.showIndex = false;
     state.demoMarks = { p1: {}, p2: {}, p3: {} };
+    state.shownSolutions = new Set();
     renderCurrent();
   }
 
@@ -732,6 +795,13 @@ export function createLectureSlidesController({ uiHelpers }) {
     const showChunkSelector = cur.part === 1 || cur.part === 3 || cur.part === 4;
     const activeChunk = state.partChunk[cur.part] || 1;
     const partShortMap = { 1: 'P.I', 3: 'P.III', 4: 'P.IV' };
+    const slideSolKeys = cur.items
+      .filter((it) => Boolean(String(it.q?.explanation || '').trim()))
+      .map((it) => `${cur.part}-${it.num}`);
+    const hasSlideSolution = slideSolKeys.length > 0;
+    const allSlideSolutionsShown = hasSlideSolution && slideSolKeys.every((k) => state.shownSolutions.has(k));
+    const missingImgInfo = scanMissingImages(state.deck);
+    const otherWarnings = (state.warnings || []).filter((w) => !String(w).includes('\\includegraphics'));
 
     return `
       <div class="ls-player-shell ${state.isFullscreen ? 'is-fs' : ''} ${state.hideToolbar ? 'is-bar-hidden' : ''}" id="lsPlayerShell">
@@ -837,6 +907,18 @@ export function createLectureSlidesController({ uiHelpers }) {
                 <circle cx="12" cy="12" r="5" fill="#e60000"/>
               </svg>
             </button>
+
+            <!-- Lightbulb Solution Toggle -->
+            <button
+              type="button"
+              class="ls-tb-btn is-icon ls-sol-btn ${allSlideSolutionsShown ? 'is-sol-active' : ''} ${hasSlideSolution ? '' : 'is-sol-empty'}"
+              id="btnLsSolution"
+              title="${hasSlideSolution ? (allSlideSolutionsShown ? 'Ẩn lời giải trang này (Phím G)' : 'Hiện lời giải trang này (Phím G)') : 'Trang này chưa có lời giải'}"
+              aria-label="Hiện/ẩn lời giải"
+              aria-pressed="${allSlideSolutionsShown ? 'true' : 'false'}"
+            >
+              ${BULB_ICON_SVG}
+            </button>
           </div>
 
           <div class="ls-tb-right">
@@ -873,6 +955,7 @@ export function createLectureSlidesController({ uiHelpers }) {
                 <button type="button" class="ls-mini-btn ${state.dock === 'full' ? 'active' : ''}" data-ls-dock="full" title="Chuẩn">⬜</button>
                 <button type="button" class="ls-mini-btn ${state.dock === 'right' ? 'active' : ''}" data-ls-dock="right" title="Dồn phải">◨</button>
                 <button type="button" class="ls-mini-btn ${state.laserOn ? 'is-laser-mini' : ''}" id="btnLsLaserFloat" title="Bút laser đỏ (Phím L)">●</button>
+                <button type="button" class="ls-mini-btn ${allSlideSolutionsShown ? 'is-sol-mini' : ''}" id="btnLsSolutionFloat" title="Hiện/ẩn lời giải (Phím G)" aria-label="Hiện/ẩn lời giải">${BULB_ICON_SVG}</button>
                 <button type="button" class="ls-mini-btn" id="btnLsFullscreenFloat" title="${state.isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}">${state.isFullscreen ? '✕' : '⛶'}</button>
                 <button type="button" class="ls-mini-btn" id="btnLsShowBar" title="Hiện lại thanh công cụ">Hiện thanh</button>
               </div>
@@ -918,8 +1001,21 @@ export function createLectureSlidesController({ uiHelpers }) {
         }
 
         ${
-          state.warnings.length > 0
-            ? `<div class="ls-warn-banner">${state.warnings.map((w) => `<div>${escapeHtml(w)}</div>`).join('')}</div>`
+          missingImgInfo.uniqueNames.length > 0
+            ? `
+              <div class="ls-missing-img-banner">
+                <div class="ls-missing-img-row">
+                  <span>⚠ Thiếu <strong>${missingImgInfo.uniqueNames.length}</strong> ảnh trong mã LaTeX: ${missingImgInfo.uniqueNames.map((n) => `<code>${escapeHtml(n)}</code>`).join(', ')}</span>
+                  <button type="button" class="btn btn-primary btn-sm" id="btnLsBulkUploadImgs">Tải ảnh lên (tự khớp tên)</button>
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${
+          otherWarnings.length > 0
+            ? `<div class="ls-warn-banner">${otherWarnings.map((w) => `<div>${escapeHtml(w)}</div>`).join('')}</div>`
             : ''
         }
 
@@ -939,6 +1035,7 @@ export function createLectureSlidesController({ uiHelpers }) {
                     dock: state.dock,
                     dockWidth: state.dockWidth,
                     demoMarks: state.demoMarks,
+                    shownSolutions: state.shownSolutions,
                   })
                 )
                 .join('')}
@@ -1438,6 +1535,26 @@ export function createLectureSlidesController({ uiHelpers }) {
     renderCurrent();
   }
 
+  function toggleCurrentSlideSolutions() {
+    const slides = getSlides();
+    const cur = slides[state.slideIdx];
+    if (!cur) return;
+    const keys = cur.items
+      .filter((it) => Boolean(String(it.q?.explanation || '').trim()))
+      .map((it) => `${cur.part}-${it.num}`);
+    if (keys.length === 0) {
+      showToast('Trang này chưa có lời giải chi tiết.', 'info');
+      return;
+    }
+    const allShown = keys.every((k) => state.shownSolutions.has(k));
+    if (allShown) {
+      keys.forEach((k) => state.shownSolutions.delete(k));
+    } else {
+      keys.forEach((k) => state.shownSolutions.add(k));
+    }
+    renderCurrent();
+  }
+
   function bindStageEvents() {
     mountEl.querySelector('#btnLsBack')?.addEventListener('click', () => {
       exitAllFullscreen({ rerender: false });
@@ -1537,6 +1654,75 @@ export function createLectureSlidesController({ uiHelpers }) {
     mountEl.querySelector('#btnLsFullscreenFloat')?.addEventListener('click', toggleFullscreen);
     mountEl.querySelector('#btnLsLaser')?.addEventListener('click', toggleLaser);
     mountEl.querySelector('#btnLsLaserFloat')?.addEventListener('click', toggleLaser);
+    mountEl.querySelector('#btnLsSolution')?.addEventListener('click', toggleCurrentSlideSolutions);
+    mountEl.querySelector('#btnLsSolutionFloat')?.addEventListener('click', toggleCurrentSlideSolutions);
+    mountEl.querySelectorAll('[data-ls-sol-toggle]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = btn.dataset.lsSolToggle;
+        if (!key) return;
+        if (state.shownSolutions.has(key)) state.shownSolutions.delete(key);
+        else state.shownSolutions.add(key);
+        renderCurrent();
+      });
+    });
+
+    // Missing image click-to-upload directly on slides + bulk auto-match upload
+    mountEl.querySelectorAll('.q-figure.is-missing-img[data-missing-img]').forEach((box) => {
+      box.addEventListener('click', () => {
+        const targetName = box.dataset.missingImg;
+        if (!targetName || !state.deck) return;
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = 'image/*';
+        inp.onchange = async () => {
+          const file = inp.files?.[0];
+          if (!file) return;
+          try {
+            const url = await readImageFileAsDataUrl(file);
+            const n = replaceMissingImageInExam(state.deck, targetName, url);
+            renderCurrent();
+            showToast(`Đã chèn ảnh "${targetName}" (${n} vị trí)!`, 'success');
+          } catch (err) {
+            showToast(err.message || 'Không thể đọc tệp ảnh.', 'error');
+          }
+        };
+        inp.click();
+      });
+    });
+
+    mountEl.querySelector('#btnLsBulkUploadImgs')?.addEventListener('click', () => {
+      if (!state.deck) return;
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.multiple = true;
+      inp.onchange = async () => {
+        const files = Array.from(inp.files || []);
+        if (!files.length) return;
+        const miss = scanMissingImages(state.deck);
+        const byKey = new Map(miss.uniqueNames.map((n) => [normalizeImgKey(n), n]));
+        let matched = 0;
+        for (const f of files) {
+          const target = byKey.get(normalizeImgKey(f.name));
+          if (!target) continue;
+          try {
+            const url = await readImageFileAsDataUrl(f);
+            if (replaceMissingImageInExam(state.deck, target, url) > 0) matched++;
+          } catch {
+            // skip
+          }
+        }
+        renderCurrent();
+        showToast(
+          matched > 0
+            ? `Đã tự động khớp và chèn ${matched} ảnh vào bài trình chiếu!`
+            : 'Chưa có tệp ảnh nào trùng tên. Bạn có thể bấm trực tiếp vào khung "Thiếu ảnh" trên trang để chọn thủ công.',
+          matched > 0 ? 'success' : 'warning'
+        );
+      };
+      inp.click();
+    });
     mountEl.querySelector('#btnLsLaserOff')?.addEventListener('click', () => {
       state.laserOn = false;
       renderCurrent();
@@ -1614,6 +1800,8 @@ export function createLectureSlidesController({ uiHelpers }) {
         setDock('right');
       } else if (e.key === 'l' || e.key === 'L') {
         toggleLaser();
+      } else if (e.key === 'g' || e.key === 'G') {
+        toggleCurrentSlideSolutions();
       } else if (e.key === 'f' || e.key === 'F') {
         toggleFullscreen();
       } else if (e.key === 'Escape') {

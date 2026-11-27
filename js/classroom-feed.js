@@ -8,7 +8,7 @@ import {
   parseVnDateTimeToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js?v=20261123d';
+} from './exam-engine.js?v=20261127p';
 import { loadPdfJs } from './pdf-reader.js?v=20261123d';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 

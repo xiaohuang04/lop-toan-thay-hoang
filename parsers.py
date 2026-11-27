@@ -429,7 +429,79 @@ def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, 
     return out, tokens, pending_pdfs, batch_pdf
 
 
-def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) -> str:
+def _to_roman(n: int) -> str:
+    vals = [
+        (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
+        (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
+        (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+    ]
+    out = []
+    rem = max(1, n)
+    for v, sym in vals:
+        while rem >= v:
+            out.append(sym)
+            rem -= v
+    return "".join(out)
+
+
+def _format_enum_label(opt: str, index_1: int) -> str:
+    """Format an enumerate item marker from optional [...] spec (enumitem / enumerate pkg)."""
+    o = (opt or "").strip()
+    # Extract label=... if enumitem syntax is used
+    m_lbl = re.search(r"label\s*=\s*(?:\{([^}]*)\}|([^,\]]+))", o)
+    spec = (m_lbl.group(1) or m_lbl.group(2) or o).strip() if m_lbl else o
+
+    alpha_lo = chr(ord("a") + ((index_1 - 1) % 26))
+    alpha_hi = chr(ord("A") + ((index_1 - 1) % 26))
+    roman_lo = _to_roman(index_1)
+    roman_hi = roman_lo.upper()
+    arabic = str(index_1)
+
+    if not spec:
+        return f"{arabic}."
+
+    # Handle enumitem macros like \alph*), (\arabic*), \roman*., \Alph*)
+    if any(tok in spec for tok in ("\\alph*", "\\Alph*", "\\arabic*", "\\roman*", "\\Roman*")):
+        res = spec
+        res = res.replace("\\alph*", alpha_lo)
+        res = res.replace("\\Alph*", alpha_hi)
+        res = res.replace("\\arabic*", arabic)
+        res = res.replace("\\roman*", roman_lo)
+        res = res.replace("\\Roman*", roman_hi)
+        res = re.sub(r"\\(?:textbf|bfseries|itshape|emph)\b", "", res)
+        res = res.replace("{", "").replace("}", "").strip()
+        return res or f"{arabic}."
+
+    # Handle classic enumerate package short specs like [a)], [(a)], [a.], [A)], [1)], [(1)], [i)], [I.]
+    clean_spec = re.sub(r"\\(?:textbf|bfseries|itshape|emph)\b", "", spec).replace("{", "").replace("}", "").strip()
+    if re.search(r"\ba\b|^\(?a[\)\.]", clean_spec):
+        return re.sub(r"a", alpha_lo, clean_spec, count=1)
+    if re.search(r"\bA\b|^\(?A[\)\.]", clean_spec):
+        return re.sub(r"A", alpha_hi, clean_spec, count=1)
+    if re.search(r"\bi\b|^\(?i[\)\.]", clean_spec):
+        return re.sub(r"i", roman_lo, clean_spec, count=1)
+    if re.search(r"\bI\b|^\(?I[\)\.]", clean_spec):
+        return re.sub(r"I", roman_hi, clean_spec, count=1)
+    if re.search(r"\b1\b|^\(?1[\)\.]", clean_spec):
+        return re.sub(r"1", arabic, clean_spec, count=1)
+    return f"{arabic}."
+
+
+def _html_escape_attr(s: str) -> str:
+    return (
+        str(s or "")
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def clean_latex_fragment(
+    raw: str,
+    tikz_tokens: dict[str, str] | None = None,
+    missing_imgs: list[str] | None = None,
+) -> str:
     """Normalize Vietnamese ex_test LaTeX fragment into clean HTML + KaTeX math."""
     s = raw.strip()
     if not s:
@@ -464,15 +536,41 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
         s,
     )
 
+    # Strip figure wrappers cleanly while keeping inner content (e.g. \includegraphics)
+    s = re.sub(r"\\begin\{figure\*?\}(?:\[[^\]]*\])?", "", s)
+    s = re.sub(r"\\end\{figure\*?\}", "", s)
+
+    # Detect \includegraphics[...]{imgName} -> interactive missing-image placeholder + auto-warning
+    inc_tokens: dict[str, str] = {}
+
+    def _inc_sub(m: re.Match) -> str:
+        img_name = (m.group(1) or "").strip()
+        if not img_name:
+            return ""
+        if missing_imgs is not None:
+            missing_imgs.append(img_name)
+        safe_attr = _html_escape_attr(img_name)
+        safe_txt = _html_escape_attr(img_name)
+        tok = f" EDULABMISSINGIMG{len(inc_tokens)}END "
+        inc_tokens[tok.strip()] = (
+            f'<div class="q-figure is-missing-img" data-missing-img="{safe_attr}" title="Bấm để tải ảnh {safe_attr} lên">'
+            f'<span class="missing-img-badge">Thiếu ảnh: <strong>{safe_txt}</strong></span>'
+            f'<span class="missing-img-hint">Bấm để tải ảnh lên</span>'
+            f"</div>"
+        )
+        return tok
+
+    s = re.sub(r"\\includegraphics\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}", _inc_sub, s)
+
     # Handle \immini[thm]{left}{right} (and multiple optional args) -> clean text + figure
     def _immini(a1: str, a2: str) -> str:
-        t1 = clean_latex_fragment(a1, tikz_tokens)
-        t2 = clean_latex_fragment(a2, tikz_tokens)
+        t1 = clean_latex_fragment(a1, tikz_tokens, missing_imgs)
+        t2 = clean_latex_fragment(a2, tikz_tokens, missing_imgs)
         if not t2:
             return t1
         if not t1:
             return t2
-        if 'class="q-figure"' in t2:
+        if 'class="q-figure"' in t2 or 'EDULABMISSINGIMG' in t2 or 'EDULABTIKZTOKEN' in t2:
             return f"{t1}{t2}"
         return f'{t1}<div class="q-figure">{t2}</div>'
 
@@ -508,36 +606,77 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
                 continue
             lbl = labels[idx] if idx < len(labels) else str(idx + 1)
             idx += 1
-            items.append(f"• <strong>{lbl})</strong> {clean_latex_fragment(p, tikz_tokens)}")
-        return "<br/>".join(items)
+            items.append(
+                f'<div class="tex-list-item"><span class="tex-list-lbl">{lbl})</span>'
+                f'<div class="tex-list-body">{clean_latex_fragment(p, tikz_tokens, missing_imgs)}</div></div>'
+            )
+        if not items:
+            return ""
+        return f'<div class="tex-list is-enum">{"".join(items)}</div>'
 
     s = re.sub(r"\\begin\{itemchoice\}([\s\S]*?)\\end\{itemchoice\}", _itemchoice_sub, s)
 
-    # Handle itemize / enumerate (preserving custom labels like \item[a)])
+    # Handle itemize / enumerate cleanly (supports nested lists, [a)], [(a)], [1.], label=\alph*), and \item[custom])
+    list_tokens: dict[str, str] = {}
+    innermost_list_re = re.compile(
+        r"\\begin\{(itemize|enumerate)\}(?:\[([^\]]*)\])?((?:(?!\\begin\{(?:itemize|enumerate)\})[\s\S])*?)\\end\{\1\}"
+    )
+
     def _list_sub(m: re.Match) -> str:
-        inner = m.group(2)
+        env = m.group(1)
+        opt = (m.group(2) or "").strip()
+        inner = m.group(3)
         rendered_items: list[str] = []
+        enum_idx = 0
         for raw_item in re.split(r"\\item\b", inner):
             seg = raw_item.strip()
             if not seg:
                 continue
+            enum_idx += 1
             m_lbl = re.match(r"^\[([^\]]+)\]\s*([\s\S]*)$", seg)
             if m_lbl:
                 lbl = m_lbl.group(1).strip()
-                body_html = clean_latex_fragment(m_lbl.group(2).strip(), tikz_tokens)
-                rendered_items.append(f"<strong>{lbl}</strong> {body_html}")
+                body_html = clean_latex_fragment(m_lbl.group(2).strip(), tikz_tokens, missing_imgs)
+                rendered_items.append(
+                    f'<div class="tex-list-item"><span class="tex-list-lbl">{lbl}</span>'
+                    f'<div class="tex-list-body">{body_html}</div></div>'
+                )
+            elif env == "enumerate":
+                lbl = _format_enum_label(opt, enum_idx)
+                body_html = clean_latex_fragment(seg, tikz_tokens, missing_imgs)
+                rendered_items.append(
+                    f'<div class="tex-list-item"><span class="tex-list-lbl">{lbl}</span>'
+                    f'<div class="tex-list-body">{body_html}</div></div>'
+                )
             else:
-                rendered_items.append(f"• {clean_latex_fragment(seg, tikz_tokens)}")
-        return "<br/>".join(rendered_items)
+                body_html = clean_latex_fragment(seg, tikz_tokens, missing_imgs)
+                rendered_items.append(
+                    f'<div class="tex-list-item"><span class="tex-list-lbl is-bullet">•</span>'
+                    f'<div class="tex-list-body">{body_html}</div></div>'
+                )
+        if not rendered_items:
+            return ""
+        cls = "is-enum" if env == "enumerate" else "is-itemize"
+        tok = f" EDULABLISTTOKEN{len(list_tokens)}END "
+        list_tokens[tok.strip()] = f'<div class="tex-list {cls}">{"".join(rendered_items)}</div>'
+        return tok
 
-    s = re.sub(r"\\begin\{(itemize|enumerate)\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{\1\}", _list_sub, s)
+    for _ in range(12):
+        new_s, n_sub = innermost_list_re.subn(_list_sub, s)
+        s = new_s
+        if n_sub == 0:
+            break
 
     # Center / flushleft
-    s = re.sub(
-        r"\\begin\{center\}([\s\S]*?)\\end\{center\}",
-        lambda m: f'<div style="text-align:center;margin:6px 0;">{clean_latex_fragment(m.group(1), tikz_tokens)}</div>',
-        s,
-    )
+    def _center_sub(m: re.Match) -> str:
+        inner_html = clean_latex_fragment(m.group(1), tikz_tokens, missing_imgs)
+        if not inner_html:
+            return ""
+        if 'class="q-figure"' in inner_html or "EDULABMISSINGIMG" in inner_html or "EDULABTIKZTOKEN" in inner_html:
+            return inner_html
+        return f'<div style="text-align:center;margin:6px 0;">{inner_html}</div>'
+
+    s = re.sub(r"\\begin\{center\}([\s\S]*?)\\end\{center\}", _center_sub, s)
 
     # Vietnamese ex_test math macros: \heva{...} and \hoac{...}
     s = replace_command_1arg(s, "heva", lambda inner: r"\left\{\begin{aligned}" + inner.strip() + r"\end{aligned}\right.")
@@ -548,7 +687,7 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
     s = re.sub(r"^(?:\s*\\par\b\s*)+", "", s)
     s = re.sub(r"\s*\\par\b\s*", "<br/>", s)
 
-    # Clean LaTeX list environments (\begin{enumerate}, \begin{itemize}, \item[a)])
+    # Clean any stray unmatched list environments
     s = re.sub(r"\\begin\{(?:enumerate|itemize)\}(?:\[[^\]]*\])?", "", s)
     s = re.sub(r"\\end\{(?:enumerate|itemize)\}", "", s)
     s = re.sub(r"\\item\s*\[([^\]]+)\]\s*", r"<br/><strong>\1</strong> ", s)
@@ -569,40 +708,50 @@ def clean_latex_fragment(raw: str, tikz_tokens: dict[str, str] | None = None) ->
 
     s = _convert_text_newlines(s)
 
-    # Clean leading/trailing <br/> and multiple spaces
-    s = re.sub(r"[ \t]{2,}", " ", s)
-    s = re.sub(r"(<br/>\s*){3,}", "<br/><br/>", s)
-    s = re.sub(r"^(?:<br/>\s*)+", "", s)
-    s = re.sub(r"(?:<br/>\s*)+$", "", s)
-
-    # Re-inject compiled TikZ SVG/PNG HTML safely after text processing
+    # Re-inject list blocks, missing-image placeholders, and compiled TikZ SVG/PNG HTML
+    for tok, html in list_tokens.items():
+        if tok in s:
+            s = s.replace(tok, html)
+    for tok, html in inc_tokens.items():
+        if tok in s:
+            s = s.replace(tok, html)
     if tikz_tokens:
         for tok, html in tikz_tokens.items():
             if tok in s:
                 s = s.replace(tok, html)
 
+    # Clean redundant <br/> immediately before/after block divs (tex-list / q-figure)
+    s = re.sub(r"(?:<br/>\s*)+(<div class=\"(?:tex-list|q-figure))", r"\1", s)
+    s = re.sub(r"(</div>)(?:\s*<br/>)+", r"\1", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    s = re.sub(r"(<br/>\s*){3,}", "<br/><br/>", s)
+    s = re.sub(r"^(?:<br/>\s*)+", "", s)
+    s = re.sub(r"(?:<br/>\s*)+$", "", s)
+
     return s.strip()
 
 
 def _convert_text_newlines(s: str) -> str:
-    """Replace \\\\ and blank lines with <br/> ONLY outside $...$, $$...$$, and \\begin{...} math blocks."""
+    """Replace \\\\ and blank lines with <br/> ONLY outside $...$, $$...$$, \\(...\\), \\[...\\], and \\begin{...} math blocks."""
     out = []
     i = 0
     n = len(s)
     in_dollar = False
     in_ddollar = False
+    in_paren = False
+    in_bracket = False
     math_env_depth = 0
 
     while i < n:
-        if not in_dollar and not in_ddollar and s.startswith("\\begin{", i):
-            m = re.match(r"\\begin\{(aligned|align\*?|equation\*?|cases|array|pmatrix|bmatrix|vmatrix|matrix|gather\*?)\}", s[i:])
+        if s.startswith("\\begin{", i):
+            m = re.match(r"\\begin\{(aligned|align\*?|equation\*?|cases|array|pmatrix|bmatrix|vmatrix|matrix|gather\*?|split|eqnarray\*?)\}", s[i:])
             if m:
                 math_env_depth += 1
                 out.append(m.group(0))
                 i += len(m.group(0))
                 continue
         if math_env_depth > 0 and s.startswith("\\end{", i):
-            m = re.match(r"\\end\{(aligned|align\*?|equation\*?|cases|array|pmatrix|bmatrix|vmatrix|matrix|gather\*?)\}", s[i:])
+            m = re.match(r"\\end\{(aligned|align\*?|equation\*?|cases|array|pmatrix|bmatrix|vmatrix|matrix|gather\*?|split|eqnarray\*?)\}", s[i:])
             if m:
                 math_env_depth = max(0, math_env_depth - 1)
                 out.append(m.group(0))
@@ -614,19 +763,41 @@ def _convert_text_newlines(s: str) -> str:
             i += 2
             continue
 
-        if s.startswith("$$", i) and not in_dollar:
+        if not in_dollar and not in_ddollar:
+            if s.startswith("\\(", i) and not in_paren and not in_bracket:
+                in_paren = True
+                out.append("\\(")
+                i += 2
+                continue
+            if s.startswith("\\)", i) and in_paren:
+                in_paren = False
+                out.append("\\)")
+                i += 2
+                continue
+            if s.startswith("\\[", i) and not in_paren and not in_bracket:
+                in_bracket = True
+                out.append("\\[")
+                i += 2
+                continue
+            if s.startswith("\\]", i) and in_bracket:
+                in_bracket = False
+                out.append("\\]")
+                i += 2
+                continue
+
+        if s.startswith("$$", i) and not in_dollar and not in_paren and not in_bracket:
             in_ddollar = not in_ddollar
             out.append("$$")
             i += 2
             continue
 
-        if s[i] == "$" and not in_ddollar:
+        if s[i] == "$" and not in_ddollar and not in_paren and not in_bracket:
             in_dollar = not in_dollar
             out.append("$")
             i += 1
             continue
 
-        in_math = in_dollar or in_ddollar or math_env_depth > 0
+        in_math = in_dollar or in_ddollar or in_paren or in_bracket or math_env_depth > 0
         if not in_math:
             if s.startswith("\\\\", i):
                 # Skip optional spacing like \\[4pt]
@@ -646,6 +817,12 @@ def _convert_text_newlines(s: str) -> str:
                     j += 1
                 out.append("<br/>" if nl_count >= 2 else " ")
                 i = j
+                continue
+        else:
+            # Inside math: flatten bare newlines into single spaces so downstream inline regexes never split math
+            if s[i] in "\r\n":
+                out.append(" ")
+                i += 1
                 continue
 
         out.append(s[i])
@@ -701,6 +878,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
     part2 = []
     part3 = []
     part4 = []
+    missing_imgs: list[str] = []
     stamp = hex(int(time.time() * 1000))[2:][-5:]
 
     for idx, (_, raw_block) in enumerate(ex_blocks, start=1):
@@ -724,7 +902,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         if lg_match:
             lg_inner, lg_end = read_balanced(block, lg_match.end(), "{", "}")
             if lg_inner is not None:
-                explanation = clean_latex_fragment(lg_inner, tikz_tokens)
+                explanation = clean_latex_fragment(lg_inner, tikz_tokens, missing_imgs)
                 block = (block[:lg_match.start()] + block[lg_end:]).strip()
 
         # Unwrap top-level \immini[thm]{arg1}{arg2} BEFORE splitting \choice / \choiceTF / \shortans
@@ -785,13 +963,13 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 text_clean = re.sub(r"\\True\b\s*", "", a_raw)
                 statements.append({
                     "key": labels[si],
-                    "text": clean_latex_fragment(text_clean, tikz_tokens),
+                    "text": clean_latex_fragment(text_clean, tikz_tokens, missing_imgs),
                     "answer": is_true,
                 })
             part2.append({
                 "id": f"tex-p2-{len(part2)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
                 "statements": statements,
                 "explanation": explanation,
             })
@@ -817,7 +995,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             part3.append({
                 "id": f"tex-p3-{len(part3)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
                 "answer": ans_clean or "0",
                 "explanation": explanation,
             })
@@ -848,7 +1026,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 text_clean = re.sub(r"\\True\b\s*", "", a_raw)
                 options.append({
                     "key": keys[oi],
-                    "text": clean_latex_fragment(text_clean, tikz_tokens),
+                    "text": clean_latex_fragment(text_clean, tikz_tokens, missing_imgs),
                 })
             if not correct_key:
                 correct_key = "A"
@@ -856,14 +1034,14 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             part1.append({
                 "id": f"tex-p1-{len(part1)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens),
+                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
                 "options": options,
                 "answer": correct_key,
                 "explanation": explanation,
             })
         else:
             # Essay / Tự luận question (no \choice, \choiceTF, or \shortans)
-            stem_clean = clean_latex_fragment(block, tikz_tokens)
+            stem_clean = clean_latex_fragment(block, tikz_tokens, missing_imgs)
             if stem_clean:
                 part4.append({
                     "id": f"tex-p4-{len(part4)+1}-{stamp}",
@@ -876,6 +1054,18 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
 
     if len(part1) + len(part2) + len(part3) + len(part4) == 0:
         raise ValueError("Không trích xuất được câu hỏi hợp lệ nào từ mã LaTeX ex_test.")
+
+    unique_missing_imgs: list[str] = []
+    for img_ref in missing_imgs:
+        if img_ref not in unique_missing_imgs:
+            unique_missing_imgs.append(img_ref)
+    if unique_missing_imgs:
+        warnings.insert(
+            0,
+            f"Thiếu {len(unique_missing_imgs)} ảnh minh họa (\\includegraphics): "
+            + ", ".join(unique_missing_imgs)
+            + " — hãy tải ảnh lên để thay thế tự động.",
+        )
 
     return {
         "exam": {
@@ -895,6 +1085,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             "part4": part4,
         },
         "warnings": warnings,
+        "missingImages": unique_missing_imgs,
         "sourceFormat": "latex_extest",
         "pendingTikzPdfs": pending_tikz_pdfs,
         "pendingTikzBatchPdf": pending_tikz_batch_pdf,
@@ -1733,5 +1924,6 @@ def parse_presentation_source(source_type: str, content: str, filename: str = ""
             "part4": ex.get("part4") or [],
         },
         "warnings": clean_warnings,
+        "missingImages": res.get("missingImages") or [],
         "sourceFormat": res.get("sourceFormat", stype),
     }

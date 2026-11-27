@@ -113,4 +113,8 @@ export const api = {
   deleteModel: (id) => request(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   saveModelsSettings: (modelsVisibilityMode) =>
     request('/api/admin/models-settings', { method: 'PUT', body: { modelsVisibilityMode } }),
+
+  // High School Math Review Curriculum (Zero-Friction GET + Admin PUT)
+  getReviewCurriculum: () => request('/api/review-curriculum'),
+  saveReviewCurriculum: (payload) => request('/api/admin/review-curriculum', { method: 'PUT', body: payload }),
 };

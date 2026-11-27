@@ -5,9 +5,10 @@ import {
   formatScoreVN,
   formatTime,
   formatDateTimeVN,
+  parseVnDateTime,
   getDeadlineStatus,
-} from './exam-engine.js?v=20261123d';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261126r';
+} from './exam-engine.js?v=20261127p';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261127p';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -45,6 +46,42 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
     inRunner: false,
   };
 
+  let openUnlockTimerId = null;
+
+  function clearOpenUnlockTimer() {
+    if (openUnlockTimerId) {
+      clearTimeout(openUnlockTimerId);
+      openUnlockTimerId = null;
+    }
+  }
+
+  function scheduleNextOpenUnlock() {
+    clearOpenUnlockTimer();
+    const now = Date.now();
+    let soonestDelayMs = Infinity;
+    for (const asg of state.data.assignments || []) {
+      if (!asg || !asg.openAt) continue;
+      const isLocked = Boolean(asg.isNotOpen || asg.exam?.locked);
+      if (!isLocked) continue;
+      const openDate = parseVnDateTime(asg.openAt);
+      if (!openDate) continue;
+      const diff = openDate.getTime() - now;
+      // Add a 1.5s cushion after openAt so the backend clock has definitely crossed openAt
+      const targetDelay = diff > 0 ? diff + 1500 : 1500;
+      if (targetDelay < soonestDelayMs) {
+        soonestDelayMs = targetDelay;
+      }
+    }
+    if (Number.isFinite(soonestDelayMs) && soonestDelayMs <= 24 * 3600 * 1000) {
+      openUnlockTimerId = setTimeout(() => {
+        openUnlockTimerId = null;
+        if (!state.inRunner) {
+          refresh();
+        }
+      }, soonestDelayMs);
+    }
+  }
+
   async function refresh() {
     try {
       const res = await api.studentDashboard();
@@ -59,6 +96,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       if (state.data.user && typeof onUserUpdated === 'function') {
         onUserUpdated(state.data.user);
       }
+      scheduleNextOpenUnlock();
       if (!state.inRunner) render();
     } catch (err) {
       showToast(err.message || 'Không thể tải dữ liệu lớp học.', 'error');
@@ -446,10 +484,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
             const ex = asg.exam;
             if (!ex) return '';
             const latestSub = asg.mySubmissions?.[0] || null;
-            const isLocked = Boolean((notOpen || ex.locked) && !latestSub);
-            const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0) + (ex.part4?.length || 0);
             const canStart = !notOpen && !expired && !latestSub;
-            const durationMins = asg.durationMinutes || ex.durationMinutes || 45;
 
             return `
               <article class="exam-card" style="cursor:default;">
@@ -474,28 +509,6 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                     </span>
                   </div>
                 </div>
-
-                ${
-                  isLocked
-                    ? `
-                      <div class="exam-card-badges">
-                        <span class="badge badge-neutral">
-                          ${escapeHtml(ex.subject || 'Toán học')} • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
-                        </span>
-                      </div>
-                    `
-                    : `
-                      <div class="exam-card-badges">
-                        <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
-                        <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
-                        <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
-                        ${ex.part4?.length ? `<span class="badge badge-neutral">Phần IV: ${ex.part4.length} câu (Tự luận)</span>` : ''}
-                        <span class="badge badge-neutral">
-                          ${escapeHtml(ex.subject)} • ${totalQ} câu • ${asg.timedMode ? `${durationMins} phút` : 'Không giới hạn giờ'}
-                        </span>
-                      </div>
-                    `
-                }
 
                 <div class="exam-card-footer">
                   <div class="exam-meta-inline" style="flex-wrap:wrap;">
@@ -650,10 +663,10 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
       showToast(`Chưa đến thời gian mở đề (${formatDateTimeVN(asg.openAt)}).`, 'error');
       return;
     }
-    if (asg.exam.locked) {
+    if (asg.exam.locked || asg.isNotOpen) {
       await refresh();
       asg = state.data.assignments.find((a) => a.id === asgId);
-      if (!asg || !asg.exam || asg.exam.locked) {
+      if (!asg || !asg.exam || asg.exam.locked || asg.isNotOpen) {
         showToast(`Chưa đến thời gian mở đề (${formatDateTimeVN(asg?.openAt)}).`, 'error');
         return;
       }
@@ -669,33 +682,111 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
 
     const u = state.data.user;
     const isStrictTest = asg.assignmentType === 'test';
-    if (isStrictTest && document.documentElement.requestFullscreen && !document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
+    const isTimed = Boolean(asg.timedMode);
+    const durationMins = Number(asg.durationMinutes || asg.exam.durationMinutes || 45);
+    const totalQ =
+      (asg.exam.part1?.length || 0) +
+      (asg.exam.part2?.length || 0) +
+      (asg.exam.part3?.length || 0) +
+      (asg.exam.part4?.length || 0);
 
-    state.inRunner = true;
-    examRunner.startTaking({
-      exam: asg.exam,
-      assignment: asg,
-      studentName: u.fullName,
-      studentClass: u.className,
-      isPreview: false,
-      strictTestMode: isStrictTest,
-      shuffle: Boolean(asg.shuffle),
-      timedMode: Boolean(asg.timedMode),
-      durationMinutes: asg.durationMinutes || asg.exam.durationMinutes || 45,
-      onSubmitPersist: async ({ answers, result, elapsedSeconds, examSnapshot }) => {
-        await api.submitExam({
-          assignmentId: asg.id,
-          answers,
-          result,
-          elapsedSeconds,
-          examSnapshot,
+    openModal({
+      title: 'Xác nhận vào làm bài',
+      bodyHtml: `
+        <div class="stu-start-confirm">
+          <div class="stu-start-confirm-head">
+            <span class="badge ${isStrictTest ? 'badge-danger' : 'badge-p1'}">
+              ${isStrictTest ? 'Bài kiểm tra' : 'Bài tập'}
+            </span>
+            <h3 class="stu-start-confirm-title">${escapeHtml(asg.title)}</h3>
+          </div>
+
+          <div class="stu-start-confirm-box">
+            <div class="stu-start-confirm-row">
+              <span class="stu-start-confirm-lbl">Thời gian làm bài</span>
+              <strong class="stu-start-confirm-val ${isTimed ? 'is-timed' : ''}">
+                ${isTimed ? `${durationMins} phút` : 'Không giới hạn thời gian'}
+              </strong>
+            </div>
+            ${
+              totalQ > 0
+                ? `
+                  <div class="stu-start-confirm-row">
+                    <span class="stu-start-confirm-lbl">Số lượng câu hỏi</span>
+                    <strong class="stu-start-confirm-val">${totalQ} câu</strong>
+                  </div>
+                `
+                : ''
+            }
+            ${
+              asg.dueAt
+                ? `
+                  <div class="stu-start-confirm-row">
+                    <span class="stu-start-confirm-lbl">${isStrictTest ? 'Đóng đề / Hạn nộp' : 'Hạn nộp'}</span>
+                    <strong class="stu-start-confirm-val">${escapeHtml(formatDateTimeVN(asg.dueAt))}</strong>
+                  </div>
+                `
+                : ''
+            }
+          </div>
+
+          ${
+            isStrictTest
+              ? `
+                <div class="stu-start-confirm-note is-warn">
+                  Bài kiểm tra áp dụng chế độ <strong>toàn màn hình</strong> và tự động tính giờ ngay khi bắt đầu. Không chuyển tab hoặc thoát toàn màn hình giữa chừng.
+                </div>
+              `
+              : `
+                <div class="stu-start-confirm-note">
+                  ${
+                    isTimed
+                      ? `Đồng hồ đếm ngược <strong>${durationMins} phút</strong> sẽ bắt đầu ngay khi bạn xác nhận. Hệ thống tự động nộp bài khi hết giờ.`
+                      : 'Bạn chỉ được nộp bài <strong>1 lần duy nhất</strong>. Hãy chuẩn bị sẵn sàng trước khi bắt đầu.'
+                  }
+                </div>
+              `
+          }
+        </div>
+      `,
+      footerHtml: `
+        <button type="button" class="btn btn-secondary" id="btnCancelStartExam">Để sau</button>
+        <button type="button" class="btn btn-primary" id="btnConfirmStartExam">Vào làm bài ngay →</button>
+      `,
+      onMount: (modalEl) => {
+        modalEl.querySelector('#btnCancelStartExam')?.addEventListener('click', closeModal);
+        modalEl.querySelector('#btnConfirmStartExam')?.addEventListener('click', () => {
+          closeModal();
+          clearOpenUnlockTimer();
+          if (isStrictTest && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+          state.inRunner = true;
+          examRunner.startTaking({
+            exam: asg.exam,
+            assignment: asg,
+            studentName: u.fullName,
+            studentClass: u.className,
+            isPreview: false,
+            strictTestMode: isStrictTest,
+            shuffle: Boolean(asg.shuffle),
+            timedMode: isTimed,
+            durationMinutes: durationMins,
+            onSubmitPersist: async ({ answers, result, elapsedSeconds, examSnapshot }) => {
+              await api.submitExam({
+                assignmentId: asg.id,
+                answers,
+                result,
+                elapsedSeconds,
+                examSnapshot,
+              });
+            },
+            onExit: async () => {
+              state.inRunner = false;
+              await refresh();
+            },
+          });
         });
-      },
-      onExit: async () => {
-        state.inRunner = false;
-        await refresh();
       },
     });
   }
@@ -730,6 +821,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
   return {
     init: refresh,
     goHome: () => {
+      clearOpenUnlockTimer();
       examRunner.cleanup();
       state.inRunner = false;
       state.subTab = 'feed';

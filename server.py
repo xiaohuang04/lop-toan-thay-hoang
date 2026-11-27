@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -48,8 +48,32 @@ LIVE_GAME = LiveGameEngine(
 )
 
 
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def now_vn() -> datetime:
+    return datetime.now(VN_TZ)
+
+
 def now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return now_vn().isoformat(timespec="seconds")
+
+
+def parse_vn_datetime(dt_str: str | None) -> datetime | None:
+    """Parse an ISO / datetime-local timestamp into an aware Vietnam (UTC+7) datetime.
+    Naive strings (e.g. '2026-11-27T19:30' from teacher inputs) are always interpreted
+    as Vietnam local time (UTC+7), regardless of the server's OS timezone (e.g. UTC on Render)."""
+    raw = str(dt_str or "").strip()
+    if not raw:
+        return None
+    normalized = re.sub(r"Z$", "+00:00", raw, flags=re.IGNORECASE)
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=VN_TZ)
+    return dt.astimezone(VN_TZ)
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -87,8 +111,8 @@ def read_json(path: Path, default):
 
 def build_seed_db() -> dict:
     seed_exams = read_json(SEED_EXAMS_FILE, [])
-    due_7d = (datetime.now() + timedelta(days=7)).replace(hour=23, minute=59, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
-    due_2d = (datetime.now() + timedelta(days=2)).replace(hour=22, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+    due_7d = (now_vn() + timedelta(days=7)).replace(hour=23, minute=59, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+    due_2d = (now_vn() + timedelta(days=2)).replace(hour=22, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
 
     users = [
         {
@@ -164,7 +188,7 @@ def build_seed_db() -> dict:
             "createdAt": now_iso(),
         })
     if len(seed_exams) >= 2:
-        open_now = datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+        open_now = now_vn().replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
         assignments.append({
             "id": "asg-demo-02",
             "examId": seed_exams[1]["id"],
@@ -670,7 +694,7 @@ def compute_student_month_tuition(student: dict, tuition: dict, month_key: str) 
 
 
 def build_student_tuition_payload(student: dict, tuition: dict) -> dict:
-    now_dt = datetime.now().astimezone()
+    now_dt = now_vn()
     cur_month = f"{now_dt.year:04d}-{now_dt.month:02d}"
     start_date = str(student.get("startDate") or student.get("createdAt") or "")[:10]
     start_month = start_date[:7] if re.match(r"^\d{4}-\d{2}", start_date) else cur_month
@@ -922,25 +946,17 @@ def build_or_update_assignment(
 
 
 def is_past_due(due_at_str: str | None) -> bool:
-    if not due_at_str:
+    due_dt = parse_vn_datetime(due_at_str)
+    if due_dt is None:
         return False
-    try:
-        due_dt = datetime.fromisoformat(due_at_str)
-        now = datetime.now(due_dt.tzinfo) if due_dt.tzinfo else datetime.now()
-        return now > due_dt
-    except Exception:
-        return False
+    return now_vn() > due_dt
 
 
 def is_before_open(open_at_str: str | None) -> bool:
-    if not open_at_str:
+    open_dt = parse_vn_datetime(open_at_str)
+    if open_dt is None:
         return False
-    try:
-        open_dt = datetime.fromisoformat(open_at_str)
-        now = datetime.now(open_dt.tzinfo) if open_dt.tzinfo else datetime.now()
-        return now < open_dt
-    except Exception:
-        return False
+    return now_vn() < open_dt
 
 
 def gen_id(prefix: str) -> str:
@@ -1340,6 +1356,13 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                             return self.send_json(403, {"error": "Bạn chỉ có thể xem mô hình thuộc khối lớp của mình."})
                 return self.send_json(200, {"model": model})
 
+            # Public Zero-Friction Math Review Curriculum (students & guests can read without login)
+            if path == "/api/review-curriculum":
+                rc = db.get("review_curriculum")
+                if not isinstance(rc, dict) or not isinstance(rc.get("grades"), list) or not rc.get("grades"):
+                    return self.send_json(200, {"reviewCurriculum": None})
+                return self.send_json(200, {"reviewCurriculum": rc})
+
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
 
@@ -1416,6 +1439,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     for m in STORE.list_models()
                 ]
                 return self.send_json(200, {
+                    "serverNow": now_iso(),
                     "user": public_user(user),
                     "storageMode": STORE.mode,
                     "storageError": STORE.supabase_error,
@@ -1520,6 +1544,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 ]
 
                 return self.send_json(200, {
+                    "serverNow": now_iso(),
                     "user": public_user(user),
                     "assignments": assigned_list,
                     "submissions": sorted(my_subs, key=lambda x: x["submittedAt"], reverse=True),
@@ -1943,7 +1968,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "email": str(body.get("email", "")).strip(),
                     "phone": str(body.get("phone", "")).strip(),
                     "dob": str(body.get("dob", "")).strip(),
-                    "startDate": str(body.get("startDate", "")).strip() or datetime.now().astimezone().strftime("%Y-%m-%d"),
+                    "startDate": str(body.get("startDate", "")).strip() or now_vn().strftime("%Y-%m-%d"),
                     "isDemo": is_demo,
                     "createdAt": now_iso(),
                 }
@@ -2010,7 +2035,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "lessonId": str(body.get("lessonId", "12-b4")),
                     "visible": bool(body.get("visible", True)),
                     "thumbnail": str(body.get("thumbnail", "")),
-                    "addedAt": datetime.now().strftime("%d/%m/%Y"),
+                    "addedAt": now_vn().strftime("%d/%m/%Y"),
                     "isBuiltin": False,
                 }
                 try:
@@ -2278,6 +2303,20 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                 db["gradebook"] = clean_gb
                 save_db(db, keys=["gradebook"])
                 return self.send_json(200, {"gradebook": clean_gb})
+
+            # Save Math Review Curriculum & Custom Box Presets (Admin only)
+            if path == "/api/admin/review-curriculum":
+                if not isinstance(body, dict) or not isinstance(body.get("grades"), list):
+                    return self.send_json(400, {"error": "Dữ liệu chương trình Ôn tập không hợp lệ."})
+                clean_rc = {
+                    "version": int(body.get("version") or 1),
+                    "updatedAt": now_iso(),
+                    "boxPresets": body.get("boxPresets") if isinstance(body.get("boxPresets"), list) else [],
+                    "grades": body["grades"],
+                }
+                db["review_curriculum"] = clean_rc
+                save_db(db, keys=["review_curriculum"])
+                return self.send_json(200, {"reviewCurriculum": clean_rc})
 
             # Update Classroom Newsfeed Post (Admin) — syncs optional linked assignment
             if path.startswith("/api/admin/posts/"):

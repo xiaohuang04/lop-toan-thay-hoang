@@ -18,13 +18,13 @@ import {
   parseVnDateOnlyToIso,
   getDeadlineStatus,
   defaultVnDateTime,
-} from './exam-engine.js?v=20261123d';
+} from './exam-engine.js?v=20261127p';
 import {
   renderFeedList,
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261126r';
+} from './classroom-feed.js?v=20261127p';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -38,6 +38,17 @@ import {
   bindAnalyticsAdminEvents,
 } from './analytics-admin.js?v=20261124a';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
+import { attachJellyTabs } from './ux-effects.js?v=20261125l';
+import {
+  normalizeImgKey,
+  readImageFileAsDataUrl,
+  scanMissingImages,
+  scanMissingImagesInQuestion,
+  replaceMissingImageInExam,
+  extractQuestionImages,
+  appendImageToQuestion,
+  removeImageFromQuestion,
+} from './exam-images.js?v=20261127q';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -201,25 +212,102 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         </div>
       </div>
 
-      <div class="subtab-bar">
-        <button class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}" data-subtab="feed">
-          Bảng tin <span class="badge badge-neutral">${posts.length}</span>
-        </button>
-        <button class="subtab-btn ${state.subTab === 'exams' ? 'active' : ''}" data-subtab="exams">
-          Ngân hàng đề thi <span class="badge badge-neutral">${exams.length}</span>
-        </button>
-        <button class="subtab-btn ${state.subTab === 'tuition' ? 'active' : ''}" data-subtab="tuition">
-          Học phí <span class="badge ${unpaidCurCount > 0 ? 'badge-warning' : 'badge-success'}">${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'}</span>
-        </button>
-        <button class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}" data-subtab="assignments">
-          Bài tập <span class="badge badge-neutral">${assignments.length}</span>
-        </button>
-        <button class="subtab-btn ${state.subTab === 'analytics' ? 'active' : ''}" data-subtab="analytics">
-          Thống kê
-        </button>
-        <button class="subtab-btn ${state.subTab === 'students' ? 'active' : ''}" data-subtab="students">
-          Tài khoản học sinh <span class="badge badge-neutral">${students.length}</span>
-        </button>
+      <div class="teacher-subtabs-wrap">
+        <div class="subtab-bar teacher-subtabs is-icon-expand" role="tablist" aria-label="Quản lý lớp học">
+          <button
+            class="subtab-btn ${state.subTab === 'feed' ? 'active' : ''}"
+            data-subtab="feed"
+            data-tooltip="Bảng tin (${posts.length})"
+            aria-label="Bảng tin"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/>
+                <path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Bảng tin</span>
+            <span class="badge badge-neutral subtab-count">${posts.length}</span>
+          </button>
+
+          <button
+            class="subtab-btn ${state.subTab === 'exams' ? 'active' : ''}"
+            data-subtab="exams"
+            data-tooltip="Ngân hàng đề thi (${exams.length})"
+            aria-label="Ngân hàng đề thi"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Ngân hàng đề thi</span>
+            <span class="badge badge-neutral subtab-count">${exams.length}</span>
+          </button>
+
+          <button
+            class="subtab-btn ${state.subTab === 'tuition' ? 'active' : ''}"
+            data-subtab="tuition"
+            data-tooltip="Học phí (${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'})"
+            aria-label="Học phí"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
+              </svg>
+              ${unpaidCurCount > 0 ? `<span class="subtab-mini-dot" aria-hidden="true">${unpaidCurCount}</span>` : ''}
+            </span>
+            <span class="subtab-lbl">Học phí</span>
+            <span class="badge ${unpaidCurCount > 0 ? 'badge-warning' : 'badge-success'} subtab-count">${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'}</span>
+          </button>
+
+          <button
+            class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}"
+            data-subtab="assignments"
+            data-tooltip="Bài tập (${assignments.length})"
+            aria-label="Bài tập"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Bài tập</span>
+            <span class="badge badge-neutral subtab-count">${assignments.length}</span>
+          </button>
+
+          <button
+            class="subtab-btn ${state.subTab === 'analytics' ? 'active' : ''}"
+            data-subtab="analytics"
+            data-tooltip="Thống kê"
+            aria-label="Thống kê"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Thống kê</span>
+          </button>
+
+          <button
+            class="subtab-btn ${state.subTab === 'students' ? 'active' : ''}"
+            data-subtab="students"
+            data-tooltip="Tài khoản học sinh (${students.length})"
+            aria-label="Tài khoản học sinh"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Tài khoản học sinh</span>
+            <span class="badge badge-neutral subtab-count">${students.length}</span>
+          </button>
+        </div>
       </div>
 
       <div id="teacherSubContent">
@@ -233,6 +321,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     `;
 
     bindDashboardEvents();
+    attachJellyTabs(rootEl.querySelector('.teacher-subtabs'), {
+      key: 'teacher-subtabs',
+      itemSelector: '.subtab-btn',
+    });
     renderMath(rootEl);
   }
 
@@ -331,6 +423,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                 .map((ex) => {
                   const p4n = ex.part4?.length || 0;
                   const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0) + p4n;
+                  const missingInfo = scanMissingImages(ex);
                   return `
                     <article class="exam-card" style="cursor:default;">
                       <div class="exam-card-top">
@@ -338,7 +431,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                           <h3 class="exam-card-title">${escapeHtml(ex.title)}</h3>
                           ${ex.description ? `<p class="exam-card-desc">${escapeHtml(ex.description)}</p>` : ''}
                         </div>
-                        <span class="badge badge-p1">${escapeHtml(ex.code || 'MĐ')}</span>
+                        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                          ${
+                            missingInfo.uniqueNames.length > 0
+                              ? `<span class="badge badge-warning" title="Thiếu ảnh: ${escapeAttr(missingInfo.uniqueNames.join(', '))}">⚠ Thiếu ${missingInfo.uniqueNames.length} ảnh</span>`
+                              : ''
+                          }
+                          <span class="badge badge-p1">${escapeHtml(ex.code || 'MĐ')}</span>
+                        </div>
                       </div>
 
                       <div class="exam-card-badges">
@@ -437,11 +537,66 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function renderEditorQuestionMediaBar(q, idx) {
+    const imgs = extractQuestionImages(q);
+    const missing = scanMissingImagesInQuestion(q);
+    return `
+      <div class="ed-media-zone">
+        <div class="ed-media-bar">
+          <button type="button" class="btn btn-secondary btn-sm ed-img-add-btn" data-ed-add-img="${idx}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+            </svg>
+            Chèn ảnh vào câu này
+          </button>
+          <span class="ed-media-hint">Hoặc dán trực tiếp ảnh chụp (Ctrl+V) vào ô đề bài</span>
+        </div>
+        ${
+          missing.length > 0
+            ? `
+              <div class="ed-missing-chips">
+                ${missing
+                  .map(
+                    (name) => `
+                  <button type="button" class="ed-missing-chip" data-ed-fill-missing="${escapeAttr(name)}" title="Bấm để tải ảnh thay thế cho ${escapeAttr(name)}">
+                    <span>⚠ Thiếu ảnh: <strong>${escapeHtml(name)}</strong></span>
+                    <span class="ed-missing-chip-act">Tải ảnh lên</span>
+                  </button>
+                `
+                  )
+                  .join('')}
+              </div>
+            `
+            : ''
+        }
+        ${
+          imgs.length > 0
+            ? `
+              <div class="ed-img-thumbs">
+                ${imgs
+                  .map(
+                    (im) => `
+                  <div class="ed-img-thumb">
+                    <img src="${escapeAttr(im.src)}" alt="${escapeAttr(im.alt)}" />
+                    <button type="button" class="ed-img-del" data-ed-del-img-q="${idx}" data-ed-del-img-field="${escapeAttr(im.field)}" data-ed-del-img-idx="${im.localIdx}" title="Xóa ảnh này" aria-label="Xóa ảnh">✕</button>
+                  </div>
+                `
+                  )
+                  .join('')}
+              </div>
+            `
+            : ''
+        }
+      </div>
+    `;
+  }
+
   function renderExamEditor() {
     const ex = state.editingExam;
     ex.part4 = ex.part4 || [];
     const isNew = !ex.id;
     const pTab = state.editorPartTab;
+    const missingInfo = scanMissingImages(ex);
 
     rootEl.innerHTML = `
       <div class="exam-topbar">
@@ -456,6 +611,34 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           <button class="btn btn-primary btn-sm" id="btnSaveExamEditor">Lưu đề thi</button>
         </div>
       </div>
+
+      ${
+        missingInfo.uniqueNames.length > 0
+          ? `
+            <div class="ed-missing-banner">
+              <div class="ed-missing-banner-top">
+                <div>
+                  <strong>⚠ Đề thi đang thiếu ${missingInfo.uniqueNames.length} ảnh minh họa (\\includegraphics)</strong>
+                  <p>Bấm vào từng tên ảnh để chọn tệp, hoặc tải hàng loạt ảnh cùng lúc (tự khớp theo tên file như <code>im29.png</code>).</p>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btnEdBulkUploadImgs">Tải nhiều ảnh tự khớp tên</button>
+              </div>
+              <div class="ed-missing-chips">
+                ${missingInfo.uniqueNames
+                  .map(
+                    (name) => `
+                  <button type="button" class="ed-missing-chip" data-ed-fill-missing="${escapeAttr(name)}">
+                    <span><strong>${escapeHtml(name)}</strong></span>
+                    <span class="ed-missing-chip-act">Chọn ảnh</span>
+                  </button>
+                `
+                  )
+                  .join('')}
+              </div>
+            </div>
+          `
+          : ''
+      }
 
       <!-- Exam Metadata Form -->
       <div class="card panel-card" style="margin-bottom:20px;">
@@ -536,6 +719,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
           <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div class="form-row-2">
           ${q.options
@@ -580,6 +764,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Đề dẫn (hỗ trợ LaTeX)</label>
           <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
           ${q.statements
@@ -622,6 +807,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Đề bài</label>
           <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div class="form-row-2">
           <div class="form-group" style="margin-bottom:0;">
@@ -654,6 +840,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
           <textarea class="input-control" rows="3" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Lời giải / Hướng dẫn chấm (tùy chọn)</label>
@@ -794,6 +981,135 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         const idx = Number(btn.dataset.delQ);
         state.editingExam[state.editorPartTab].splice(idx, 1);
         renderExamEditor();
+      });
+    });
+
+    // Helper: pick single/multi images from disk
+    const pickImageFiles = ({ multiple = false } = {}) =>
+      new Promise((resolve) => {
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = 'image/*';
+        inp.multiple = multiple;
+        inp.onchange = () => resolve(Array.from(inp.files || []));
+        inp.click();
+      });
+
+    // Insert image into a specific question
+    rootEl.querySelectorAll('[data-ed-add-img]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const idx = Number(btn.dataset.edAddImg);
+        const q = state.editingExam?.[state.editorPartTab]?.[idx];
+        if (!q) return;
+        const files = await pickImageFiles({ multiple: true });
+        if (!files.length) return;
+        for (const f of files) {
+          try {
+            const url = await readImageFileAsDataUrl(f);
+            appendImageToQuestion(q, url, f.name);
+          } catch (err) {
+            showToast(err.message || 'Không đọc được tệp ảnh.', 'error');
+          }
+        }
+        renderExamEditor();
+        showToast(`Đã chèn ${files.length} ảnh vào câu hỏi!`, 'success');
+      });
+    });
+
+    // Remove an attached image from a question
+    rootEl.querySelectorAll('[data-ed-del-img-q]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const qIdx = Number(btn.dataset.edDelImgQ);
+        const field = btn.dataset.edDelImgField;
+        const localIdx = Number(btn.dataset.edDelImgIdx);
+        const q = state.editingExam?.[state.editorPartTab]?.[qIdx];
+        if (!q) return;
+        if (removeImageFromQuestion(q, field, localIdx)) {
+          renderExamEditor();
+          showToast('Đã xóa ảnh khỏi câu hỏi.', 'info');
+        }
+      });
+    });
+
+    // Fill a specific missing \includegraphics{name} placeholder
+    rootEl.querySelectorAll('[data-ed-fill-missing]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const targetName = btn.dataset.edFillMissing;
+        const files = await pickImageFiles({ multiple: false });
+        if (!files.length) return;
+        try {
+          const url = await readImageFileAsDataUrl(files[0]);
+          const count = replaceMissingImageInExam(state.editingExam, targetName, url);
+          renderExamEditor();
+          showToast(`Đã thay thế ảnh "${targetName}" (${count} vị trí)!`, 'success');
+        } catch (err) {
+          showToast(err.message || 'Không đọc được tệp ảnh.', 'error');
+        }
+      });
+    });
+
+    // Bulk upload images & auto-match by filename (e.g. im29.png -> im29)
+    rootEl.querySelector('#btnEdBulkUploadImgs')?.addEventListener('click', async () => {
+      syncEditorMetadataFromDom();
+      syncCurrentPartQuestionsFromDom();
+      const files = await pickImageFiles({ multiple: true });
+      if (!files.length) return;
+      const missingInfo = scanMissingImages(state.editingExam);
+      const missingByKey = new Map(missingInfo.uniqueNames.map((n) => [normalizeImgKey(n), n]));
+      let matchedFiles = 0;
+      let totalReplaced = 0;
+      for (const f of files) {
+        const key = normalizeImgKey(f.name);
+        const targetName = missingByKey.get(key);
+        if (!targetName) continue;
+        try {
+          const url = await readImageFileAsDataUrl(f);
+          const n = replaceMissingImageInExam(state.editingExam, targetName, url);
+          if (n > 0) {
+            matchedFiles++;
+            totalReplaced += n;
+          }
+        } catch {
+          // skip unreadable file
+        }
+      }
+      renderExamEditor();
+      if (matchedFiles > 0) {
+        showToast(`Đã tự động khớp và chèn ${matchedFiles} ảnh (${totalReplaced} vị trí)!`, 'success');
+      } else {
+        showToast('Không có tệp nào trùng tên với ảnh đang thiếu. Hãy đặt tên file khớp (VD: im29.png) hoặc bấm trực tiếp từng tên ảnh.', 'warning');
+      }
+    });
+
+    // Support Ctrl+V image paste directly into question stem textareas
+    rootEl.querySelectorAll('.editor-q-card textarea[data-field="stem"]').forEach((ta) => {
+      ta.addEventListener('paste', async (e) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imgItem = items.find((it) => it.type && it.type.startsWith('image/'));
+        if (!imgItem) return;
+        e.preventDefault();
+        const file = imgItem.getAsFile();
+        if (!file) return;
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const card = ta.closest('.editor-q-card');
+        const qIdx = Number(card?.dataset.qIdx);
+        const q = state.editingExam?.[state.editorPartTab]?.[qIdx];
+        if (!q) return;
+        try {
+          const url = await readImageFileAsDataUrl(file);
+          appendImageToQuestion(q, url, 'Ảnh dán từ clipboard');
+          renderExamEditor();
+          showToast('Đã dán ảnh vào câu hỏi!', 'success');
+        } catch (err) {
+          showToast(err.message || 'Không thể dán ảnh.', 'error');
+        }
       });
     });
 
@@ -1654,6 +1970,38 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
   // =========================================================
   // SUB-TAB 3: STUDENT ACCOUNTS MANAGEMENT
   // =========================================================
+  function renderStudentAvatarHtml(student) {
+    const name = String(student?.fullName || student?.username || 'HS').trim();
+    const parts = name.split(/\s+/).filter(Boolean);
+    const initials =
+      parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : (parts[0] || 'HS').slice(0, 2).toUpperCase();
+    const rawUrl = String(student?.avatarUrl || '').trim();
+    const displayUrl =
+      rawUrl && rawUrl.startsWith('/assets/avatars/') && !rawUrl.includes('?')
+        ? `${rawUrl}?v=20261126v`
+        : rawUrl;
+    if (displayUrl) {
+      return `
+        <span class="stu-acct-avatar has-img" title="${escapeAttr(name)}">
+          <img
+            src="${escapeAttr(displayUrl)}"
+            alt="${escapeAttr(name)}"
+            loading="lazy"
+            onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-flex';"
+          />
+          <span class="stu-acct-avatar-fallback" style="display:none;">${escapeHtml(initials)}</span>
+        </span>
+      `;
+    }
+    return `
+      <span class="stu-acct-avatar" title="${escapeAttr(name)}">
+        <span class="stu-acct-avatar-fallback">${escapeHtml(initials)}</span>
+      </span>
+    `;
+  }
+
   function renderStudentsSection() {
     const { students, submissions } = state.data;
     const subCounts = new Map();
@@ -1692,15 +2040,20 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   <tr>
                     <td class="stu-col-user"><code class="username-pill">@${escapeHtml(s.username)}</code></td>
                     <td class="stu-col-name">
-                      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                        <strong>${escapeHtml(s.fullName)}</strong>
-                        ${s.isDemo ? `<span class="badge badge-p3">HS Demo</span>` : ''}
+                      <div class="stu-acct-person">
+                        ${renderStudentAvatarHtml(s)}
+                        <div class="stu-acct-person-meta">
+                          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <strong>${escapeHtml(s.fullName)}</strong>
+                            ${s.isDemo ? `<span class="badge badge-p3">HS Demo</span>` : ''}
+                          </div>
+                          ${
+                            s.startDate || s.createdAt
+                              ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Vào học: ${escapeHtml(formatDateVNAdmin(s.startDate || (s.createdAt || '').slice(0, 10)))}</div>`
+                              : ''
+                          }
+                        </div>
                       </div>
-                      ${
-                        s.startDate || s.createdAt
-                          ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Vào học: ${escapeHtml(formatDateVNAdmin(s.startDate || (s.createdAt || '').slice(0, 10)))}</div>`
-                          : ''
-                      }
                     </td>
                     <td class="stu-col-class"><span class="badge badge-p1">${escapeHtml(s.className || '—')}</span></td>
                     <td class="stu-col-code ${hasCode ? '' : 'is-empty-cell'}">${escapeHtml(s.studentCode || '—')}</td>
@@ -2435,6 +2788,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           const p3n = ex.part3?.length || 0;
           const p4n = ex.part4?.length || 0;
           const sampleQ = ex.part1?.[0] || ex.part2?.[0] || ex.part3?.[0] || ex.part4?.[0];
+          const missingInfo = scanMissingImages(ex);
 
           previewEl.innerHTML = `
             <div class="import-preview-card">
@@ -2455,6 +2809,34 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   }
                 </div>
               </div>
+
+              ${
+                missingInfo.uniqueNames.length > 0
+                  ? `
+                    <div class="ed-missing-banner is-compact">
+                      <div class="ed-missing-banner-top">
+                        <div>
+                          <strong>⚠ Phát hiện ${missingInfo.uniqueNames.length} ảnh đang thiếu trong đề (\\includegraphics)</strong>
+                          <p>Tải ảnh lên ngay tại đây để tự chèn trước khi lưu, hoặc bổ sung sau trong mục Tinh chỉnh đề.</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnImpBulkUploadImgs">Chọn nhiều ảnh tự khớp tên</button>
+                      </div>
+                      <div class="ed-missing-chips">
+                        ${missingInfo.uniqueNames
+                          .map(
+                            (name) => `
+                          <button type="button" class="ed-missing-chip" data-imp-fill-missing="${escapeAttr(name)}">
+                            <span><strong>${escapeHtml(name)}</strong></span>
+                            <span class="ed-missing-chip-act">Chọn ảnh</span>
+                          </button>
+                        `
+                          )
+                          .join('')}
+                      </div>
+                    </div>
+                  `
+                  : ''
+              }
 
               ${
                 res.warnings?.length
@@ -2486,6 +2868,62 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             } catch {
               showToast('Không thể sao chép tự động.', 'error');
             }
+          });
+          previewEl.querySelectorAll('[data-imp-fill-missing]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const targetName = btn.dataset.impFillMissing;
+              const inp = document.createElement('input');
+              inp.type = 'file';
+              inp.accept = 'image/*';
+              inp.onchange = async () => {
+                const file = inp.files?.[0];
+                if (!file) return;
+                try {
+                  const url = await readImageFileAsDataUrl(file);
+                  const n = replaceMissingImageInExam(res.exam, targetName, url);
+                  res.warnings = (res.warnings || []).filter((w) => !String(w).includes('\\includegraphics'));
+                  showParsedPreview(res);
+                  showToast(`Đã chèn ảnh "${targetName}" (${n} vị trí)!`, 'success');
+                } catch (err) {
+                  showToast(err.message || 'Không đọc được tệp ảnh.', 'error');
+                }
+              };
+              inp.click();
+            });
+          });
+          previewEl.querySelector('#btnImpBulkUploadImgs')?.addEventListener('click', () => {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = 'image/*';
+            inp.multiple = true;
+            inp.onchange = async () => {
+              const files = Array.from(inp.files || []);
+              if (!files.length) return;
+              const curMiss = scanMissingImages(res.exam);
+              const byKey = new Map(curMiss.uniqueNames.map((n) => [normalizeImgKey(n), n]));
+              let matched = 0;
+              for (const f of files) {
+                const target = byKey.get(normalizeImgKey(f.name));
+                if (!target) continue;
+                try {
+                  const url = await readImageFileAsDataUrl(f);
+                  if (replaceMissingImageInExam(res.exam, target, url) > 0) matched++;
+                } catch {
+                  // skip
+                }
+              }
+              if (scanMissingImages(res.exam).uniqueNames.length === 0) {
+                res.warnings = (res.warnings || []).filter((w) => !String(w).includes('\\includegraphics'));
+              }
+              showParsedPreview(res);
+              showToast(
+                matched > 0
+                  ? `Đã khớp và chèn tự động ${matched} ảnh!`
+                  : 'Chưa có ảnh nào trùng tên với ảnh đang thiếu. Hãy chọn từng chip tên ảnh bên dưới.',
+                matched > 0 ? 'success' : 'warning'
+              );
+            };
+            inp.click();
           });
           renderMath(previewEl);
         }

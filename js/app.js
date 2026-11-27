@@ -1,13 +1,13 @@
-import { api, setToken } from './api.js?v=20261126l';
-import { createExamRunner } from './exam-runner.js?v=20261125l';
-import { createTeacherController } from './teacher-ui.js?v=20261126u';
-import { createStudentController } from './student-ui.js?v=20261126t';
+import { api, setToken } from './api.js?v=20261127d';
+import { createExamRunner } from './exam-runner.js?v=20261127q';
+import { createTeacherController } from './teacher-ui.js?v=20261127r';
+import { createStudentController } from './student-ui.js?v=20261127p';
 import { createHtmlLabController } from './html-lab.js?v=20261124z';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261125l';
-import { createLectureSlidesController } from './lecture-slides.js?v=20261126n';
-import { createMathReviewController } from './math-review.js?v=20261127c';
-import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261123d';
+import { createLectureSlidesController } from './lecture-slides.js?v=20261127q';
+import { createMathReviewController } from './math-review.js?v=20261127n';
+import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261127p';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';
 import {
@@ -173,7 +173,7 @@ function fitInlineMath(container) {
     if (node.closest('.katex-display')) return;
     node.classList.remove('is-katex-wrap');
     const box =
-      node.closest('.ls-q-stem, .ls-opt-val, .ls-tf-val, .q-stem, .opt-text, .tf-text') || node.parentElement;
+      node.closest('.ls-q-stem, .ls-opt-val, .ls-tf-val, .q-stem, .opt-text, .tf-text, .solution-box') || node.parentElement;
     if (!box) return;
     const maxW = box.clientWidth;
     if (maxW > 48 && node.getBoundingClientRect().width > maxW - 4) {
@@ -368,6 +368,8 @@ const gradebookCtrl = createGradebookController({
 const mathReviewCtrl = createMathReviewController({
   rootEl: document.getElementById('reviewRoot'),
   uiHelpers,
+  api,
+  getUser: () => currentUser,
   onRouteChange: (subPath, opts) => {
     if (panels.review?.classList.contains('active')) {
       syncBrowserUrl(subPath, opts);
@@ -712,7 +714,13 @@ function updateUserHeader() {
         : `@${currentUser.username}`;
   }
   if (tabExamLabel) {
-    tabExamLabel.textContent = isAdmin ? 'Quản lý lớp học' : 'Lớp học của tôi';
+    const lbl = isAdmin ? 'Quản lý lớp học' : 'Lớp học của tôi';
+    tabExamLabel.textContent = lbl;
+    if (tabBtnExam) tabBtnExam.dataset.tooltip = lbl;
+  }
+  const mainTabsNav = document.querySelector('.main-tabs');
+  if (mainTabsNav) {
+    mainTabsNav.classList.toggle('is-icon-expand', isAdmin);
   }
   if (menuItemSwitchDemo) {
     menuItemSwitchDemo.classList.toggle('hidden', !isAdmin);
@@ -745,6 +753,11 @@ function updateUserHeader() {
   }
   if (tabBtnLiveGame) {
     tabBtnLiveGame.classList.toggle('hidden', !isAdmin);
+  }
+  const mainTabsEl = document.querySelector('.main-tabs');
+  if (mainTabsEl) {
+    const j = attachJellyTabs(mainTabsEl, { key: 'main-nav-tabs', itemSelector: '.main-tab' });
+    j?.sync(true);
   }
 }
 
@@ -1611,6 +1624,7 @@ function enterGuestReviewMode(routeOpts = null, { updateUrl = true } = {}) {
   tabBtnGradebook?.classList.add('hidden');
   tabBtnLiveGame?.classList.add('hidden');
   tabBtnReview?.classList.remove('hidden');
+  document.querySelector('.main-tabs')?.classList.remove('is-icon-expand');
   switchTab('review', { updateUrl, replaceUrl: true, routeOpts });
 }
 

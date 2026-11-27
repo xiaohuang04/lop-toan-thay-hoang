@@ -7,7 +7,7 @@ import {
   formatShortAnswerSlots,
   prepareExamInstance,
   gradeExam,
-} from './exam-engine.js';
+} from './exam-engine.js?v=20261127p';
 import { renderFlipClockHtml, updateFlipClock } from './ux-effects.js?v=20261125l';
 
 export function createExamRunner({ rootEl, uiHelpers }) {
@@ -259,12 +259,15 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
   function updateTimerDom() {
     const clockEl = rootEl.querySelector('#examClock');
-    if (!clockEl) return;
-    if (state.timedMode) {
-      updateFlipClock(clockEl, state.secondsLeft, { warnUnder: 300 });
-    } else {
-      updateFlipClock(clockEl, state.elapsedSeconds, { warnUnder: 0 });
+    const secVal = state.timedMode ? state.secondsLeft : state.elapsedSeconds;
+    const isWarn = Boolean(state.timedMode && state.secondsLeft <= 300);
+    if (clockEl) {
+      updateFlipClock(clockEl, secVal, { warnUnder: state.timedMode ? 300 : 0 });
     }
+    const floatValEl = rootEl.querySelector('#examFloatTimerVal');
+    const floatBtn = rootEl.querySelector('#examFloatTimer');
+    if (floatValEl) floatValEl.textContent = formatTime(secVal);
+    if (floatBtn) floatBtn.classList.toggle('is-warn', isWarn);
   }
 
   function render(isReview) {
@@ -491,6 +494,27 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           </div>
         </aside>
       </div>
+
+      ${
+        !isReview
+          ? `
+            <button
+              type="button"
+              class="exam-float-timer ${state.timedMode && state.secondsLeft <= 300 ? 'is-warn' : ''}"
+              id="examFloatTimer"
+              title="Chạm để chuyển xuống phiếu trả lời và nút Nộp bài"
+              aria-label="Đồng hồ làm bài"
+            >
+              <svg class="exam-float-timer-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+              </svg>
+              <span class="exam-float-timer-val" id="examFloatTimerVal">${formatTime(state.timedMode ? state.secondsLeft : state.elapsedSeconds)}</span>
+              <span class="exam-float-timer-sep" aria-hidden="true">•</span>
+              <span class="exam-float-timer-prog" id="examFloatTimerProg">${done}/${total}</span>
+            </button>
+          `
+          : ''
+      }
     `;
 
     bindEvents(isReview);
@@ -665,24 +689,32 @@ export function createExamRunner({ rootEl, uiHelpers }) {
         </div>
         <div class="q-stem">${q.stem}</div>
         ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
-        <div class="sa-box-wrap">
-          <div class="sa-input-group">
-            <label for="sa-${q.id}">Kết quả</label>
-            <input id="sa-${q.id}" class="sa-input" type="text" inputmode="decimal" maxlength="4" value="${escapeAttr(val)}" data-p3-q="${q.id}" ${isReview ? 'disabled' : ''} />
-          </div>
-          <div class="sa-omr-preview" style="align-self:flex-end;">
-            <div class="sa-slots" id="slots-${q.id}">
-              ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
-            </div>
-          </div>
-          ${
-            isReview
-              ? `<div class="sa-hint">
-                  Đáp án của bạn: <strong>${val ? escapeHtml(val) : '(Bỏ trống)'}</strong> • Đáp án chuẩn: <strong style="color:var(--success)">${escapeHtml(q.answer)}</strong>
-                </div>`
-              : ''
-          }
-        </div>
+        ${
+          isReview
+            ? `
+              <div class="sa-box-wrap is-review">
+                <div class="sa-slots ${detail?.isCorrect ? 'is-correct' : 'is-wrong'}" id="slots-${q.id}">
+                  ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
+                </div>
+                <div class="sa-review-ans">
+                  Đáp án đúng: <strong class="sa-review-ans-val">${escapeHtml(q.answer)}</strong>
+                </div>
+              </div>
+            `
+            : `
+              <div class="sa-box-wrap">
+                <div class="sa-input-group">
+                  <label for="sa-${q.id}">Kết quả</label>
+                  <input id="sa-${q.id}" class="sa-input" type="text" inputmode="decimal" maxlength="4" value="${escapeAttr(val)}" data-p3-q="${q.id}" />
+                </div>
+                <div class="sa-omr-preview" style="align-self:flex-end;">
+                  <div class="sa-slots" id="slots-${q.id}">
+                    ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
+                  </div>
+                </div>
+              </div>
+            `
+        }
         ${isReview && state.showSolutions && q.explanation ? renderSolutionBox(q.explanation) : ''}
       </article>
     `;
@@ -810,6 +842,9 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
     rootEl.querySelector('#btnSubmitExam')?.addEventListener('click', openSubmitConfirmModal);
     rootEl.querySelector('#btnExitExam')?.addEventListener('click', openExitConfirmModal);
+    rootEl.querySelector('#examFloatTimer')?.addEventListener('click', () => {
+      rootEl.querySelector('.exam-sidebar')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     rootEl.querySelector('#btnReenterFs')?.addEventListener('click', () => {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
@@ -821,8 +856,10 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     const { done, total } = countAnswered();
     const fill = rootEl.querySelector('#progressFill');
     const txt = rootEl.querySelector('#progressCountText');
+    const floatProg = rootEl.querySelector('#examFloatTimerProg');
     if (fill) fill.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
     if (txt) txt.textContent = `${done} / ${total} câu`;
+    if (floatProg) floatProg.textContent = `${done}/${total}`;
     const omrBtn = rootEl.querySelector(`[data-omr="${qId}"]`);
     if (omrBtn) omrBtn.className = `omr-cell ${getOmrCellClass(part, qId, false, null)}`;
   }

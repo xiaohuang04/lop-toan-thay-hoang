@@ -30,12 +30,36 @@ export function formatTime(sec) {
   return `${String(mins).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
 }
 
+/**
+ * Parse an ISO or datetime-local string into a Date object.
+ * Naive strings without a timezone offset (e.g. '2026-11-27T19:30') are always
+ * treated as Vietnam local time (UTC+7), matching the backend VN_TZ convention.
+ */
+export function parseVnDateTime(isoOrLocal) {
+  const s = String(isoOrLocal || '').trim();
+  if (!s) return null;
+  const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(s);
+  const normalized = !hasTz && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(s)
+    ? `${s}+07:00`
+    : s;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function formatDateTimeVN(isoOrLocal) {
   if (!isoOrLocal) return 'Không giới hạn';
-  const d = new Date(isoOrLocal);
-  if (Number.isNaN(d.getTime())) return String(isoOrLocal);
+  const raw = String(isoOrLocal).trim();
+  // Exact naive VN wall-clock string: display directly without browser TZ drift
+  const naiveMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (naiveMatch) {
+    return `${naiveMatch[3]}/${naiveMatch[2]}/${naiveMatch[1]} ${naiveMatch[4]}:${naiveMatch[5]}`;
+  }
+  const d = parseVnDateTime(raw);
+  if (!d) return String(isoOrLocal);
+  // Shift to UTC+7 (Vietnam time) for consistent display across any device timezone
+  const vn = new Date(d.getTime() + 7 * 3600000);
   const pad = (v) => String(v).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${pad(vn.getUTCDate())}/${pad(vn.getUTCMonth() + 1)}/${vn.getUTCFullYear()} ${pad(vn.getUTCHours())}:${pad(vn.getUTCMinutes())}`;
 }
 
 export function formatDateOnlyVN(isoOrStr) {
@@ -121,8 +145,8 @@ export function getDeadlineStatus(dueAt, openAt = '') {
   const now = Date.now();
 
   if (openAt) {
-    const openDate = new Date(openAt);
-    if (!Number.isNaN(openDate.getTime()) && now < openDate.getTime()) {
+    const openDate = parseVnDateTime(openAt);
+    if (openDate && now < openDate.getTime()) {
       const diffMin = Math.ceil((openDate.getTime() - now) / 60000);
       const diffHours = Math.floor(diffMin / 60);
       const diffDays = Math.floor(diffHours / 24);
@@ -134,8 +158,8 @@ export function getDeadlineStatus(dueAt, openAt = '') {
   }
 
   if (!dueAt) return { notOpen: false, expired: false, urgent: false, label: 'Đang mở' };
-  const due = new Date(dueAt);
-  if (Number.isNaN(due.getTime())) return { notOpen: false, expired: false, urgent: false, label: String(dueAt) };
+  const due = parseVnDateTime(dueAt);
+  if (!due) return { notOpen: false, expired: false, urgent: false, label: String(dueAt) };
   const diffMs = due.getTime() - now;
   if (diffMs <= 0) {
     return { notOpen: false, expired: true, urgent: false, label: 'Đã quá hạn nộp' };
