@@ -17,6 +17,27 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   let strictHandlers = null;
   let violationModalOpen = false;
   let enteredFullscreenOnce = false;
+  let lastKeepAliveMs = 0;
+  let isSubmitting = false;
+
+  const KEEP_ALIVE_INTERVAL_MS = 5 * 60 * 1000;
+
+  function isOutsideCronWindowVN(nowMs = Date.now()) {
+    const vn = new Date(nowMs + 7 * 3600000);
+    const minsOfDay = vn.getUTCHours() * 60 + vn.getUTCMinutes();
+    // External cron-job.org covers 06:40 - 23:50 (UTC+7).
+    // Overlap by 5 mins on each edge (23:45 - 06:45) so Render never sleeps during handoff.
+    return minsOfDay >= 23 * 60 + 45 || minsOfDay < 6 * 60 + 45;
+  }
+
+  function maybeSendAfterHoursKeepAlive() {
+    if (state.mode !== 'taking' || state.isPreview) return;
+    const now = Date.now();
+    if (!isOutsideCronWindowVN(now)) return;
+    if (now - lastKeepAliveMs < KEEP_ALIVE_INTERVAL_MS) return;
+    lastKeepAliveMs = now;
+    fetch('/api/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
+  }
 
   const state = {
     mode: 'idle', // 'taking' | 'review'
@@ -210,6 +231,8 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     state.onSubmitPersist = onSubmitPersist;
     state.onExit = onExit;
     state.onRetry = null;
+    lastKeepAliveMs = Date.now();
+    isSubmitting = false;
 
     setHeaderStatus('');
     if (state.strictTestMode) {
@@ -218,6 +241,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
     timerId = setInterval(() => {
       state.elapsedSeconds++;
+      maybeSendAfterHoursKeepAlive();
       if (state.timedMode) {
         state.secondsLeft--;
         updateTimerDom();
@@ -788,13 +812,13 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                           autocorrect="off"
                           autocapitalize="off"
                           spellcheck="false"
+                          size="1"
                           maxlength="4"
                           class="sa-slot sa-slot-input ${ch ? 'is-filled' : 'empty'}"
                           data-p3-q="${q.id}"
                           data-p3-idx="${si}"
                           value="${escapeAttr(ch)}"
                           aria-label="Ô ${si + 1} câu ${startNum + index}"
-                          placeholder="·"
                         />
                       `
                     )
@@ -1164,22 +1188,52 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   }
 
   async function finalizeSubmission() {
+    if (isSubmitting) return;
+    isSubmitting = true;
     clearTimer();
     teardownStrictMode(true);
+    const submitBtn = rootEl.querySelector('#btnSubmitExam');
+    const prevBtnText = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang gửi bài nộp...';
+    }
+
     const res = gradeExam(state.exam, state.answers);
     if (typeof state.onSubmitPersist === 'function') {
-      try {
-        await state.onSubmitPersist({
-          answers: state.answers,
-          result: res,
-          elapsedSeconds: state.elapsedSeconds,
-          examSnapshot: state.shuffle ? state.exam : null,
-        });
-      } catch (err) {
-        showToast(err.message || 'Không thể lưu bài nộp lên máy chủ.', 'error');
+      const payload = {
+        answers: state.answers,
+        result: res,
+        elapsedSeconds: state.elapsedSeconds,
+        examSnapshot: state.shuffle ? state.exam : null,
+      };
+      const retryDelays = [2500, 5000];
+      let lastErr = null;
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        try {
+          await state.onSubmitPersist(payload);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          const status = Number(err?.status || 0);
+          const isClientErr = status >= 400 && status < 500;
+          if (isClientErr || attempt >= retryDelays.length) break;
+          showToast(`Đang kết nối lại máy chủ để lưu bài nộp (thử lại lần ${attempt + 1})...`, 'info');
+          await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+        }
+      }
+      if (lastErr) {
+        isSubmitting = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = prevBtnText || 'Nộp bài thi';
+        }
+        showToast(lastErr.message || 'Không thể lưu bài nộp lên máy chủ. Vui lòng bấm Nộp bài lại.', 'error');
         return;
       }
     }
+    isSubmitting = false;
     state.result = res;
     state.mode = 'review';
     state.strictTestMode = false;

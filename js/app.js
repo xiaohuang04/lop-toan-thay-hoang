@@ -1,5 +1,5 @@
 import { api, setToken } from './api.js?v=20261127d';
-import { createExamRunner } from './exam-runner.js?v=20261127u';
+import { createExamRunner } from './exam-runner.js?v=20261127w';
 import { createTeacherController } from './teacher-ui.js?v=20261127u';
 import { createStudentController } from './student-ui.js?v=20261127u';
 import { createHtmlLabController } from './html-lab.js?v=20261127u';
