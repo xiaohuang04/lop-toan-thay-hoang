@@ -448,8 +448,10 @@ export function createHtmlLabController({
                         </button>`
                       : ''
                   }
-                  <button class="btn btn-secondary btn-sm" id="btnSwitchShowcase">
-                    ← Xem thư viện
+                  <button type="button" class="icon-back-btn is-sm" id="btnSwitchShowcase" data-tooltip="Xem thư viện" aria-label="Quay lại thư viện mô hình">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                    </svg>
                   </button>
                 `
                 : admin

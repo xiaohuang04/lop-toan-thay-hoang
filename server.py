@@ -1917,6 +1917,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                         "code": str(item.get("code", "MĐ 01")).strip(),
                         "durationMinutes": max(1, int(item.get("durationMinutes", 45))),
                         "description": str(item.get("description", "")).strip(),
+                        "presentationOnly": bool(item.get("presentationOnly", False)),
+                        "startQuestionNumber": max(1, int(item.get("startQuestionNumber") or 1)),
                         "isBuiltin": False,
                         "scoring": item.get("scoring") or {
                             "part1PerQuestion": 0.25,
@@ -2206,6 +2208,8 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "code": str(body.get("code", existing.get("code", ""))).strip(),
                     "durationMinutes": max(1, int(body.get("durationMinutes", existing.get("durationMinutes", 45)))),
                     "description": str(body.get("description", existing.get("description", ""))).strip(),
+                    "presentationOnly": bool(body.get("presentationOnly", existing.get("presentationOnly", False))),
+                    "startQuestionNumber": max(1, int(body.get("startQuestionNumber") or existing.get("startQuestionNumber") or 1)),
                     "scoring": body.get("scoring", existing.get("scoring")),
                     "part1": body.get("part1", existing.get("part1", [])),
                     "part2": body.get("part2", existing.get("part2", [])),

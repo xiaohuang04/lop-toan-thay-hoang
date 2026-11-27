@@ -144,9 +144,16 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     window.addEventListener('beforeunload', onBeforeUnload);
   }
 
+  const BACK_ICON_SVG = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12"/>
+      <polyline points="12 19 5 12 12 5"/>
+    </svg>
+  `;
+
   function countAnswered() {
     const ex = state.exam;
-    if (!ex) return { done: 0, total: 0 };
+    if (!ex) return { done: 0, total: 0, totalAll: 0 };
     let done = 0;
     (ex.part1 || []).forEach((q) => {
       if (state.answers.part1[q.id]) done++;
@@ -159,7 +166,8 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       if ((state.answers.part3[q.id] || '').trim() !== '') done++;
     });
     const total = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0);
-    return { done, total };
+    const totalAll = total + (ex.part4?.length || 0);
+    return { done, total, totalAll };
   }
 
   function getPart2AnswerCount(qId) {
@@ -272,21 +280,25 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
   function render(isReview) {
     const ex = state.exam;
-    const { done, total } = countAnswered();
+    const { done, total, totalAll } = countAnswered();
     const res = state.result;
+    const startNum = Math.max(1, Math.floor(Number(ex.startQuestionNumber) || 1));
 
     const p1ResultMap = new Map(res ? res.part1.details.map((d) => [d.id, d]) : []);
     const p2ResultMap = new Map(res ? res.part2.details.map((d) => [d.id, d]) : []);
     const p3ResultMap = new Map(res ? res.part3.details.map((d) => [d.id, d]) : []);
 
+    const p4List = Array.isArray(ex.part4) ? ex.part4 : [];
     const showP1 = state.filter === 'all' || state.filter === 'part1' || state.filter === 'flagged';
     const showP2 = state.filter === 'all' || state.filter === 'part2' || state.filter === 'flagged';
     const showP3 = state.filter === 'all' || state.filter === 'part3' || state.filter === 'flagged';
+    const showP4 = state.filter === 'all' || state.filter === 'part4' || state.filter === 'flagged';
 
     const filterFn = (q) => (state.filter === 'flagged' ? state.flagged.has(q.id) : true);
     const visibleP1 = showP1 ? (ex.part1 || []).map((q, i) => ({ q, i })).filter(({ q }) => filterFn(q)) : [];
     const visibleP2 = showP2 ? (ex.part2 || []).map((q, i) => ({ q, i })).filter(({ q }) => filterFn(q)) : [];
     const visibleP3 = showP3 ? (ex.part3 || []).map((q, i) => ({ q, i })).filter(({ q }) => filterFn(q)) : [];
+    const visibleP4 = showP4 ? p4List.map((q, i) => ({ q, i })).filter(({ q }) => filterFn(q)) : [];
 
     const scoring = ex.scoring || {
       part1PerQuestion: 0.25,
@@ -309,47 +321,70 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       }
 
       <div class="exam-topbar">
-        <div class="exam-topbar-info">
-          <h2>${escapeHtml(state.assignment?.title || ex.title)}</h2>
-          <div class="exam-topbar-meta">
-            <span>Thí sinh: <strong>${escapeHtml(state.studentName)}</strong>${state.studentClass ? ` (${escapeHtml(state.studentClass)})` : ''}</span>
-            <span>• Mã đề: <strong>${escapeHtml(ex.code)}</strong></span>
-            ${state.assignment?.dueAt ? `<span>• Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(state.assignment.dueAt))}</strong></span>` : ''}
-            ${state.isPreview ? `<span class="badge badge-warning">Chế độ xem trước của Giáo viên</span>` : ''}
-          </div>
-        </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <div class="exam-topbar-left">
           ${
             isReview
-              ? `
+              ? `<button type="button" class="icon-back-btn is-primary" id="btnBackRunner" data-tooltip="Quay lại" aria-label="Quay lại">${BACK_ICON_SVG}</button>`
+              : `<button type="button" class="icon-back-btn ${state.strictTestMode ? 'is-danger' : ''}" id="btnExitExam" data-tooltip="${state.strictTestMode ? 'Thoát (Nộp bài)' : 'Thoát phòng thi'}" aria-label="${state.strictTestMode ? 'Thoát và nộp bài' : 'Thoát phòng thi'}">${BACK_ICON_SVG}</button>`
+          }
+          <div class="exam-topbar-info">
+            <h2>${escapeHtml(state.assignment?.title || ex.title)}</h2>
+            <div class="exam-topbar-meta">
+              <span>Thí sinh: <strong>${escapeHtml(state.studentName)}</strong>${state.studentClass ? ` (${escapeHtml(state.studentClass)})` : ''}</span>
+              <span>• Mã đề: <strong>${escapeHtml(ex.code)}</strong></span>
+              ${state.assignment?.dueAt ? `<span>• Hạn nộp: <strong>${escapeHtml(formatDateTimeVN(state.assignment.dueAt))}</strong></span>` : ''}
+              ${state.isPreview ? `<span class="badge badge-warning">Chế độ xem trước của Giáo viên</span>` : ''}
+            </div>
+          </div>
+        </div>
+        ${
+          isReview
+            ? `
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btn-secondary btn-sm" id="btnToggleSolutions">
                   ${state.showSolutions ? 'Ẩn lời giải' : 'Hiện lời giải'}
                 </button>
                 ${state.onRetry ? `<button class="btn btn-secondary btn-sm" id="btnRetryExam">Làm lại</button>` : ''}
-                <button class="btn btn-primary btn-sm" id="btnBackRunner">← Quay lại</button>
-              `
-              : `<button class="btn ${state.strictTestMode ? 'btn-danger-outline' : 'btn-secondary'} btn-sm" id="btnExitExam">
-                  ${state.strictTestMode ? 'Thoát (Nộp bài)' : '← Thoát phòng thi'}
-                </button>`
-          }
-        </div>
+              </div>
+            `
+            : ''
+        }
       </div>
 
       <div class="exam-room-layout">
         <div>
           <div class="section-filter-bar">
             <button class="filter-chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">
-              Tất cả (${total} câu)
+              Tất cả (${totalAll} câu)
             </button>
-            <button class="filter-chip ${state.filter === 'part1' ? 'active' : ''}" data-filter="part1">
-              Phần I — Trắc nghiệm (${ex.part1?.length || 0})
-            </button>
-            <button class="filter-chip ${state.filter === 'part2' ? 'active' : ''}" data-filter="part2">
-              Phần II — Đúng/Sai (${ex.part2?.length || 0})
-            </button>
-            <button class="filter-chip ${state.filter === 'part3' ? 'active' : ''}" data-filter="part3">
-              Phần III — Trả lời ngắn (${ex.part3?.length || 0})
-            </button>
+            ${
+              (ex.part1?.length || 0) > 0 || p4List.length === 0
+                ? `<button class="filter-chip ${state.filter === 'part1' ? 'active' : ''}" data-filter="part1">
+                    Phần I — Trắc nghiệm (${ex.part1?.length || 0})
+                  </button>`
+                : ''
+            }
+            ${
+              (ex.part2?.length || 0) > 0 || p4List.length === 0
+                ? `<button class="filter-chip ${state.filter === 'part2' ? 'active' : ''}" data-filter="part2">
+                    Phần II — Đúng/Sai (${ex.part2?.length || 0})
+                  </button>`
+                : ''
+            }
+            ${
+              (ex.part3?.length || 0) > 0 || p4List.length === 0
+                ? `<button class="filter-chip ${state.filter === 'part3' ? 'active' : ''}" data-filter="part3">
+                    Phần III — Trả lời ngắn (${ex.part3?.length || 0})
+                  </button>`
+                : ''
+            }
+            ${
+              p4List.length > 0
+                ? `<button class="filter-chip ${state.filter === 'part4' ? 'active' : ''}" data-filter="part4">
+                    Phần IV — Tự luận (${p4List.length})
+                  </button>`
+                : ''
+            }
             ${
               !isReview
                 ? `<button class="filter-chip ${state.filter === 'flagged' ? 'active' : ''}" data-filter="flagged">
@@ -361,7 +396,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
           <div id="questionStream">
             ${
-              visibleP1.length + visibleP2.length + visibleP3.length === 0
+              visibleP1.length + visibleP2.length + visibleP3.length + visibleP4.length === 0
                 ? `<div class="card panel-card" style="text-align:center; padding:40px; color:var(--text-muted);">
                     Chưa có câu hỏi nào trong bộ lọc này.
                   </div>`
@@ -374,7 +409,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="part-banner part-1">
                     <div class="part-banner-title" style="margin-bottom:0;">PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn</div>
                   </div>
-                  ${visibleP1.map(({ q, i }) => renderPart1Card(q, i, isReview, p1ResultMap.get(q.id))).join('')}
+                  ${visibleP1.map(({ q, i }) => renderPart1Card(q, i, isReview, p1ResultMap.get(q.id), startNum)).join('')}
                 `
                 : ''
             }
@@ -385,7 +420,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="part-banner part-2">
                     <div class="part-banner-title" style="margin-bottom:0;">PHẦN II. Câu trắc nghiệm đúng sai</div>
                   </div>
-                  ${visibleP2.map(({ q, i }) => renderPart2Card(q, i, isReview, p2ResultMap.get(q.id))).join('')}
+                  ${visibleP2.map(({ q, i }) => renderPart2Card(q, i, isReview, p2ResultMap.get(q.id), startNum)).join('')}
                 `
                 : ''
             }
@@ -396,7 +431,18 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="part-banner part-3">
                     <div class="part-banner-title" style="margin-bottom:0;">PHẦN III. Câu trắc nghiệm trả lời ngắn</div>
                   </div>
-                  ${visibleP3.map(({ q, i }) => renderPart3Card(q, i, isReview, p3ResultMap.get(q.id))).join('')}
+                  ${visibleP3.map(({ q, i }) => renderPart3Card(q, i, isReview, p3ResultMap.get(q.id), startNum)).join('')}
+                `
+                : ''
+            }
+
+            ${
+              visibleP4.length > 0
+                ? `
+                  <div class="part-banner part-4">
+                    <div class="part-banner-title" style="margin-bottom:0;">PHẦN IV. Câu hỏi tự luận</div>
+                  </div>
+                  ${visibleP4.map(({ q, i }) => renderPart4Card(q, i, isReview, startNum)).join('')}
                 `
                 : ''
             }
@@ -415,15 +461,26 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                       warnUnder: state.timedMode ? 300 : 0,
                     })}
                   </div>
-                  <div class="progress-track">
-                    <div class="progress-fill" id="progressFill" style="width:${total ? Math.round((done / total) * 100) : 0}%"></div>
-                  </div>
-                  <div class="progress-meta">
-                    <span>Đã hoàn thành</span>
-                    <span id="progressCountText">${done} / ${total} câu</span>
-                  </div>
+                  ${
+                    total > 0
+                      ? `
+                        <div class="progress-track">
+                          <div class="progress-fill" id="progressFill" style="width:${Math.round((done / total) * 100)}%"></div>
+                        </div>
+                        <div class="progress-meta">
+                          <span>Đã hoàn thành</span>
+                          <span id="progressCountText">${done} / ${total} câu</span>
+                        </div>
+                      `
+                      : `
+                        <div class="progress-meta" style="margin-top:10px;">
+                          <span>Tổng số câu tự luận</span>
+                          <span>${p4List.length} câu</span>
+                        </div>
+                      `
+                  }
                   <button class="btn btn-primary" id="btnSubmitExam" style="width:100%; margin-top:16px;">
-                    ${state.isPreview ? 'Kết thúc xem trước & Chấm thử' : 'Nộp bài thi'}
+                    ${state.isPreview ? (total > 0 ? 'Kết thúc xem trước & Chấm thử' : 'Xem lời giải tất cả câu') : 'Nộp bài thi'}
                   </button>
                 </div>
               `
@@ -433,7 +490,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           <div class="card omr-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
               <strong style="font-size:0.9rem;">${isReview ? 'Bản đồ kết quả' : 'Phiếu trả lời nhanh'}</strong>
-              <span class="badge badge-neutral">${total} câu</span>
+              <span class="badge badge-neutral">${totalAll} câu</span>
             </div>
 
             ${
@@ -442,7 +499,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="omr-part-title">Phần I (${ex.part1.length} câu)</div>
                   <div class="omr-grid">
                     ${ex.part1
-                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part1', q.id, isReview, p1ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">${i + 1}</button>`)
+                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part1', q.id, isReview, p1ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">${startNum + i}</button>`)
                       .join('')}
                   </div>
                 `
@@ -455,7 +512,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="omr-part-title">Phần II — Đúng/Sai (${ex.part2.length} câu)</div>
                   <div class="omr-grid omr-grid-wide">
                     ${ex.part2
-                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part2', q.id, isReview, p2ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">II.${i + 1}</button>`)
+                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part2', q.id, isReview, p2ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">II.${startNum + i}</button>`)
                       .join('')}
                   </div>
                 `
@@ -468,7 +525,20 @@ export function createExamRunner({ rootEl, uiHelpers }) {
                   <div class="omr-part-title">Phần III — Trả lời ngắn (${ex.part3.length} câu)</div>
                   <div class="omr-grid omr-grid-wide">
                     ${ex.part3
-                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part3', q.id, isReview, p3ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">III.${i + 1}</button>`)
+                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part3', q.id, isReview, p3ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">III.${startNum + i}</button>`)
+                      .join('')}
+                  </div>
+                `
+                : ''
+            }
+
+            ${
+              p4List.length > 0
+                ? `
+                  <div class="omr-part-title">Phần IV — Tự luận (${p4List.length} câu)</div>
+                  <div class="omr-grid omr-grid-wide">
+                    ${p4List
+                      .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part4', q.id, isReview, null)}" data-jump="q-${q.id}" data-omr="${q.id}">IV.${startNum + i}</button>`)
                       .join('')}
                   </div>
                 `
@@ -522,6 +592,9 @@ export function createExamRunner({ rootEl, uiHelpers }) {
   }
 
   function renderResultHero(res) {
+    if (!res || (res.maxScore === 0 && (state.exam?.part4?.length || 0) > 0)) {
+      return '';
+    }
     return `
       <div class="result-hero">
         <div class="score-ring" style="--score-pct:${res.percent}%">
@@ -563,7 +636,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     `;
   }
 
-  function renderPart1Card(q, index, isReview, detail) {
+  function renderPart1Card(q, index, isReview, detail, startNum = 1) {
     const selected = state.answers.part1[q.id] || null;
     const isFlagged = state.flagged.has(q.id);
     const reviewCls = isReview ? (detail?.isCorrect ? 'review-correct' : 'review-wrong') : '';
@@ -571,7 +644,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       <article class="q-card ${isFlagged && !isReview ? 'is-flagged' : ''} ${reviewCls}" id="q-${q.id}">
         <div class="q-head">
           <div class="q-head-left">
-            <span class="q-number">Câu ${index + 1}</span>
+            <span class="q-number">Câu ${startNum + index}</span>
             <span class="badge badge-p1">Phần I</span>
           </div>
           ${
@@ -608,7 +681,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     `;
   }
 
-  function renderPart2Card(q, index, isReview, detail) {
+  function renderPart2Card(q, index, isReview, detail, startNum = 1) {
     const userMap = state.answers.part2[q.id] || {};
     const isFlagged = state.flagged.has(q.id);
     let reviewCls = '';
@@ -621,7 +694,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       <article class="q-card ${isFlagged && !isReview ? 'is-flagged' : ''} ${reviewCls}" id="q-${q.id}">
         <div class="q-head">
           <div class="q-head-left">
-            <span class="q-number" style="background:var(--p2-bg);color:var(--p2-text);border-color:var(--p2-border);">Câu ${index + 1}</span>
+            <span class="q-number" style="background:var(--p2-bg);color:var(--p2-text);border-color:var(--p2-border);">Câu ${startNum + index}</span>
             <span class="badge badge-p2">Phần II • Đúng/Sai</span>
           </div>
           ${
@@ -667,7 +740,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
     `;
   }
 
-  function renderPart3Card(q, index, isReview, detail) {
+  function renderPart3Card(q, index, isReview, detail, startNum = 1) {
     const val = state.answers.part3[q.id] || '';
     const slots = formatShortAnswerSlots(val);
     const isFlagged = state.flagged.has(q.id);
@@ -676,7 +749,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       <article class="q-card ${isFlagged && !isReview ? 'is-flagged' : ''} ${reviewCls}" id="q-${q.id}">
         <div class="q-head">
           <div class="q-head-left">
-            <span class="q-number" style="background:var(--p3-bg);color:var(--p3-text);border-color:var(--p3-border);">Câu ${index + 1}</span>
+            <span class="q-number" style="background:var(--p3-bg);color:var(--p3-text);border-color:var(--p3-border);">Câu ${startNum + index}</span>
             <span class="badge badge-p3">Phần III • Trả lời ngắn</span>
           </div>
           ${
@@ -702,18 +775,65 @@ export function createExamRunner({ rootEl, uiHelpers }) {
               </div>
             `
             : `
-              <div class="sa-box-wrap">
-                <div class="sa-input-group">
-                  <label for="sa-${q.id}">Kết quả</label>
-                  <input id="sa-${q.id}" class="sa-input" type="text" inputmode="decimal" maxlength="4" value="${escapeAttr(val)}" data-p3-q="${q.id}" />
-                </div>
-                <div class="sa-omr-preview" style="align-self:flex-end;">
-                  <div class="sa-slots" id="slots-${q.id}">
-                    ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
-                  </div>
+              <div class="sa-box-wrap is-direct-slots">
+                <span class="sa-direct-label">Kết quả</span>
+                <div class="sa-slots is-editable" id="slots-${q.id}" data-p3-slots="${q.id}">
+                  ${slots
+                    .map(
+                      (ch, si) => `
+                        <input
+                          type="text"
+                          inputmode="text"
+                          autocomplete="off"
+                          autocorrect="off"
+                          autocapitalize="off"
+                          spellcheck="false"
+                          maxlength="4"
+                          class="sa-slot sa-slot-input ${ch ? 'is-filled' : 'empty'}"
+                          data-p3-q="${q.id}"
+                          data-p3-idx="${si}"
+                          value="${escapeAttr(ch)}"
+                          aria-label="Ô ${si + 1} câu ${startNum + index}"
+                          placeholder="·"
+                        />
+                      `
+                    )
+                    .join('')}
                 </div>
               </div>
             `
+        }
+        ${isReview && state.showSolutions && q.explanation ? renderSolutionBox(q.explanation) : ''}
+      </article>
+    `;
+  }
+
+  function renderPart4Card(q, index, isReview, startNum = 1) {
+    const isFlagged = state.flagged.has(q.id);
+    return `
+      <article class="q-card ${isFlagged && !isReview ? 'is-flagged' : ''}" id="q-${q.id}">
+        <div class="q-head">
+          <div class="q-head-left">
+            <span class="q-number q-number-p4">Câu ${startNum + index}</span>
+            <span class="badge badge-p4">Phần IV • Tự luận</span>
+          </div>
+          ${
+            isReview
+              ? `<span class="badge badge-neutral">Tự luận</span>`
+              : `<button class="flag-btn ${isFlagged ? 'flagged' : ''}" data-flag="${q.id}">⚑ ${isFlagged ? 'Đã đánh dấu' : 'Đánh dấu'}</button>`
+          }
+        </div>
+        <div class="q-stem">${q.stem}</div>
+        ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
+        ${
+          !isReview && state.isPreview && q.explanation
+            ? `
+              <details class="p4-preview-sol">
+                <summary>Xem lời giải chi tiết</summary>
+                <div class="p4-preview-sol-body">${q.explanation}</div>
+              </details>
+            `
+            : ''
         }
         ${isReview && state.showSolutions && q.explanation ? renderSolutionBox(q.explanation) : ''}
       </article>
@@ -809,19 +929,104 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       });
     });
 
-    rootEl.querySelectorAll('[data-p3-q]').forEach((inp) => {
-      inp.addEventListener('input', () => {
-        const qId = inp.dataset.p3Q;
-        const sanitized = inp.value.replace(/[^0-9,.\-]/g, '').slice(0, 4);
-        if (inp.value !== sanitized) inp.value = sanitized;
-        state.answers.part3[qId] = sanitized;
-        const slotsWrap = rootEl.querySelector(`#slots-${qId}`);
-        if (slotsWrap) {
-          slotsWrap.innerHTML = formatShortAnswerSlots(sanitized)
-            .map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`)
-            .join('');
-        }
+    rootEl.querySelectorAll('[data-p3-slots]').forEach((wrap) => {
+      const qId = wrap.dataset.p3Slots;
+      const inputs = [...wrap.querySelectorAll('.sa-slot-input')];
+
+      const syncBoxesToState = () => {
+        inputs.forEach((el) => {
+          const hasChar = Boolean(el.value);
+          el.classList.toggle('is-filled', hasChar);
+          el.classList.toggle('empty', !hasChar);
+        });
+        state.answers.part3[qId] = inputs.map((el) => el.value).join('');
         syncProgressAndOmr('part3', qId);
+      };
+
+      const fillFromIndex = (startIdx, rawText) => {
+        const cleaned = String(rawText || '')
+          .replace(/\./g, ',')
+          .replace(/[^0-9,\-]/g, '');
+        if (!cleaned) {
+          inputs[startIdx].value = '';
+          syncBoxesToState();
+          return;
+        }
+        let cursor = startIdx;
+        for (const ch of cleaned) {
+          if (cursor >= inputs.length) break;
+          inputs[cursor].value = ch;
+          cursor++;
+        }
+        syncBoxesToState();
+        const nextFocus = Math.min(cursor, inputs.length - 1);
+        inputs[nextFocus].focus();
+        inputs[nextFocus].select();
+      };
+
+      inputs.forEach((inp, idx) => {
+        inp.addEventListener('focus', () => {
+          inp.select();
+        });
+
+        inp.addEventListener('input', () => {
+          const cleaned = inp.value
+            .replace(/\./g, ',')
+            .replace(/[^0-9,\-]/g, '');
+          if (!cleaned) {
+            inp.value = '';
+            syncBoxesToState();
+            return;
+          }
+          if (cleaned.length === 1) {
+            inp.value = cleaned;
+            syncBoxesToState();
+            if (idx < inputs.length - 1) {
+              inputs[idx + 1].focus();
+              inputs[idx + 1].select();
+            }
+          } else {
+            fillFromIndex(idx, cleaned);
+          }
+        });
+
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Backspace') {
+            if (inp.value) {
+              inp.value = '';
+              syncBoxesToState();
+              e.preventDefault();
+            } else if (idx > 0) {
+              e.preventDefault();
+              inputs[idx - 1].value = '';
+              syncBoxesToState();
+              inputs[idx - 1].focus();
+            }
+            return;
+          }
+          if (e.key === 'Delete') {
+            inp.value = '';
+            syncBoxesToState();
+            e.preventDefault();
+            return;
+          }
+          if (e.key === 'ArrowLeft' && idx > 0) {
+            e.preventDefault();
+            inputs[idx - 1].focus();
+            inputs[idx - 1].select();
+          } else if (e.key === 'ArrowRight' && idx < inputs.length - 1) {
+            e.preventDefault();
+            inputs[idx + 1].focus();
+            inputs[idx + 1].select();
+          }
+        });
+
+        inp.addEventListener('paste', (e) => {
+          e.preventDefault();
+          const text = e.clipboardData?.getData('text') || '';
+          const startAt = idx === 0 || text.trim().length >= 2 ? 0 : idx;
+          fillFromIndex(startAt, text);
+        });
       });
     });
 
@@ -840,8 +1045,23 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       });
     });
 
-    rootEl.querySelector('#btnSubmitExam')?.addEventListener('click', openSubmitConfirmModal);
-    rootEl.querySelector('#btnExitExam')?.addEventListener('click', openExitConfirmModal);
+    rootEl.querySelector('#btnSubmitExam')?.addEventListener('click', () => {
+      const { total } = countAnswered();
+      if (state.isPreview && total === 0) {
+        finalizeSubmission();
+        return;
+      }
+      openSubmitConfirmModal();
+    });
+    rootEl.querySelector('#btnExitExam')?.addEventListener('click', () => {
+      if (state.isPreview) {
+        clearTimer();
+        teardownStrictMode(true);
+        state.onExit?.();
+        return;
+      }
+      openExitConfirmModal();
+    });
     rootEl.querySelector('#examFloatTimer')?.addEventListener('click', () => {
       rootEl.querySelector('.exam-sidebar')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });

@@ -24,7 +24,7 @@ import {
   bindFeedEvents,
   openPostComposerModal,
   getTargetStudentsForAssignment,
-} from './classroom-feed.js?v=20261127p';
+} from './classroom-feed.js?v=20261127u';
 import {
   formatDateVNAdmin,
   getCurrentMonthKey,
@@ -248,6 +248,21 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           </button>
 
           <button
+            class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}"
+            data-subtab="assignments"
+            data-tooltip="Bài tập (${assignments.length})"
+            aria-label="Bài tập"
+          >
+            <span class="subtab-ico">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+              </svg>
+            </span>
+            <span class="subtab-lbl">Bài tập</span>
+            <span class="badge badge-neutral subtab-count">${assignments.length}</span>
+          </button>
+
+          <button
             class="subtab-btn ${state.subTab === 'tuition' ? 'active' : ''}"
             data-subtab="tuition"
             data-tooltip="Học phí (${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'})"
@@ -261,21 +276,6 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             </span>
             <span class="subtab-lbl">Học phí</span>
             <span class="badge ${unpaidCurCount > 0 ? 'badge-warning' : 'badge-success'} subtab-count">${unpaidCurCount > 0 ? `${unpaidCurCount} chưa nộp` : 'Đủ'}</span>
-          </button>
-
-          <button
-            class="subtab-btn ${state.subTab === 'assignments' ? 'active' : ''}"
-            data-subtab="assignments"
-            data-tooltip="Bài tập (${assignments.length})"
-            aria-label="Bài tập"
-          >
-            <span class="subtab-ico">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-              </svg>
-            </span>
-            <span class="subtab-lbl">Bài tập</span>
-            <span class="badge badge-neutral subtab-count">${assignments.length}</span>
           </button>
 
           <button
@@ -424,6 +424,8 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   const p4n = ex.part4?.length || 0;
                   const totalQ = (ex.part1?.length || 0) + (ex.part2?.length || 0) + (ex.part3?.length || 0) + p4n;
                   const missingInfo = scanMissingImages(ex);
+                  const isPresOnly = Boolean(ex.presentationOnly);
+                  const startNum = Math.max(1, Math.floor(Number(ex.startQuestionNumber) || 1));
                   return `
                     <article class="exam-card" style="cursor:default;">
                       <div class="exam-card-top">
@@ -432,6 +434,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                           ${ex.description ? `<p class="exam-card-desc">${escapeHtml(ex.description)}</p>` : ''}
                         </div>
                         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                          ${
+                            isPresOnly
+                              ? `<span class="badge badge-p2">Chỉ trình chiếu${startNum > 1 ? ` • Từ Câu ${startNum}` : ''}</span>`
+                              : startNum > 1
+                                ? `<span class="badge badge-neutral">Từ Câu ${startNum}</span>`
+                                : ''
+                          }
                           ${
                             missingInfo.uniqueNames.length > 0
                               ? `<span class="badge badge-warning" title="Thiếu ảnh: ${escapeAttr(missingInfo.uniqueNames.join(', '))}">⚠ Thiếu ${missingInfo.uniqueNames.length} ảnh</span>`
@@ -449,16 +458,45 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                         <span class="badge badge-neutral">${escapeHtml(ex.subject || 'Chưa phân môn')} • ${ex.durationMinutes} phút • ${totalQ} câu</span>
                       </div>
 
-                      <div class="exam-card-footer">
-                        <div class="exam-meta-inline">
-                          <span>Thang điểm: P.I ${formatScoreVN(ex.scoring?.part1PerQuestion ?? 0.25)}đ • P.III ${formatScoreVN(ex.scoring?.part3PerQuestion ?? 0.5)}đ</span>
-                        </div>
-                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                          <button class="btn btn-primary btn-sm" data-assign-exam="${ex.id}">Giao bài tập</button>
-                          <button class="btn btn-secondary btn-sm" data-present-exam-card="${ex.id}">Trình chiếu</button>
-                          <button class="btn btn-secondary btn-sm" data-edit-exam="${ex.id}">Tinh chỉnh đề</button>
-                          <button class="btn btn-secondary btn-sm" data-preview-exam="${ex.id}">Xem trước</button>
-                          <button class="btn btn-danger-outline btn-sm" data-delete-exam="${ex.id}">Xóa</button>
+                      <div class="exam-card-footer" style="justify-content:flex-end;">
+                        <div class="exam-card-icon-actions">
+                          ${
+                            isPresOnly
+                              ? `
+                                <button type="button" class="exam-act-icon-btn is-primary" data-present-exam-card="${ex.id}" data-tooltip="Trình chiếu" aria-label="Trình chiếu">
+                                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                                  </svg>
+                                </button>
+                              `
+                              : `
+                                <button type="button" class="exam-act-icon-btn is-primary" data-assign-exam="${ex.id}" data-tooltip="Giao bài tập" aria-label="Giao bài tập">
+                                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                  </svg>
+                                </button>
+                                <button type="button" class="exam-act-icon-btn is-secondary" data-present-exam-card="${ex.id}" data-tooltip="Trình chiếu" aria-label="Trình chiếu">
+                                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                                  </svg>
+                                </button>
+                              `
+                          }
+                          <button type="button" class="exam-act-icon-btn is-secondary" data-edit-exam="${ex.id}" data-tooltip="Tinh chỉnh đề" aria-label="Tinh chỉnh đề">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                            </svg>
+                          </button>
+                          <button type="button" class="exam-act-icon-btn is-secondary" data-preview-exam="${ex.id}" data-tooltip="Xem trước" aria-label="Xem trước">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          </button>
+                          <button type="button" class="exam-act-icon-btn is-danger" data-delete-exam="${ex.id}" data-tooltip="Xóa đề" aria-label="Xóa đề">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     </article>
@@ -600,14 +638,20 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
 
     rootEl.innerHTML = `
       <div class="exam-topbar">
-        <div class="exam-topbar-info">
-          <h2>${isNew ? 'Tạo đề thi mới (Chuẩn BGD 2025)' : `Tinh chỉnh đề thi: ${escapeHtml(ex.title)}`}</h2>
-          <div class="exam-topbar-meta">
-            <span>Phần I: <strong>${ex.part1.length}</strong> câu • Phần II: <strong>${ex.part2.length}</strong> câu • Phần III: <strong>${ex.part3.length}</strong> câu${ex.part4.length ? ` • Phần IV: <strong>${ex.part4.length}</strong> câu` : ''}</span>
+        <div class="exam-topbar-left">
+          <button type="button" class="icon-back-btn" id="btnCancelEditor" data-tooltip="Hủy &amp; Quay lại" aria-label="Hủy và quay lại">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+          </button>
+          <div class="exam-topbar-info">
+            <h2>${isNew ? 'Tạo đề thi mới (Chuẩn BGD 2025)' : `Tinh chỉnh đề thi: ${escapeHtml(ex.title)}`}</h2>
+            <div class="exam-topbar-meta">
+              <span>Phần I: <strong>${ex.part1.length}</strong> câu • Phần II: <strong>${ex.part2.length}</strong> câu • Phần III: <strong>${ex.part3.length}</strong> câu${ex.part4.length ? ` • Phần IV: <strong>${ex.part4.length}</strong> câu` : ''}</span>
+            </div>
           </div>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-sm" id="btnCancelEditor">← Hủy &amp; Quay lại</button>
           <button class="btn btn-primary btn-sm" id="btnSaveExamEditor">Lưu đề thi</button>
         </div>
       </div>
@@ -668,9 +712,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             </div>
           </div>
         </div>
-        <div class="form-group" style="margin-bottom:0;">
+        <div class="form-group">
           <label>Mô tả ngắn</label>
           <input class="input-control" id="edDesc" value="${escapeAttr(ex.description || '')}" />
+        </div>
+        <div class="imp-pres-bar" style="margin-bottom:0;">
+          <label class="checkbox-pill" style="margin:0;">
+            <input type="checkbox" id="edPresentationOnly" ${ex.presentationOnly ? 'checked' : ''} />
+            <span>Chỉ để trình chiếu</span>
+          </label>
+          <div id="edStartNumWrap" class="imp-start-num-wrap ${ex.presentationOnly ? '' : 'hidden'}">
+            <span>STT bắt đầu của Câu 1:</span>
+            <input type="number" min="1" max="999" id="edStartNum" class="input-control input-compact" style="width:80px; text-align:center;" value="${Math.max(1, Math.floor(Number(ex.startQuestionNumber) || 1))}" />
+          </div>
         </div>
       </div>
 
@@ -704,17 +758,40 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     bindEditorEvents();
   }
 
+  function renderEditorQuestionOrderControls(idx, total, startNum = 1) {
+    const posOpts = Array.from({ length: total }, (_, i) =>
+      `<option value="${i}" ${i === idx ? 'selected' : ''}>Vị trí ${startNum + i}</option>`
+    ).join('');
+    return `
+      <div class="ed-q-head-actions">
+        ${
+          total > 1
+            ? `
+              <select class="ed-q-pos-select" data-move-q-to="${idx}" title="Chuyển câu hỏi tới vị trí khác trong phần">
+                ${posOpts}
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm ed-q-move-btn" data-move-q-up="${idx}" ${idx === 0 ? 'disabled' : ''} title="Đưa lên trên" aria-label="Đưa câu hỏi lên trên">↑</button>
+              <button type="button" class="btn btn-secondary btn-sm ed-q-move-btn" data-move-q-down="${idx}" ${idx === total - 1 ? 'disabled' : ''} title="Đưa xuống dưới" aria-label="Đưa câu hỏi xuống dưới">↓</button>
+            `
+            : ''
+        }
+        <button type="button" class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+      </div>
+    `;
+  }
+
   function renderEditorPart1(list) {
     if (!list.length) {
       return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần I. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
     }
+    const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
       .map(
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <span class="badge badge-p1">Phần I • Câu ${idx + 1}</span>
-          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+          <span class="badge badge-p1">Phần I • Câu ${startNum + idx}</span>
+          ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
           <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
@@ -753,13 +830,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     if (!list.length) {
       return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần II. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
     }
+    const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
       .map(
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <span class="badge badge-p2">Phần II • Câu ${idx + 1}</span>
-          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+          <span class="badge badge-p2">Phần II • Câu ${startNum + idx}</span>
+          ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
           <label>Đề dẫn (hỗ trợ LaTeX)</label>
@@ -796,13 +874,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     if (!list.length) {
       return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi nào ở Phần III. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
     }
+    const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
       .map(
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <span class="badge badge-p3">Phần III • Câu ${idx + 1}</span>
-          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+          <span class="badge badge-p3">Phần III • Câu ${startNum + idx}</span>
+          ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
           <label>Đề bài</label>
@@ -829,13 +908,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     if (!list.length) {
       return `<div class="card panel-card" style="text-align:center; color:var(--text-muted); padding:32px;">Chưa có câu hỏi tự luận nào ở Phần IV. Nhấn <strong>"+ Thêm câu hỏi"</strong> ở góc phải.</div>`;
     }
+    const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
       .map(
         (q, idx) => `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
-          <span class="badge badge-neutral">Phần IV (Tự luận) • Câu ${idx + 1}</span>
-          <button class="btn btn-danger-outline btn-sm" data-del-q="${idx}">Xóa câu</button>
+          <span class="badge badge-neutral">Phần IV (Tự luận) • Câu ${startNum + idx}</span>
+          ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
           <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
@@ -865,6 +945,12 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     if (durEl) ex.durationMinutes = Math.max(1, Number(durEl.value) || 45);
     const descEl = rootEl.querySelector('#edDesc');
     if (descEl) ex.description = descEl.value.trim();
+    const presOnlyEl = rootEl.querySelector('#edPresentationOnly');
+    if (presOnlyEl) ex.presentationOnly = Boolean(presOnlyEl.checked);
+    const startNumEl = rootEl.querySelector('#edStartNum');
+    if (startNumEl) {
+      ex.startQuestionNumber = ex.presentationOnly ? Math.max(1, Math.floor(Number(startNumEl.value) || 1)) : 1;
+    }
     const sp1 = rootEl.querySelector('#edScoreP1');
     if (sp1) ex.scoring.part1PerQuestion = Number(sp1.value) || 0.25;
     const sp3 = rootEl.querySelector('#edScoreP3');
@@ -983,6 +1069,63 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         renderExamEditor();
       });
     });
+
+    // Reorder questions within the current part (↑ / ↓ / jump to position)
+    const moveQuestionInPart = (fromIdx, toIdx) => {
+      syncEditorMetadataFromDom();
+      syncCurrentPartQuestionsFromDom();
+      const list = state.editingExam?.[state.editorPartTab];
+      if (!Array.isArray(list)) return;
+      if (fromIdx < 0 || fromIdx >= list.length || toIdx < 0 || toIdx >= list.length || fromIdx === toIdx) return;
+      const [moved] = list.splice(fromIdx, 1);
+      list.splice(toIdx, 0, moved);
+      renderExamEditor();
+      const targetCard = rootEl.querySelector(`.editor-q-card[data-q-idx="${toIdx}"]`);
+      targetCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    rootEl.querySelectorAll('[data-move-q-up]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.moveQUp);
+        moveQuestionInPart(idx, idx - 1);
+      });
+    });
+
+    rootEl.querySelectorAll('[data-move-q-down]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.moveQDown);
+        moveQuestionInPart(idx, idx + 1);
+      });
+    });
+
+    rootEl.querySelectorAll('[data-move-q-to]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const fromIdx = Number(sel.dataset.moveQTo);
+        const toIdx = Number(sel.value);
+        moveQuestionInPart(fromIdx, toIdx);
+      });
+    });
+
+    // Presentation-only toggle & start question number live sync in Editor
+    const edPresChk = rootEl.querySelector('#edPresentationOnly');
+    const edStartWrap = rootEl.querySelector('#edStartNumWrap');
+    const edStartInp = rootEl.querySelector('#edStartNum');
+    if (edPresChk && edStartWrap) {
+      edPresChk.addEventListener('change', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        state.editingExam.presentationOnly = edPresChk.checked;
+        if (!edPresChk.checked) state.editingExam.startQuestionNumber = 1;
+        renderExamEditor();
+      });
+    }
+    if (edStartInp) {
+      edStartInp.addEventListener('change', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        renderExamEditor();
+      });
+    }
 
     // Helper: pick single/multi images from disk
     const pickImageFiles = ({ multiple = false } = {}) =>
@@ -1183,11 +1326,22 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                     const checks = asg.manualChecks && typeof asg.manualChecks === 'object' ? asg.manualChecks : {};
                     const checkedCount = targetStudents.filter((s) => Boolean(checks[s.id]?.checked)).length;
                     const allDone = targetStudents.length > 0 && checkedCount === targetStudents.length;
-                    const targetSummary = asg.assignAll
-                      ? 'Toàn bộ học sinh'
-                      : asg.targetClasses?.length
-                        ? `Các lớp: ${asg.targetClasses.map((c) => `Lớp ${c}`).join(', ')} (${targetStudents.length} HS)`
-                        : targetStudents.map((s) => `${s.fullName} (${s.className})`).join(', ') || 'Chưa chọn';
+                    const formatTargetClasses = (a, list) => {
+                      if (a.assignAll) return 'Tất cả các lớp';
+                      const clsSet = new Set();
+                      (a.targetClasses || []).forEach((c) => {
+                        const v = String(c || '').trim();
+                        if (v) clsSet.add(v);
+                      });
+                      (list || []).forEach((s) => {
+                        const v = String(s?.className || '').trim();
+                        if (v) clsSet.add(v);
+                      });
+                      const classes = Array.from(clsSet).sort((x, y) => x.localeCompare(y, 'vi'));
+                      if (classes.length > 0) return `Lớp ${classes.join(', ')}`;
+                      return list.length > 0 ? `${list.length} học sinh` : 'Chưa chọn';
+                    };
+                    const targetSummary = formatTargetClasses(asg, targetStudents);
 
                     return `
                       <article class="exam-card is-external-asg" style="cursor:default;" data-asg-card="${escapeAttr(asg.id)}">
@@ -1246,6 +1400,21 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   const submittedStudentIds = new Set(
                     submissions.filter((s) => s.assignmentId === asg.id).map((s) => s.studentId)
                   );
+                  const onlineTargetSummary = (() => {
+                    if (asg.assignAll) return 'Tất cả các lớp';
+                    const clsSet = new Set();
+                    (asg.targetClasses || []).forEach((c) => {
+                      const v = String(c || '').trim();
+                      if (v) clsSet.add(v);
+                    });
+                    (targetStudents || []).forEach((s) => {
+                      const v = String(s?.className || '').trim();
+                      if (v) clsSet.add(v);
+                    });
+                    const classes = Array.from(clsSet).sort((x, y) => x.localeCompare(y, 'vi'));
+                    if (classes.length > 0) return `Lớp ${classes.join(', ')}`;
+                    return targetStudents.length > 0 ? `${targetStudents.length} học sinh` : 'Chưa chọn';
+                  })();
                   return `
                     <article class="exam-card" style="cursor:default;" data-asg-card="${escapeAttr(asg.id)}">
                       <div class="exam-card-top">
@@ -1279,11 +1448,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
 
                       <div class="exam-card-footer">
                         <div class="exam-meta-inline" style="flex-wrap:wrap;">
-                          <span>Đối tượng: ${
-                            asg.assignAll
-                              ? 'Toàn bộ học sinh'
-                              : targetStudents.map((s) => escapeHtml(`${s.fullName} (${s.className})`)).join(', ') || 'Chưa chọn'
-                          }</span>
+                          <span>Đối tượng: ${escapeHtml(onlineTargetSummary)}</span>
                         </div>
                         <div style="display:flex; gap:8px; flex-wrap:wrap;">
                           <button class="btn btn-secondary btn-sm" data-view-asg-subs="${escapeAttr(asg.id)}">Xem bài nộp</button>
@@ -1519,18 +1684,21 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
 
   function openAssignmentModal({ existing = null, preselectExamId = null } = {}) {
     const { exams, students } = state.data;
+    const assignableExams = exams.filter(
+      (e) => !e.presentationOnly || e.id === existing?.examId || e.id === preselectExamId
+    );
     const initSubMode =
       existing?.submissionMode === 'external_link'
         ? 'external_link'
         : preselectExamId
           ? 'online'
-          : exams.length === 0
+          : assignableExams.length === 0
             ? 'external_link'
             : 'online';
 
     const classes = [...new Set(students.map((s) => s.className).filter(Boolean))];
-    const selExamId = existing?.examId || preselectExamId || exams[0]?.id || '';
-    const selExam = exams.find((e) => e.id === selExamId) || exams[0] || null;
+    const selExamId = existing?.examId || preselectExamId || assignableExams[0]?.id || '';
+    const selExam = assignableExams.find((e) => e.id === selExamId) || assignableExams[0] || null;
     const initType = existing?.assignmentType === 'test' ? 'test' : 'homework';
     const initTimed = initType === 'test' ? true : Boolean(existing?.timedMode);
     const initDuration = existing?.durationMinutes || selExam?.durationMinutes || 45;
@@ -1557,19 +1725,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Hình thức làm &amp; nộp bài *</label>
           <div class="asg-type-switch" id="asgSubModeSwitch">
-            <label class="asg-type-opt ${initSubMode === 'online' ? 'active' : ''}">
+            <label class="asg-type-opt is-compact ${initSubMode === 'online' ? 'active' : ''}">
               <input type="radio" name="asgSubMode" value="online" ${initSubMode === 'online' ? 'checked' : ''} ${existing ? 'disabled' : ''} />
-              <div>
-                <strong>Làm bài Online (Từ đề thi)</strong>
-                <small>Chọn từ Ngân hàng đề thi, HS làm trực tiếp trên web &amp; tự động chấm điểm</small>
-              </div>
+              <strong>Làm bài Online (Từ đề thi)</strong>
             </label>
-            <label class="asg-type-opt ${initSubMode === 'external_link' ? 'active' : ''}">
+            <label class="asg-type-opt is-compact ${initSubMode === 'external_link' ? 'active' : ''}">
               <input type="radio" name="asgSubMode" value="external_link" ${initSubMode === 'external_link' ? 'checked' : ''} ${existing ? 'disabled' : ''} />
-              <div>
-                <strong>Nộp qua Link / Google Form</strong>
-                <small>Gửi link nộp bài ngoài (Google Form...); giáo viên kiểm tra và tick xác nhận đã nộp</small>
-              </div>
+              <strong>Nộp qua Link / Google Form</strong>
             </label>
           </div>
         </div>
@@ -1577,19 +1739,13 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <div class="form-group">
           <label>Loại hình giao bài *</label>
           <div class="asg-type-switch" id="asgTypeSwitch">
-            <label class="asg-type-opt ${initType === 'homework' ? 'active' : ''}">
+            <label class="asg-type-opt is-compact ${initType === 'homework' ? 'active' : ''}">
               <input type="radio" name="asgType" value="homework" ${initType === 'homework' ? 'checked' : ''} />
-              <div>
-                <strong>Bài tập</strong>
-                <small>Linh hoạt thời gian làm bài trước hạn nộp</small>
-              </div>
+              <strong>Bài tập</strong>
             </label>
-            <label class="asg-type-opt ${initType === 'test' ? 'active' : ''}">
+            <label class="asg-type-opt is-compact ${initType === 'test' ? 'active' : ''}">
               <input type="radio" name="asgType" value="test" ${initType === 'test' ? 'checked' : ''} />
-              <div>
-                <strong>Bài kiểm tra</strong>
-                <small>Phân loại kiểm tra, quy định rõ khung thời gian làm bài</small>
-              </div>
+              <strong>Bài kiểm tra</strong>
             </label>
           </div>
         </div>
@@ -1622,14 +1778,14 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         <!-- Online Exam Mode Fields -->
         <div id="asgOnlineFields" class="${initSubMode === 'online' ? '' : 'hidden'}">
           ${
-            exams.length === 0
-              ? `<div class="composer-att-empty" style="color:var(--danger); margin-bottom:12px;">Chưa có đề thi nào trong Ngân hàng đề thi. Thầy hãy tạo đề trước hoặc chọn hình thức Nộp qua Link / Google Form.</div>`
+            assignableExams.length === 0
+              ? `<div class="composer-att-empty" style="color:var(--danger); margin-bottom:12px;">Chưa có đề thi giao bài nào trong Ngân hàng đề thi (các bộ câu hỏi "Chỉ trình chiếu" không hiển thị tại đây). Thầy hãy tạo đề trước hoặc chọn hình thức Nộp qua Link / Google Form.</div>`
               : `
                 <div class="form-row-2">
                   <div class="form-group">
                     <label>Chọn đề thi *</label>
                     <select id="asgExamId" class="input-control" ${existing ? 'disabled' : ''}>
-                      ${exams
+                      ${assignableExams
                         .map(
                           (e) =>
                             `<option value="${e.id}" ${e.id === selExamId ? 'selected' : ''}>[${escapeHtml(e.code)}] ${escapeHtml(e.title)}</option>`
@@ -1646,7 +1802,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                 <div class="form-row-2">
                   <div class="form-group" id="openAtGroup">
                     <label id="openAtLabel">
-                      ${initType === 'test' ? 'Thời gian mở đề (dd/mm/yyyy) *' : 'Thời gian mở đề (tùy chọn — để trống mở ngay)'}
+                      ${initType === 'test' ? 'Thời gian mở đề *' : 'Thời gian mở đề'}
                     </label>
                     <div class="vn-datetime-pair">
                       <input id="asgOpenDate" type="text" class="input-control" placeholder="dd/mm/yyyy" maxlength="10" value="${escapeAttr(existing?.openAt || initType === 'test' ? openParts.date : '')}" />
@@ -1666,20 +1822,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                 </div>
 
                 <div class="asg-options-box">
-                  <div class="asg-opt-row">
-                    <label class="checkbox-pill" style="margin:0;">
-                      <input type="checkbox" id="asgTimed" ${initTimed ? 'checked' : ''} ${initType === 'test' ? 'disabled' : ''} />
-                      <span>Tính thời gian làm bài</span>
-                    </label>
-                    <div id="asgDurationWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
-                      <span>Làm trong</span>
-                      <input id="asgDurationMinutes" type="number" min="1" max="300" class="input-control input-compact" style="width:82px; text-align:center;" value="${initDuration}" />
-                      <span>phút</span>
+                  <div class="asg-opt-row is-single-line">
+                    <div class="asg-opt-left">
+                      <label class="checkbox-pill" style="margin:0;">
+                        <input type="checkbox" id="asgTimed" ${initTimed ? 'checked' : ''} ${initType === 'test' ? 'disabled' : ''} />
+                        <span>Tính thời gian làm bài</span>
+                      </label>
+                      <div id="asgDurationWrap" class="asg-duration-inline ${initTimed ? '' : 'hidden'}">
+                        <span>Làm trong</span>
+                        <input id="asgDurationMinutes" type="number" min="1" max="300" class="input-control input-compact" style="width:76px; text-align:center;" value="${initDuration}" />
+                        <span>phút</span>
+                      </div>
                     </div>
-                  </div>
-
-                  <div class="asg-opt-row" style="margin-top:10px;">
-                    <label class="checkbox-pill" style="margin:0;">
+                    <label class="checkbox-pill" style="margin:0; flex-shrink:0;">
                       <input type="checkbox" id="asgShuffle" ${existing?.shuffle ? 'checked' : ''} />
                       <span>Trộn câu hỏi</span>
                     </label>
@@ -1690,7 +1845,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         </div>
 
         <div class="form-group" style="margin-top:12px;">
-          <label>Ghi chú / Dặn dò cho học sinh</label>
+          <label>Ghi chú</label>
           <input id="asgNote" class="input-control" placeholder="" value="${escapeAttr(existing?.note || '')}" />
         </div>
 
@@ -1774,7 +1929,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             timedChk.checked = true;
             timedChk.disabled = true;
             durWrap.classList.remove('hidden');
-            openLabel.textContent = 'Thời gian mở đề (dd/mm/yyyy) *';
+            openLabel.textContent = 'Thời gian mở đề *';
             dueLabel.textContent = 'Thời gian nộp bài / đóng đề (dd/mm/yyyy) *';
             if (openDateInp && !openDateInp.value.trim()) {
               const defOpen = defaultVnDateTime(0, '08:00');
@@ -1784,7 +1939,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           } else {
             timedChk.disabled = false;
             durWrap.classList.toggle('hidden', !timedChk.checked);
-            openLabel.textContent = 'Thời gian mở đề (tùy chọn — để trống mở ngay)';
+            openLabel.textContent = 'Thời gian mở đề';
             dueLabel.textContent = 'Hạn nộp bài tập (dd/mm/yyyy) *';
           }
         }
@@ -2789,6 +2944,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           const p4n = ex.part4?.length || 0;
           const sampleQ = ex.part1?.[0] || ex.part2?.[0] || ex.part3?.[0] || ex.part4?.[0];
           const missingInfo = scanMissingImages(ex);
+          const isPresOnly = Boolean(ex.presentationOnly);
+          const startNumVal = Math.max(1, Math.floor(Number(ex.startQuestionNumber) || 1));
+          const answerWarnRe = /(\\True|tạm đặt đáp án|chưa có đáp án|đáp án đúng|đáp số ngắn|chưa thấy đáp số|tạm đặt\s+[A0])/i;
+          const visibleWarnings = (res.warnings || []).filter((w) => !(isPresOnly && answerWarnRe.test(String(w || ''))));
 
           previewEl.innerHTML = `
             <div class="import-preview-card">
@@ -2807,6 +2966,17 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                       ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCopyParsedLatex">Sao chép mã LaTeX</button>`
                       : ''
                   }
+                </div>
+              </div>
+
+              <div class="imp-pres-bar">
+                <label class="checkbox-pill" style="margin:0;">
+                  <input type="checkbox" id="impPresentationOnly" ${isPresOnly ? 'checked' : ''} />
+                  <span>Chỉ để trình chiếu</span>
+                </label>
+                <div id="impStartNumWrap" class="imp-start-num-wrap ${isPresOnly ? '' : 'hidden'}">
+                  <span>STT bắt đầu của Câu 1:</span>
+                  <input type="number" min="1" max="999" id="impStartNum" class="input-control input-compact" style="width:80px; text-align:center;" value="${startNumVal}" />
                 </div>
               </div>
 
@@ -2839,10 +3009,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
               }
 
               ${
-                res.warnings?.length
+                visibleWarnings.length
                   ? `<div class="import-warn-box">
-                      <strong>Lưu ý cần kiểm tra (${res.warnings.length}):</strong>
-                      <ul>${res.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>
+                      <strong>Lưu ý cần kiểm tra (${visibleWarnings.length}):</strong>
+                      <ul>${visibleWarnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>
                     </div>`
                   : `<div style="font-size:0.83rem; color:var(--success); font-weight:600; margin-bottom:8px;">✓ Phân tích hoàn hảo — không có cảnh báo!</div>`
               }
@@ -2850,7 +3020,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
               ${
                 sampleQ
                   ? `<div class="import-sample-preview">
-                      <div style="font-size:0.74rem; font-weight:700; color:var(--text-muted); margin-bottom:4px;">XEM TRƯỚC CÂU ĐẦU TIÊN (ĐÃ RENDER KATEX):</div>
+                      <div style="font-size:0.74rem; font-weight:700; color:var(--text-muted); margin-bottom:4px;">XEM TRƯỚC CÂU ĐẦU TIÊN (CÂU ${startNumVal}):</div>
                       <div style="font-size:0.88rem;">${sampleQ.stem}</div>
                     </div>`
                   : ''
@@ -2860,6 +3030,16 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
           previewEl.classList.remove('hidden');
           btnEditParsed.classList.remove('hidden');
           btnSaveParsed.classList.remove('hidden');
+          previewEl.querySelector('#impPresentationOnly')?.addEventListener('change', (ev) => {
+            const titleEl = previewEl.querySelector('#impExamTitleEdit');
+            if (titleEl && titleEl.value.trim()) res.exam.title = titleEl.value.trim();
+            res.exam.presentationOnly = Boolean(ev.target.checked);
+            if (!res.exam.presentationOnly) res.exam.startQuestionNumber = 1;
+            showParsedPreview(res);
+          });
+          previewEl.querySelector('#impStartNum')?.addEventListener('input', (ev) => {
+            res.exam.startQuestionNumber = Math.max(1, Math.floor(Number(ev.target.value) || 1));
+          });
           previewEl.querySelector('#btnCopyParsedLatex')?.addEventListener('click', async () => {
             if (!res.latexSource) return;
             try {
@@ -3146,10 +3326,21 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         // === FOOTER ACTIONS ===
         m.querySelector('#mCloseImp').addEventListener('click', closeModal);
 
-        btnEditParsed.addEventListener('click', () => {
+        const syncImportMeta = () => {
           if (!parsedResult?.exam) return;
           const titleEl = m.querySelector('#impExamTitleEdit');
           if (titleEl && titleEl.value.trim()) parsedResult.exam.title = titleEl.value.trim();
+          const presChk = m.querySelector('#impPresentationOnly');
+          if (presChk) parsedResult.exam.presentationOnly = Boolean(presChk.checked);
+          const startInp = m.querySelector('#impStartNum');
+          parsedResult.exam.startQuestionNumber = parsedResult.exam.presentationOnly
+            ? Math.max(1, Math.floor(Number(startInp?.value || parsedResult.exam.startQuestionNumber) || 1))
+            : 1;
+        };
+
+        btnEditParsed.addEventListener('click', () => {
+          if (!parsedResult?.exam) return;
+          syncImportMeta();
           state.editingExam = { ...parsedResult.exam, part4: parsedResult.exam.part4 || [], id: null };
           state.editorPartTab =
             state.editingExam.part1.length > 0
@@ -3168,8 +3359,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
 
         btnSaveParsed.addEventListener('click', async () => {
           if (!parsedResult?.exam) return;
-          const titleEl = m.querySelector('#impExamTitleEdit');
-          if (titleEl && titleEl.value.trim()) parsedResult.exam.title = titleEl.value.trim();
+          syncImportMeta();
           try {
             await api.createExams(parsedResult.exam);
             closeModal();

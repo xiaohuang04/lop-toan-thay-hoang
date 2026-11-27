@@ -1845,8 +1845,10 @@ export function createGradebookController({ rootEl, uiHelpers, onRouteChange }) 
           <div class="gb-header-top">
             <div>
               <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
-                <button type="button" class="btn btn-ghost btn-sm" id="btnBackToGradebook" style="padding:4px 9px;">
-                  ← Về Sổ điểm
+                <button type="button" class="icon-back-btn is-sm" id="btnBackToGradebook" data-tooltip="Về Sổ điểm" aria-label="Về Sổ điểm">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                  </svg>
                 </button>
                 <span class="gb-eyebrow" style="margin-bottom:0;">
                   THỐNG KÊ &amp; XEM XÉT ĐIỂM • ${escapeHtml(titleText.toUpperCase())}

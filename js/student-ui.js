@@ -8,7 +8,7 @@ import {
   parseVnDateTime,
   getDeadlineStatus,
 } from './exam-engine.js?v=20261127p';
-import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261127p';
+import { renderFeedList, bindFeedEvents } from './classroom-feed.js?v=20261127u';
 
 function formatVnd(amount) {
   const n = Math.max(0, Math.round(Number(amount) || 0));
@@ -528,7 +528,7 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
                     }
                     ${
                       canStart
-                        ? `<button class="btn btn-primary btn-sm" data-take-asg="${asg.id}">Bắt đầu làm bài →</button>`
+                        ? `<button class="btn btn-primary btn-sm btn-start-exam" data-take-asg="${asg.id}"><span>Bắt đầu</span><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 5.65A1.5 1.5 0 0 1 9.78 4.38l10.22 6.35a1.5 1.5 0 0 1 0 2.54L9.78 19.62A1.5 1.5 0 0 1 7.5 18.35V5.65Z"/></svg></button>`
                         : notOpen
                           ? `<span class="badge badge-neutral">Chưa đến giờ mở đề</span>`
                           : latestSub
@@ -750,8 +750,8 @@ export function createStudentController({ rootEl, examRunner, uiHelpers, onUserU
         </div>
       `,
       footerHtml: `
-        <button type="button" class="btn btn-secondary" id="btnCancelStartExam">Để sau</button>
-        <button type="button" class="btn btn-primary" id="btnConfirmStartExam">Vào làm bài ngay →</button>
+        <button type="button" class="btn btn-secondary" id="btnCancelStartExam">Huỷ</button>
+        <button type="button" class="btn btn-primary btn-start-exam" id="btnConfirmStartExam"><span>Bắt đầu</span><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 5.65A1.5 1.5 0 0 1 9.78 4.38l10.22 6.35a1.5 1.5 0 0 1 0 2.54L9.78 19.62A1.5 1.5 0 0 1 7.5 18.35V5.65Z"/></svg></button>
       `,
       onMount: (modalEl) => {
         modalEl.querySelector('#btnCancelStartExam')?.addEventListener('click', closeModal);

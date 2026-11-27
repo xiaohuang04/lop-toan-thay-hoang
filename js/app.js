@@ -1,11 +1,11 @@
 import { api, setToken } from './api.js?v=20261127d';
-import { createExamRunner } from './exam-runner.js?v=20261127q';
-import { createTeacherController } from './teacher-ui.js?v=20261127r';
-import { createStudentController } from './student-ui.js?v=20261127p';
-import { createHtmlLabController } from './html-lab.js?v=20261124z';
+import { createExamRunner } from './exam-runner.js?v=20261127u';
+import { createTeacherController } from './teacher-ui.js?v=20261127u';
+import { createStudentController } from './student-ui.js?v=20261127u';
+import { createHtmlLabController } from './html-lab.js?v=20261127u';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
-import { createGradebookController } from './gradebook.js?v=20261125l';
-import { createLectureSlidesController } from './lecture-slides.js?v=20261127q';
+import { createGradebookController } from './gradebook.js?v=20261127u';
+import { createLectureSlidesController } from './lecture-slides.js?v=20261127u';
 import { createMathReviewController } from './math-review.js?v=20261127n';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261127p';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
@@ -66,6 +66,7 @@ let modalLockedScrollY = null;
 
 function lockBackgroundScroll() {
   if (modalLockedScrollY !== null) return;
+  const sbWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
   modalLockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
   document.documentElement.classList.add('modal-open');
   document.body.classList.add('modal-open');
@@ -74,6 +75,9 @@ function lockBackgroundScroll() {
   document.body.style.left = '0';
   document.body.style.right = '0';
   document.body.style.width = '100%';
+  if (sbWidth > 0) {
+    document.body.style.paddingRight = `${sbWidth}px`;
+  }
 }
 
 function unlockBackgroundScroll() {
@@ -87,6 +91,7 @@ function unlockBackgroundScroll() {
   document.body.style.left = '';
   document.body.style.right = '';
   document.body.style.width = '';
+  document.body.style.paddingRight = '';
   window.scrollTo({ top: restoreY, left: 0, behavior: 'instant' });
 }
 
@@ -810,7 +815,18 @@ async function openStorageManagerModal() {
   openModal({
     title: 'Quản lý bộ nhớ Supabase',
     wide: true,
-    bodyHtml: `<div style="padding:28px; text-align:center; color:var(--text-muted);">Đang đo dung lượng lưu trữ...</div>`,
+    bodyHtml: `
+      <div class="storage-skeleton-wrap">
+        <div class="storage-skel-box" style="height:112px;"></div>
+        <div class="storage-skel-grid">
+          <div class="storage-skel-box" style="height:82px;"></div>
+          <div class="storage-skel-box" style="height:82px;"></div>
+          <div class="storage-skel-box" style="height:82px;"></div>
+          <div class="storage-skel-box" style="height:82px;"></div>
+        </div>
+        <div class="storage-skel-box" style="height:160px;"></div>
+      </div>
+    `,
     footerHtml: `<button class="btn btn-primary" id="mCloseStorage">Đóng</button>`,
     onMount: async (m) => {
       m.querySelector('#mCloseStorage').addEventListener('click', closeModal);

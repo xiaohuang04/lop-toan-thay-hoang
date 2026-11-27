@@ -22,10 +22,11 @@ function fileToBase64(file) {
   });
 }
 
-function pushGroupedSlides(slides, list, { part, badge, title, shortPrefix, chunkSize }) {
+function pushGroupedSlides(slides, list, { part, badge, title, shortPrefix, chunkSize, startNumber = 1 }) {
   const chunk = Math.max(1, Math.min(3, Number(chunkSize) || 1));
+  const baseNum = Math.max(1, Math.floor(Number(startNumber) || 1));
   for (let i = 0; i < list.length; i += chunk) {
-    const slice = list.slice(i, i + chunk).map((q, k) => ({ num: i + k + 1, q }));
+    const slice = list.slice(i, i + chunk).map((q, k) => ({ num: baseNum + i + k, q }));
     const firstNum = slice[0].num;
     const lastNum = slice[slice.length - 1].num;
     slides.push({
@@ -42,6 +43,7 @@ function pushGroupedSlides(slides, list, { part, badge, title, shortPrefix, chun
 function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
   if (!deck) return [];
   const slides = [];
+  const startNumber = Math.max(1, Math.floor(Number(deck.startQuestionNumber) || 1));
   const p1 = Array.isArray(deck.part1) ? deck.part1 : [];
   const p2 = Array.isArray(deck.part2) ? deck.part2 : [];
   const p3 = Array.isArray(deck.part3) ? deck.part3 : [];
@@ -53,6 +55,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
     title: 'Trắc nghiệm nhiều phương án lựa chọn',
     shortPrefix: 'P.I',
     chunkSize: partChunk[1] || 2,
+    startNumber,
   });
 
   // PART II (Đúng/Sai): Strictly 1 question per slide
@@ -62,6 +65,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
     title: 'Trắc nghiệm đúng / sai',
     shortPrefix: 'P.II',
     chunkSize: 1,
+    startNumber,
   });
 
   // PART III (Trả lời ngắn): Configurable 1 / 2 / 3 per slide (default 1)
@@ -71,6 +75,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
     title: 'Trắc nghiệm trả lời ngắn',
     shortPrefix: 'P.III',
     chunkSize: partChunk[3] || 1,
+    startNumber,
   });
 
   // PART IV (Tự luận): Configurable 1 / 2 / 3 per slide (default 1)
@@ -80,6 +85,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
     title: 'Tự luận',
     shortPrefix: 'P.IV',
     chunkSize: partChunk[4] || 1,
+    startNumber,
   });
 
   return slides;
@@ -612,6 +618,7 @@ export function createLectureSlidesController({ uiHelpers }) {
   function openDeck(deck, warnings = [], latexSource = '') {
     state.deck = {
       title: deck.title || 'Bài giảng trình chiếu',
+      startQuestionNumber: Math.max(1, Math.floor(Number(deck.startQuestionNumber) || 1)),
       part1: Array.isArray(deck.part1) ? deck.part1 : [],
       part2: Array.isArray(deck.part2) ? deck.part2 : [],
       part3: Array.isArray(deck.part3) ? deck.part3 : [],
@@ -633,6 +640,7 @@ export function createLectureSlidesController({ uiHelpers }) {
     if (!exam) return;
     openDeck({
       title: exam.title || 'Đề trình chiếu',
+      startQuestionNumber: exam.startQuestionNumber || 1,
       part1: exam.part1 || [],
       part2: exam.part2 || [],
       part3: exam.part3 || [],
@@ -808,7 +816,11 @@ export function createLectureSlidesController({ uiHelpers }) {
         <!-- Compact Single-Row Control Toolbar -->
         <div class="ls-toolbar" id="lsToolbar">
           <div class="ls-tb-left">
-            <button type="button" class="ls-tb-btn" id="btnLsBack" title="Quay lại chọn file đề khác">← Đổi đề</button>
+            <button type="button" class="icon-back-btn is-sm" id="btnLsBack" data-tooltip="Đổi đề" aria-label="Quay lại chọn đề khác">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+            </button>
             <span class="ls-deck-title" title="${escapeAttr(state.deck.title)}">${escapeHtml(state.deck.title)}</span>
           </div>
 

@@ -290,7 +290,7 @@ function renderPostLinkedAssignmentZone(post, { isAdmin = false, assignmentsById
           latestSub
             ? `<button type="button" class="btn btn-secondary btn-sm" data-feed-review-sub="${escapeAttr(latestSub.id)}">Xem lại bài &amp; Lời giải</button>`
             : canStart
-              ? `<button type="button" class="btn btn-primary btn-sm" data-feed-take-asg="${escapeAttr(asg.id)}">Bắt đầu làm bài →</button>`
+              ? `<button type="button" class="btn btn-primary btn-sm btn-start-exam" data-feed-take-asg="${escapeAttr(asg.id)}"><span>Bắt đầu</span><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 5.65A1.5 1.5 0 0 1 9.78 4.38l10.22 6.35a1.5 1.5 0 0 1 0 2.54L9.78 19.62A1.5 1.5 0 0 1 7.5 18.35V5.65Z"/></svg></button>`
               : notOpen
                 ? `<span class="badge badge-neutral">Chưa đến giờ mở đề</span>`
                 : `<span class="badge badge-danger">Đã khóa (Quá hạn)</span>`
