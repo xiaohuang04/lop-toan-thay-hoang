@@ -1,4 +1,4 @@
-import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261128i';
+import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261128j';
 import { escapeHtml, escapeAttr, formatShortAnswerSlots } from './exam-engine.js?v=20261127p';
 import { getParametricShortAnswerPool, generateRandomFromShortAnswers } from './review-param.js?v=20261128c';
 import {
@@ -15,7 +15,7 @@ import {
   renderTouch1EditorHtml,
   renderTouch3EditorHtml,
   applyTextareaSnippet,
-} from './math-review-editor.js?v=20261128i';
+} from './math-review-editor.js?v=20261128j';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
 const LS_PROGRESS_KEY = 'math_review_progress';
@@ -368,6 +368,50 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     return null;
   }
 
+  function romanToInt(roman) {
+    const map = { I: 1, V: 5, X: 10, L: 50 };
+    const s = String(roman || '').toUpperCase().trim();
+    if (!/^[IVXL]+$/.test(s)) return 0;
+    let total = 0;
+    for (let i = 0; i < s.length; i += 1) {
+      const cur = map[s[i]] || 0;
+      const next = map[s[i + 1]] || 0;
+      total += cur < next ? -cur : cur;
+    }
+    return total;
+  }
+
+  function getChapterSortOrder(code) {
+    const raw = stripAccents(String(code || '')).toLowerCase().trim();
+    const mCd = raw.match(/chuyen\s*de\s*(\d+)/);
+    if (mCd) return 1000 + Number(mCd[1]);
+    const mChNum = raw.match(/chuong\s*(\d+)/);
+    if (mChNum) return Number(mChNum[1]);
+    const mChRom = raw.match(/chuong\s*([ivxl]+)/);
+    if (mChRom) {
+      const v = romanToInt(mChRom[1]);
+      if (v > 0) return v;
+    }
+    return 9000;
+  }
+
+  function getLessonSortOrder(code) {
+    const raw = stripAccents(String(code || '')).toLowerCase().trim();
+    const m = raw.match(/bai\s*(\d+)/);
+    return m ? Number(m[1]) : 9000;
+  }
+
+  function sortCurriculumCanonical(gradesList) {
+    (gradesList || []).forEach((g) => {
+      if (!Array.isArray(g.chapters)) return;
+      g.chapters.sort((a, b) => getChapterSortOrder(a.code) - getChapterSortOrder(b.code));
+      g.chapters.forEach((ch) => {
+        if (!Array.isArray(ch.lessons)) return;
+        ch.lessons.sort((a, b) => getLessonSortOrder(a.code) - getLessonSortOrder(b.code));
+      });
+    });
+  }
+
   function normCatalogKey(str) {
     return stripAccents(String(str || ''))
       .toLowerCase()
@@ -439,6 +483,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
   let cardsIndex = [];
 
   function rebuildIndexes() {
+    sortCurriculumCanonical(curriculum);
     lessonsIndex = [];
     lessonsById = new Map();
     flipCardsById = new Map();
@@ -903,8 +948,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
                                             editingTree
                                               ? `
                                                 <div class="rv-tree-mini-acts">
-                                                  <button type="button" class="rv-tree-act" data-ed-lesson-move="${gIdx}:${cIdx}:${lIdx}:-1" ${lIdx === 0 ? 'disabled' : ''} title="Lên">↑</button>
-                                                  <button type="button" class="rv-tree-act" data-ed-lesson-move="${gIdx}:${cIdx}:${lIdx}:1" ${lIdx === chap.lessons.length - 1 ? 'disabled' : ''} title="Xuống">↓</button>
                                                   <button type="button" class="rv-tree-act is-del" data-ed-lesson-del="${gIdx}:${cIdx}:${lIdx}" title="Xóa bài">×</button>
                                                 </div>
                                               `
@@ -2028,6 +2071,44 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     `;
   }
 
+  function renderEmptyCurriculumHtml() {
+    const canEdit = isAdmin();
+    const editing = canEdit && state.editMode;
+    return `
+      ${
+        editing
+          ? renderEditorCommandBarHtml({
+              isDirty: state.isDirty,
+              isSaving: state.isSaving,
+              showPresetManager: state.showPresetManager,
+            })
+          : ''
+      }
+      ${
+        editing && state.showPresetManager
+          ? renderBoxPresetManagerHtml({ boxPresets, draftPreset: state.draftPreset })
+          : ''
+      }
+      <div class="rv-empty-notebook" style="margin-top:16px;">
+        <h3 style="margin-bottom:8px;">Chưa có bài ôn tập nào được đăng</h3>
+        <p>
+          ${
+            canEdit
+              ? editing
+                ? 'Hãy chọn <strong>+ Thêm chương</strong> ở danh sách bên trái để thêm chương/bài từ Kế hoạch dạy học, hoặc bấm <strong>Nhập Excel</strong> ở thanh phía trên.'
+                : 'Kho ôn tập trên web hiện đang trống. Bấm <strong>Soạn bài</strong> để chọn chương/bài từ Kế hoạch dạy học hoặc nhập file Excel.'
+              : 'Nội dung ôn tập kiến thức Toán THPT đang được thầy Hoàng cập nhật. Các em quay lại sau nhé!'
+          }
+        </p>
+        ${
+          canEdit && !editing
+            ? `<button type="button" class="btn btn-primary" data-start-edit-empty="1">✎ Bắt đầu soạn</button>`
+            : ''
+        }
+      </div>
+    `;
+  }
+
   function render() {
     if (!rootEl) return;
     const activeLesson = lessonsById.get(state.activeLessonId) || lessonsIndex[0];
@@ -2069,7 +2150,13 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
           </div>
 
           <div class="rv-content-body" id="rvContentBody">
-            ${state.viewMode === 'bookmarks' ? renderNotebookViewHtml() : activeLesson ? renderLessonViewHtml(activeLesson) : ''}
+            ${
+              state.viewMode === 'bookmarks'
+                ? renderNotebookViewHtml()
+                : activeLesson
+                  ? renderLessonViewHtml(activeLesson)
+                  : renderEmptyCurriculumHtml()
+            }
           </div>
         </div>
       </div>
@@ -2539,6 +2626,11 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
       btn.addEventListener('click', () => {
         if (!isAdmin()) return;
         state.editMode = true;
+        if (lessonsIndex.length === 0) {
+          state.expandedGrades.add(10);
+          state.expandedGrades.add(11);
+          state.expandedGrades.add(12);
+        }
         render();
       });
     });

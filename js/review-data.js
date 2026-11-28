@@ -1602,16 +1602,7 @@ export const REVIEW_CURRICULUM = [
   {
     grade: 11,
     label: 'Toán 11',
-    chapters: [
-      {
-        id: 'toan11-c2',
-        grade: 11,
-        code: 'Chương II',
-        title: 'Dãy số. Cấp số cộng và cấp số nhân',
-        comingSoon: false,
-        lessons: BUILTIN_TOAN11_C2_LESSONS,
-      },
-    ],
+    chapters: [],
   },
   {
     grade: 12,
