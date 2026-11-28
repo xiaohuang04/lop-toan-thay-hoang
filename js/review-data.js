@@ -1593,49 +1593,29 @@ export const OFFICIAL_PLAN_SCAFFOLD = {
   ]
 };
 
-function makeEmptyScaffoldLesson(id, code, title) {
-  return {
-    id,
-    code,
-    title,
-    summary: '',
-    coreCards: [],
-    flipCards: [],
-    examples: [],
-    quizzes: {
-      multipleChoice: [],
-      trueFalse: [],
-      shortAnswer: [],
-    },
-  };
-}
-
-function slugChapterId(grade, code, idx) {
-  const low = String(code || '').toLowerCase();
-  const mCd = low.match(/chuyên\s*đề\s*(\d+)/i);
-  if (mCd) return `toan${grade}-cd${mCd[1]}`;
-  return `toan${grade}-c${idx + 1}`;
-}
-
-export const REVIEW_CURRICULUM = [10, 11, 12].map((grade) => ({
-  grade,
-  label: `Toán ${grade}`,
-  chapters: (OFFICIAL_PLAN_SCAFFOLD[String(grade)] || []).map((ch, cIdx) => {
-    const chapId = slugChapterId(grade, ch.code, cIdx);
-    const isToan11C2 = grade === 11 && chapId === 'toan11-c2';
-    return {
-      id: chapId,
-      grade,
-      code: ch.code,
-      title: ch.title,
-      comingSoon: false,
-      lessons: isToan11C2
-        ? BUILTIN_TOAN11_C2_LESSONS
-        : (ch.lessons || []).map((ls, lIdx) => {
-            const mNum = String(ls.code || '').match(/(\d+)/);
-            const bTag = mNum ? mNum[1] : String(lIdx + 1);
-            return makeEmptyScaffoldLesson(`${chapId}-b${bTag}`, ls.code, ls.title);
-          }),
-    };
-  }),
-}));
+export const REVIEW_CURRICULUM = [
+  {
+    grade: 10,
+    label: 'Toán 10',
+    chapters: [],
+  },
+  {
+    grade: 11,
+    label: 'Toán 11',
+    chapters: [
+      {
+        id: 'toan11-c2',
+        grade: 11,
+        code: 'Chương II',
+        title: 'Dãy số. Cấp số cộng và cấp số nhân',
+        comingSoon: false,
+        lessons: BUILTIN_TOAN11_C2_LESSONS,
+      },
+    ],
+  },
+  {
+    grade: 12,
+    label: 'Toán 12',
+    chapters: [],
+  },
+];

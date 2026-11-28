@@ -1,4 +1,4 @@
-import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261128h';
+import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261128i';
 import { escapeHtml, escapeAttr, formatShortAnswerSlots } from './exam-engine.js?v=20261127p';
 import { getParametricShortAnswerPool, generateRandomFromShortAnswers } from './review-param.js?v=20261128c';
 import {
@@ -15,7 +15,7 @@ import {
   renderTouch1EditorHtml,
   renderTouch3EditorHtml,
   applyTextareaSnippet,
-} from './math-review-editor.js?v=20261128h';
+} from './math-review-editor.js?v=20261128i';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
 const LS_PROGRESS_KEY = 'math_review_progress';
@@ -558,98 +558,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     }
   }
 
-  function mergeOfficialCurriculumScaffold(savedGrades, builtinGrades) {
-    const out = [];
-    const savedByGrade = new Map((savedGrades || []).map((g) => [Number(g.grade), g]));
-
-    (builtinGrades || []).forEach((bGrade) => {
-      const sGrade = savedByGrade.get(Number(bGrade.grade));
-      if (!sGrade) {
-        out.push(deepCloneJson(bGrade));
-        return;
-      }
-
-      const savedChaps = Array.isArray(sGrade.chapters) ? sGrade.chapters : [];
-      const usedSavedChapIdxs = new Set();
-      const mergedChaps = [];
-
-      (bGrade.chapters || []).forEach((bChap) => {
-        const bCodeKey = normCatalogKey(bChap.code);
-        const sIdx = savedChaps.findIndex(
-          (sc, idx) =>
-            !usedSavedChapIdxs.has(idx) &&
-            (sc.id === bChap.id || normCatalogKey(sc.code) === bCodeKey)
-        );
-        if (sIdx < 0) {
-          // Chapter missing from cloud save -> add official empty scaffold structure
-          mergedChaps.push(deepCloneJson(bChap));
-          return;
-        }
-        usedSavedChapIdxs.add(sIdx);
-        const sChap = deepCloneJson(savedChaps[sIdx]);
-        const sLessons = Array.isArray(sChap.lessons) ? sChap.lessons : [];
-        const usedSavedLsIdxs = new Set();
-        const mergedLessons = [];
-
-        (bChap.lessons || []).forEach((bLs) => {
-          const bTitleKey = normCatalogKey(bLs.title);
-          const bCodeLsKey = normCatalogKey(bLs.code);
-          const lIdx = sLessons.findIndex(
-            (sl, idx) =>
-              !usedSavedLsIdxs.has(idx) &&
-              (sl.id === bLs.id ||
-                normCatalogKey(sl.title) === bTitleKey ||
-                (bTitleKey && normCatalogKey(sl.title).startsWith(bTitleKey)) ||
-                normCatalogKey(sl.code) === bCodeLsKey)
-          );
-          if (lIdx >= 0) {
-            usedSavedLsIdxs.add(lIdx);
-            // Keep 100% of teacher-saved content, only align official lesson code when built-in Toán 11 C2
-            const kept = sLessons[lIdx];
-            if (bLs.id === 'toan11-c2-b1' || bLs.id === 'toan11-c2-b2' || bLs.id === 'toan11-c2-b3') {
-              kept.code = bLs.code;
-            }
-            mergedLessons.push(kept);
-          } else {
-            // Lesson missing -> add empty scaffold entry (structure only, zero prefilled content!)
-            mergedLessons.push({
-              id: bLs.id,
-              code: bLs.code,
-              title: bLs.title,
-              summary: '',
-              coreCards: [],
-              flipCards: [],
-              examples: [],
-              quizzes: { multipleChoice: [], trueFalse: [], shortAnswer: [] },
-            });
-          }
-        });
-
-        // Keep any extra custom lessons teacher created inside this chapter
-        sLessons.forEach((sl, idx) => {
-          if (!usedSavedLsIdxs.has(idx)) mergedLessons.push(sl);
-        });
-
-        sChap.lessons = mergedLessons;
-        sChap.comingSoon = mergedLessons.length === 0;
-        mergedChaps.push(sChap);
-      });
-
-      // Keep any extra custom chapters teacher created in this grade
-      savedChaps.forEach((sc, idx) => {
-        if (!usedSavedChapIdxs.has(idx)) mergedChaps.push(deepCloneJson(sc));
-      });
-
-      out.push({
-        grade: Number(bGrade.grade),
-        label: sGrade.label || bGrade.label,
-        chapters: mergedChaps,
-      });
-    });
-
-    return out;
-  }
-
   async function loadCurriculumFromServer() {
     if (state.serverLoaded || !api?.getReviewCurriculum) return;
     state.serverLoaded = true;
@@ -658,7 +566,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
       const rc = res?.reviewCurriculum;
       if (rc && Array.isArray(rc.grades) && rc.grades.length > 0) {
         const savedVer = Number(rc.version || 1);
-        let hydrated = cloneCurriculumWithGenerators(
+        curriculum = cloneCurriculumWithGenerators(
           rc.grades,
           builtinGeneratorsMap,
           builtinCoreCardsMap,
@@ -666,10 +574,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
           builtinLessonsMap,
           savedVer
         );
-        if (savedVer < 3) {
-          hydrated = mergeOfficialCurriculumScaffold(hydrated, REVIEW_CURRICULUM);
-        }
-        curriculum = hydrated;
         boxPresets = mergeBoxPresets(rc.boxPresets);
         rebuildIndexes();
         if (!lessonsById.has(state.activeLessonId)) {
@@ -689,7 +593,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     render();
     try {
       const payload = {
-        version: 3,
+        version: 2,
         boxPresets,
         grades: serializeCurriculumForServer(curriculum),
       };
