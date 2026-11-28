@@ -48,7 +48,8 @@ import {
   extractQuestionImages,
   appendImageToQuestion,
   removeImageFromQuestion,
-} from './exam-images.js?v=20261127q';
+  normalizeQuestionForLatexEditor,
+} from './exam-images.js?v=20261128d';
 
 const SAMPLE_EXTEST_TEX = `\\title{Đề luyện tập Toán 12 — Nạp từ LaTeX ex\\_test}
 
@@ -452,9 +453,9 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
 
                       <div class="exam-card-badges">
                         <span class="badge badge-p1">Phần I: ${ex.part1?.length || 0} câu</span>
-                        <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu (Đ/S)</span>
-                        <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu (Trả lời ngắn)</span>
-                        ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV: ${p4n} câu (Tự luận)</span>` : ''}
+                        <span class="badge badge-p2">Phần II: ${ex.part2?.length || 0} câu</span>
+                        <span class="badge badge-p3">Phần III: ${ex.part3?.length || 0} câu</span>
+                        ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV: ${p4n} câu</span>` : ''}
                         <span class="badge badge-neutral">${escapeHtml(ex.subject || 'Chưa phân môn')} • ${ex.durationMinutes} phút • ${totalQ} câu</span>
                       </div>
 
@@ -576,8 +577,10 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
   }
 
   function renderEditorQuestionMediaBar(q, idx) {
+    normalizeQuestionForLatexEditor(q);
     const imgs = extractQuestionImages(q);
     const missing = scanMissingImagesInQuestion(q);
+    const hasFigTex = Boolean((q.figureTex || '').trim());
     return `
       <div class="ed-media-zone">
         <div class="ed-media-bar">
@@ -585,9 +588,12 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
             </svg>
-            Chèn ảnh vào câu này
+            Chèn ảnh PNG / JPG (chọn nhiều ảnh)
           </button>
-          <span class="ed-media-hint">Hoặc dán trực tiếp ảnh chụp (Ctrl+V) vào ô đề bài</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-ed-toggle-figtex="${idx}">
+            ${hasFigTex ? 'Mã ảnh LaTeX (TikZ) đang mở' : '+ Thêm mã ảnh LaTeX (TikZ)'}
+          </button>
+          <span class="ed-media-hint">Hỗ trợ dán ảnh (Ctrl+V), chèn nhiều ảnh PNG/JPG hoặc mã TikZ song song</span>
         </div>
         ${
           missing.length > 0
@@ -625,6 +631,15 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             `
             : ''
         }
+        <div class="ed-figtex-wrap ${hasFigTex || q._showFigTex ? '' : 'hidden'}" data-ed-figtex-box="${idx}">
+          <label class="ed-figtex-lbl">Mã ảnh LaTeX (TikZ — dùng riêng hoặc song song với ảnh PNG/JPG, tự biên dịch khi lưu)</label>
+          <textarea
+            class="input-control ed-latex-ta"
+            rows="4"
+            data-field="figureTex"
+            placeholder="\\begin{tikzpicture}&#10;  ...&#10;\\end{tikzpicture}"
+          >${escapeHtml(q.figureTex || '')}</textarea>
+        </div>
       </div>
     `;
   }
@@ -732,16 +747,16 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       <div class="section-toolbar">
         <div class="subtab-bar" style="margin-bottom:0;">
           <button class="subtab-btn ${pTab === 'part1' ? 'active' : ''}" data-ed-part="part1">
-            Phần I — Nhiều lựa chọn (${ex.part1.length})
+            Phần I (${ex.part1.length})
           </button>
           <button class="subtab-btn ${pTab === 'part2' ? 'active' : ''}" data-ed-part="part2">
-            Phần II — Đúng/Sai (${ex.part2.length})
+            Phần II (${ex.part2.length})
           </button>
           <button class="subtab-btn ${pTab === 'part3' ? 'active' : ''}" data-ed-part="part3">
-            Phần III — Trả lời ngắn (${ex.part3.length})
+            Phần III (${ex.part3.length})
           </button>
           <button class="subtab-btn ${pTab === 'part4' ? 'active' : ''}" data-ed-part="part4">
-            Phần IV — Tự luận (${ex.part4.length})
+            Phần IV (${ex.part4.length})
           </button>
         </div>
         <button class="btn btn-primary btn-sm" id="btnAddQuestion">+ Thêm câu hỏi vào ${pTab === 'part1' ? 'Phần I' : pTab === 'part2' ? 'Phần II' : pTab === 'part3' ? 'Phần III' : 'Phần IV'}</button>
@@ -786,16 +801,17 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     }
     const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
-      .map(
-        (q, idx) => `
+      .map((q, idx) => {
+        normalizeQuestionForLatexEditor(q);
+        return `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
           <span class="badge badge-p1">Phần I • Câu ${startNum + idx}</span>
           ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
-          <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
-          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          <label>Đề bài (Mã LaTeX — hỗ trợ $...$, \\begin{enumerate}, \\heva...)</label>
+          <textarea class="input-control ed-latex-ta" rows="3" data-field="stemTex">${escapeHtml(q.stemTex)}</textarea>
           ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div class="form-row-2">
@@ -810,19 +826,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   Đáp án đúng
                 </label>
               </label>
-              <input class="input-control" data-opt-idx="${oi}" value="${escapeAttr(opt.text)}" />
+              <input class="input-control ed-latex-inp" data-opt-idx="${oi}" value="${escapeAttr(opt.text)}" />
             </div>
           `
             )
             .join('')}
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label>Lời giải chi tiết (tùy chọn)</label>
-          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+          <label>Lời giải / Hướng dẫn chấm (Mã LaTeX — tùy chọn)</label>
+          <textarea class="input-control ed-latex-ta" rows="2" data-field="explanationTex">${escapeHtml(q.explanationTex || '')}</textarea>
         </div>
       </div>
-    `
-      )
+    `;
+      })
       .join('');
   }
 
@@ -832,16 +848,17 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     }
     const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
-      .map(
-        (q, idx) => `
+      .map((q, idx) => {
+        normalizeQuestionForLatexEditor(q);
+        return `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
           <span class="badge badge-p2">Phần II • Câu ${startNum + idx}</span>
           ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
-          <label>Đề dẫn (hỗ trợ LaTeX)</label>
-          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          <label>Đề dẫn (Mã LaTeX — hỗ trợ $...$, \\begin{enumerate}, \\heva...)</label>
+          <textarea class="input-control ed-latex-ta" rows="3" data-field="stemTex">${escapeHtml(q.stemTex)}</textarea>
           ${renderEditorQuestionMediaBar(q, idx)}
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
@@ -850,7 +867,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
               (st, si) => `
             <div style="display:grid; grid-template-columns: 28px 1fr 120px; gap:8px; align-items:center;">
               <strong style="color:var(--p2-text);">${st.key})</strong>
-              <input class="input-control" data-st-text="${si}" value="${escapeAttr(st.text)}" />
+              <input class="input-control ed-latex-inp" data-st-text="${si}" value="${escapeAttr(st.text)}" />
               <select class="input-control" data-st-ans="${si}">
                 <option value="true" ${st.answer ? 'selected' : ''}>Đúng</option>
                 <option value="false" ${!st.answer ? 'selected' : ''}>Sai</option>
@@ -861,12 +878,12 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
             .join('')}
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label>Lời giải chi tiết (tùy chọn)</label>
-          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+          <label>Lời giải / Hướng dẫn chấm (Mã LaTeX — tùy chọn)</label>
+          <textarea class="input-control ed-latex-ta" rows="2" data-field="explanationTex">${escapeHtml(q.explanationTex || '')}</textarea>
         </div>
       </div>
-    `
-      )
+    `;
+      })
       .join('');
   }
 
@@ -876,31 +893,30 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     }
     const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
-      .map(
-        (q, idx) => `
+      .map((q, idx) => {
+        normalizeQuestionForLatexEditor(q);
+        return `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
           <span class="badge badge-p3">Phần III • Câu ${startNum + idx}</span>
           ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
-          <label>Đề bài</label>
-          <textarea class="input-control" rows="2" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          <label>Đề bài (Mã LaTeX — hỗ trợ $...$, \\begin{enumerate}, \\heva...)</label>
+          <textarea class="input-control ed-latex-ta" rows="3" data-field="stemTex">${escapeHtml(q.stemTex)}</textarea>
           ${renderEditorQuestionMediaBar(q, idx)}
         </div>
-        <div class="form-row-2">
-          <div class="form-group" style="margin-bottom:0;">
-            <label>Đáp án chuẩn (tối đa 4 ký tự, VD: -3 hoặc 4,5)</label>
-            <input class="input-control" maxlength="4" data-field="answer" value="${escapeAttr(q.answer)}" />
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label>Lời giải chi tiết (tùy chọn)</label>
-            <input class="input-control" data-field="explanation" value="${escapeAttr(q.explanation || '')}" />
-          </div>
+        <div class="form-group">
+          <label>Đáp án chuẩn (tối đa 4 ký tự, VD: -3 hoặc 4,5)</label>
+          <input class="input-control" style="max-width:260px;" maxlength="4" data-field="answer" value="${escapeAttr(q.answer)}" />
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Lời giải / Hướng dẫn chấm (Mã LaTeX — tùy chọn)</label>
+          <textarea class="input-control ed-latex-ta" rows="2" data-field="explanationTex">${escapeHtml(q.explanationTex || '')}</textarea>
         </div>
       </div>
-    `
-      )
+    `;
+      })
       .join('');
   }
 
@@ -910,25 +926,30 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
     }
     const startNum = Math.max(1, Math.floor(Number(state.editingExam?.startQuestionNumber) || 1));
     return list
-      .map(
-        (q, idx) => `
+      .map((q, idx) => {
+        normalizeQuestionForLatexEditor(q);
+        return `
       <div class="card editor-q-card" data-q-idx="${idx}">
         <div class="editor-q-head">
           <span class="badge badge-neutral">Phần IV (Tự luận) • Câu ${startNum + idx}</span>
           ${renderEditorQuestionOrderControls(idx, list.length, startNum)}
         </div>
         <div class="form-group">
-          <label>Đề bài (hỗ trợ LaTeX dạng $...$)</label>
-          <textarea class="input-control" rows="3" data-field="stem">${escapeHtml(q.stem)}</textarea>
+          <label>Đề bài (Mã LaTeX — giữ nguyên \\begin{enumerate}, \\heva, $...$)</label>
+          <textarea class="input-control ed-latex-ta" rows="4" data-field="stemTex">${escapeHtml(q.stemTex)}</textarea>
           ${renderEditorQuestionMediaBar(q, idx)}
         </div>
+        <div class="form-group">
+          <label>Đáp số (tùy chọn — hỗ trợ LaTeX, VD: $M(1;2;6)$)</label>
+          <input class="input-control ed-latex-inp" data-field="answer" value="${escapeAttr(q.answer || '')}" placeholder="VD: $M(1;2;6)$ hoặc $x = 2$" />
+        </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label>Lời giải / Hướng dẫn chấm (tùy chọn)</label>
-          <textarea class="input-control" rows="2" data-field="explanation">${escapeHtml(q.explanation || '')}</textarea>
+          <label>Lời giải / Hướng dẫn chấm (Mã LaTeX — tùy chọn)</label>
+          <textarea class="input-control ed-latex-ta" rows="3" data-field="explanationTex">${escapeHtml(q.explanationTex || '')}</textarea>
         </div>
       </div>
-    `
-      )
+    `;
+      })
       .join('');
   }
 
@@ -967,11 +988,19 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       const q = list[idx];
       if (!q) return;
       const topicEl = card.querySelector('[data-field="topic"]');
-      const stemEl = card.querySelector('[data-field="stem"]');
-      const expEl = card.querySelector('[data-field="explanation"]');
+      const stemTexEl = card.querySelector('[data-field="stemTex"]');
+      const figTexEl = card.querySelector('[data-field="figureTex"]');
+      const expTexEl = card.querySelector('[data-field="explanationTex"]');
       if (topicEl) q.topic = topicEl.value;
-      if (stemEl) q.stem = stemEl.value;
-      if (expEl) q.explanation = expEl.value;
+      if (stemTexEl) {
+        q.stemTex = stemTexEl.value;
+        q.stem = stemTexEl.value;
+      }
+      if (figTexEl) q.figureTex = figTexEl.value;
+      if (expTexEl) {
+        q.explanationTex = expTexEl.value;
+        q.explanation = expTexEl.value;
+      }
 
       if (part === 'part1') {
         card.querySelectorAll('[data-opt-idx]').forEach((inp) => {
@@ -986,7 +1015,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
         card.querySelectorAll('[data-st-ans]').forEach((sel) => {
           q.statements[Number(sel.dataset.stAns)].answer = sel.value === 'true';
         });
-      } else if (part === 'part3') {
+      } else if (part === 'part3' || part === 'part4') {
         const ansEl = card.querySelector('[data-field="answer"]');
         if (ansEl) q.answer = ansEl.value.trim();
       }
@@ -1230,8 +1259,21 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
       }
     });
 
+    // Toggle Mã ảnh LaTeX (TikZ) textarea
+    rootEl.querySelectorAll('[data-ed-toggle-figtex]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncEditorMetadataFromDom();
+        syncCurrentPartQuestionsFromDom();
+        const idx = Number(btn.dataset.edToggleFigtex);
+        const q = state.editingExam?.[state.editorPartTab]?.[idx];
+        if (!q) return;
+        q._showFigTex = !q._showFigTex;
+        renderExamEditor();
+      });
+    });
+
     // Support Ctrl+V image paste directly into question stem textareas
-    rootEl.querySelectorAll('.editor-q-card textarea[data-field="stem"]').forEach((ta) => {
+    rootEl.querySelectorAll('.editor-q-card textarea[data-field="stemTex"]').forEach((ta) => {
       ta.addEventListener('paste', async (e) => {
         const items = Array.from(e.clipboardData?.items || []);
         const imgItem = items.find((it) => it.type && it.type.startsWith('image/'));
@@ -2960,7 +3002,7 @@ export function createTeacherController({ rootEl, examRunner, uiHelpers, onPrese
                   <span class="badge badge-p1">Phần I: ${p1n} câu</span>
                   <span class="badge badge-p2">Phần II: ${p2n} câu</span>
                   <span class="badge badge-p3">Phần III: ${p3n} câu</span>
-                  ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV (Tự luận): ${p4n} câu</span>` : ''}
+                  ${p4n > 0 ? `<span class="badge badge-neutral">Phần IV: ${p4n} câu</span>` : ''}
                   ${
                     res.latexSource
                       ? `<button type="button" class="btn btn-secondary btn-sm" id="btnCopyParsedLatex">Sao chép mã LaTeX</button>`

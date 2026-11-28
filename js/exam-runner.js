@@ -384,28 +384,28 @@ export function createExamRunner({ rootEl, uiHelpers }) {
             ${
               (ex.part1?.length || 0) > 0 || p4List.length === 0
                 ? `<button class="filter-chip ${state.filter === 'part1' ? 'active' : ''}" data-filter="part1">
-                    Phần I — Trắc nghiệm (${ex.part1?.length || 0})
+                    Phần I (${ex.part1?.length || 0})
                   </button>`
                 : ''
             }
             ${
               (ex.part2?.length || 0) > 0 || p4List.length === 0
                 ? `<button class="filter-chip ${state.filter === 'part2' ? 'active' : ''}" data-filter="part2">
-                    Phần II — Đúng/Sai (${ex.part2?.length || 0})
+                    Phần II (${ex.part2?.length || 0})
                   </button>`
                 : ''
             }
             ${
               (ex.part3?.length || 0) > 0 || p4List.length === 0
                 ? `<button class="filter-chip ${state.filter === 'part3' ? 'active' : ''}" data-filter="part3">
-                    Phần III — Trả lời ngắn (${ex.part3?.length || 0})
+                    Phần III (${ex.part3?.length || 0})
                   </button>`
                 : ''
             }
             ${
               p4List.length > 0
                 ? `<button class="filter-chip ${state.filter === 'part4' ? 'active' : ''}" data-filter="part4">
-                    Phần IV — Tự luận (${p4List.length})
+                    Phần IV (${p4List.length})
                   </button>`
                 : ''
             }
@@ -533,7 +533,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
             ${
               (ex.part2 || []).length > 0
                 ? `
-                  <div class="omr-part-title">Phần II — Đúng/Sai (${ex.part2.length} câu)</div>
+                  <div class="omr-part-title">Phần II (${ex.part2.length} câu)</div>
                   <div class="omr-grid omr-grid-wide">
                     ${ex.part2
                       .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part2', q.id, isReview, p2ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">II.${startNum + i}</button>`)
@@ -546,7 +546,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
             ${
               (ex.part3 || []).length > 0
                 ? `
-                  <div class="omr-part-title">Phần III — Trả lời ngắn (${ex.part3.length} câu)</div>
+                  <div class="omr-part-title">Phần III (${ex.part3.length} câu)</div>
                   <div class="omr-grid omr-grid-wide">
                     ${ex.part3
                       .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part3', q.id, isReview, p3ResultMap.get(q.id))}" data-jump="q-${q.id}" data-omr="${q.id}">III.${startNum + i}</button>`)
@@ -559,7 +559,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
             ${
               p4List.length > 0
                 ? `
-                  <div class="omr-part-title">Phần IV — Tự luận (${p4List.length} câu)</div>
+                  <div class="omr-part-title">Phần IV (${p4List.length} câu)</div>
                   <div class="omr-grid omr-grid-wide">
                     ${p4List
                       .map((q, i) => `<button class="omr-cell ${getOmrCellClass('part4', q.id, isReview, null)}" data-jump="q-${q.id}" data-omr="${q.id}">IV.${startNum + i}</button>`)
@@ -640,17 +640,17 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           </p>
           <div class="result-breakdown">
             <div class="rb-card">
-              <div class="rb-label">PHẦN I — NHIỀU LỰA CHỌN</div>
+              <div class="rb-label">PHẦN I</div>
               <div class="rb-score" style="color:var(--p1-text)">${formatScoreVN(res.part1.score)} / ${formatScoreVN(res.part1.max)}đ</div>
               <div class="rb-detail">Đúng ${res.part1.correct}/${res.part1.total} câu</div>
             </div>
             <div class="rb-card">
-              <div class="rb-label">PHẦN II — ĐÚNG / SAI</div>
+              <div class="rb-label">PHẦN II</div>
               <div class="rb-score" style="color:var(--p2-text)">${formatScoreVN(res.part2.score)} / ${formatScoreVN(res.part2.max)}đ</div>
               <div class="rb-detail">Đúng ${res.part2.totalStatementsRight}/${res.part2.totalStatements} ý (${res.part2.fullCorrect} câu trọn điểm)</div>
             </div>
             <div class="rb-card">
-              <div class="rb-label">PHẦN III — TRẢ LỜI NGẮN</div>
+              <div class="rb-label">PHẦN III</div>
               <div class="rb-score" style="color:var(--p3-text)">${formatScoreVN(res.part3.score)} / ${formatScoreVN(res.part3.max)}đ</div>
               <div class="rb-detail">Đúng ${res.part3.correct}/${res.part3.total} câu</div>
             </div>
@@ -680,7 +680,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           }
         </div>
         <div class="q-stem">${q.stem}</div>
-        ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
+        ${q.figureHtml ? `<div class="q-figures-wrap">${q.figureHtml}</div>` : ''}
         <div class="mcq-grid">
           ${q.options
             .map((opt) => {
@@ -719,7 +719,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
         <div class="q-head">
           <div class="q-head-left">
             <span class="q-number" style="background:var(--p2-bg);color:var(--p2-text);border-color:var(--p2-border);">Câu ${startNum + index}</span>
-            <span class="badge badge-p2">Phần II • Đúng/Sai</span>
+            <span class="badge badge-p2">Phần II</span>
           </div>
           ${
             isReview && detail
@@ -730,7 +730,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           }
         </div>
         <div class="q-stem">${q.stem}</div>
-        ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
+        ${q.figureHtml ? `<div class="q-figures-wrap">${q.figureHtml}</div>` : ''}
         <div class="tf-list">
           ${q.statements
             .map((st, si) => {
@@ -774,7 +774,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
         <div class="q-head">
           <div class="q-head-left">
             <span class="q-number" style="background:var(--p3-bg);color:var(--p3-text);border-color:var(--p3-border);">Câu ${startNum + index}</span>
-            <span class="badge badge-p3">Phần III • Trả lời ngắn</span>
+            <span class="badge badge-p3">Phần III</span>
           </div>
           ${
             isReview && detail
@@ -785,7 +785,7 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           }
         </div>
         <div class="q-stem">${q.stem}</div>
-        ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
+        ${q.figureHtml ? `<div class="q-figures-wrap">${q.figureHtml}</div>` : ''}
         ${
           isReview
             ? `
@@ -801,26 +801,23 @@ export function createExamRunner({ rootEl, uiHelpers }) {
             : `
               <div class="sa-box-wrap is-direct-slots">
                 <span class="sa-direct-label">Kết quả</span>
-                <div class="sa-slots is-editable" id="slots-${q.id}" data-p3-slots="${q.id}">
+                <div class="sa-slots is-unified" id="slots-${q.id}" data-p3-unified="${q.id}">
+                  <input
+                    type="text"
+                    inputmode="text"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    maxlength="4"
+                    class="sa-slots-overlay-input"
+                    value="${escapeAttr(val)}"
+                    aria-label="Nhập đáp án câu ${startNum + index}"
+                  />
                   ${slots
                     .map(
-                      (ch, si) => `
-                        <input
-                          type="text"
-                          inputmode="text"
-                          autocomplete="off"
-                          autocorrect="off"
-                          autocapitalize="off"
-                          spellcheck="false"
-                          size="1"
-                          maxlength="4"
-                          class="sa-slot sa-slot-input ${ch ? 'is-filled' : 'empty'}"
-                          data-p3-q="${q.id}"
-                          data-p3-idx="${si}"
-                          value="${escapeAttr(ch)}"
-                          aria-label="Ô ${si + 1} câu ${startNum + index}"
-                        />
-                      `
+                      (ch, si) =>
+                        `<div class="sa-slot ${ch ? 'is-filled' : 'empty'} ${si === Math.min(val.length, 3) ? 'is-caret' : ''}" data-slot-cell="${si}">${escapeHtml(ch)}</div>`
                     )
                     .join('')}
                 </div>
@@ -834,12 +831,17 @@ export function createExamRunner({ rootEl, uiHelpers }) {
 
   function renderPart4Card(q, index, isReview, startNum = 1) {
     const isFlagged = state.flagged.has(q.id);
+    const hasSolOrAns = Boolean((q.explanation || '').trim() || (q.answer || '').trim());
+    const solContent = `
+      ${q.answer ? `<div style="margin-bottom:${q.explanation ? '8px' : '0'};"><strong>Đáp số:</strong> ${q.answer}</div>` : ''}
+      ${q.explanation || ''}
+    `;
     return `
       <article class="q-card ${isFlagged && !isReview ? 'is-flagged' : ''}" id="q-${q.id}">
         <div class="q-head">
           <div class="q-head-left">
             <span class="q-number q-number-p4">Câu ${startNum + index}</span>
-            <span class="badge badge-p4">Phần IV • Tự luận</span>
+            <span class="badge badge-p4">Phần IV</span>
           </div>
           ${
             isReview
@@ -848,18 +850,18 @@ export function createExamRunner({ rootEl, uiHelpers }) {
           }
         </div>
         <div class="q-stem">${q.stem}</div>
-        ${q.figureHtml ? `<div class="q-figure">${q.figureHtml}</div>` : ''}
+        ${q.figureHtml ? `<div class="q-figures-wrap">${q.figureHtml}</div>` : ''}
         ${
-          !isReview && state.isPreview && q.explanation
+          !isReview && state.isPreview && hasSolOrAns
             ? `
               <details class="p4-preview-sol">
-                <summary>Xem lời giải chi tiết</summary>
-                <div class="p4-preview-sol-body">${q.explanation}</div>
+                <summary>Xem đáp số &amp; lời giải chi tiết</summary>
+                <div class="p4-preview-sol-body">${solContent}</div>
               </details>
             `
             : ''
         }
-        ${isReview && state.showSolutions && q.explanation ? renderSolutionBox(q.explanation) : ''}
+        ${isReview && state.showSolutions && hasSolOrAns ? renderSolutionBox(solContent) : ''}
       </article>
     `;
   }
@@ -953,104 +955,49 @@ export function createExamRunner({ rootEl, uiHelpers }) {
       });
     });
 
-    rootEl.querySelectorAll('[data-p3-slots]').forEach((wrap) => {
-      const qId = wrap.dataset.p3Slots;
-      const inputs = [...wrap.querySelectorAll('.sa-slot-input')];
+    rootEl.querySelectorAll('[data-p3-unified]').forEach((wrap) => {
+      const qId = wrap.dataset.p3Unified;
+      const inp = wrap.querySelector('.sa-slots-overlay-input');
+      const cells = [...wrap.querySelectorAll('[data-slot-cell]')];
+      if (!inp || !cells.length) return;
 
-      const syncBoxesToState = () => {
-        inputs.forEach((el) => {
-          const hasChar = Boolean(el.value);
-          el.classList.toggle('is-filled', hasChar);
-          el.classList.toggle('empty', !hasChar);
+      const syncCells = (rawVal) => {
+        const cleaned = String(rawVal || '')
+          .replace(/\./g, ',')
+          .replace(/[^0-9,\-]/g, '')
+          .slice(0, 4);
+        if (inp.value !== cleaned) inp.value = cleaned;
+        const slots = formatShortAnswerSlots(cleaned);
+        const caretIdx = Math.min(cleaned.length, 3);
+        cells.forEach((cell, i) => {
+          const ch = slots[i] || '';
+          cell.textContent = ch;
+          cell.classList.toggle('is-filled', Boolean(ch));
+          cell.classList.toggle('empty', !ch);
+          cell.classList.toggle('is-caret', i === caretIdx);
         });
-        state.answers.part3[qId] = inputs.map((el) => el.value).join('');
+        state.answers.part3[qId] = cleaned;
         syncProgressAndOmr('part3', qId);
       };
 
-      const fillFromIndex = (startIdx, rawText) => {
-        const cleaned = String(rawText || '')
-          .replace(/\./g, ',')
-          .replace(/[^0-9,\-]/g, '');
-        if (!cleaned) {
-          inputs[startIdx].value = '';
-          syncBoxesToState();
-          return;
-        }
-        let cursor = startIdx;
-        for (const ch of cleaned) {
-          if (cursor >= inputs.length) break;
-          inputs[cursor].value = ch;
-          cursor++;
-        }
-        syncBoxesToState();
-        const nextFocus = Math.min(cursor, inputs.length - 1);
-        inputs[nextFocus].focus();
-        inputs[nextFocus].select();
+      const snapCursorToEnd = () => {
+        const len = inp.value.length;
+        try {
+          inp.setSelectionRange(len, len);
+        } catch {}
       };
 
-      inputs.forEach((inp, idx) => {
-        inp.addEventListener('focus', () => {
-          inp.select();
-        });
-
-        inp.addEventListener('input', () => {
-          const cleaned = inp.value
-            .replace(/\./g, ',')
-            .replace(/[^0-9,\-]/g, '');
-          if (!cleaned) {
-            inp.value = '';
-            syncBoxesToState();
-            return;
-          }
-          if (cleaned.length === 1) {
-            inp.value = cleaned;
-            syncBoxesToState();
-            if (idx < inputs.length - 1) {
-              inputs[idx + 1].focus();
-              inputs[idx + 1].select();
-            }
-          } else {
-            fillFromIndex(idx, cleaned);
-          }
-        });
-
-        inp.addEventListener('keydown', (e) => {
-          if (e.key === 'Backspace') {
-            if (inp.value) {
-              inp.value = '';
-              syncBoxesToState();
-              e.preventDefault();
-            } else if (idx > 0) {
-              e.preventDefault();
-              inputs[idx - 1].value = '';
-              syncBoxesToState();
-              inputs[idx - 1].focus();
-            }
-            return;
-          }
-          if (e.key === 'Delete') {
-            inp.value = '';
-            syncBoxesToState();
-            e.preventDefault();
-            return;
-          }
-          if (e.key === 'ArrowLeft' && idx > 0) {
-            e.preventDefault();
-            inputs[idx - 1].focus();
-            inputs[idx - 1].select();
-          } else if (e.key === 'ArrowRight' && idx < inputs.length - 1) {
-            e.preventDefault();
-            inputs[idx + 1].focus();
-            inputs[idx + 1].select();
-          }
-        });
-
-        inp.addEventListener('paste', (e) => {
+      inp.addEventListener('focus', snapCursorToEnd);
+      inp.addEventListener('click', snapCursorToEnd);
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'Home') {
           e.preventDefault();
-          const text = e.clipboardData?.getData('text') || '';
-          const startAt = idx === 0 || text.trim().length >= 2 ? 0 : idx;
-          fillFromIndex(startAt, text);
-        });
+          snapCursorToEnd();
+        }
+      });
+      inp.addEventListener('input', () => {
+        syncCells(inp.value);
+        snapCursorToEnd();
       });
     });
 

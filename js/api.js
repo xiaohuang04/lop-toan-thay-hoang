@@ -114,7 +114,10 @@ export const api = {
   saveModelsSettings: (modelsVisibilityMode) =>
     request('/api/admin/models-settings', { method: 'PUT', body: { modelsVisibilityMode } }),
 
-  // High School Math Review Curriculum (Zero-Friction GET + Admin PUT)
+  // High School Math Review Curriculum (Zero-Friction GET + Admin PUT + Excel Import + Plan Catalog)
   getReviewCurriculum: () => request('/api/review-curriculum'),
+  getReviewPlanCatalog: () => request('/api/review-curriculum/plan-catalog'),
   saveReviewCurriculum: (payload) => request('/api/admin/review-curriculum', { method: 'PUT', body: payload }),
+  importReviewLessonXlsx: (payload) =>
+    request('/api/admin/review-curriculum/import-xlsx', { method: 'POST', body: payload }),
 };

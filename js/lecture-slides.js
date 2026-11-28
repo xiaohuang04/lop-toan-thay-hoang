@@ -52,7 +52,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
   pushGroupedSlides(slides, p1, {
     part: 1,
     badge: 'PHẦN I',
-    title: 'Trắc nghiệm nhiều phương án lựa chọn',
+    title: 'Câu trắc nghiệm nhiều phương án lựa chọn',
     shortPrefix: 'P.I',
     chunkSize: partChunk[1] || 2,
     startNumber,
@@ -62,7 +62,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
   pushGroupedSlides(slides, p2, {
     part: 2,
     badge: 'PHẦN II',
-    title: 'Trắc nghiệm đúng / sai',
+    title: 'Câu trắc nghiệm đúng sai',
     shortPrefix: 'P.II',
     chunkSize: 1,
     startNumber,
@@ -72,7 +72,7 @@ function buildSlidesFromDeck(deck, partChunk = { 1: 2, 3: 1, 4: 1 }) {
   pushGroupedSlides(slides, p3, {
     part: 3,
     badge: 'PHẦN III',
-    title: 'Trắc nghiệm trả lời ngắn',
+    title: 'Câu trắc nghiệm trả lời ngắn',
     shortPrefix: 'P.III',
     chunkSize: partChunk[3] || 1,
     startNumber,
@@ -304,22 +304,24 @@ function renderShortAnswerCellsHtml(val = '') {
 
 const BULB_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2v.3h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></svg>`;
 
-function renderQuestionSolutionHtml(q, solKey, isShown) {
+function renderQuestionSolutionHtml(q, solKey, isShown, part = 0) {
   const rawExp = String(q?.explanation || '').trim();
-  if (!rawExp || !isShown) return '';
+  const rawAns = part === 4 ? String(q?.answer || '').trim() : '';
+  if ((!rawExp && !rawAns) || !isShown) return '';
+  const ansHtml = rawAns ? `<div class="ls-solution-ans" style="margin-bottom:${rawExp ? '8px' : '0'};"><strong>Đáp số:</strong> ${normalizeMathForSlides(rawAns)}</div>` : '';
   return `
     <div class="ls-solution-box" data-ls-sol-box="${escapeAttr(solKey)}">
       <div class="ls-solution-head">
         <span class="ls-solution-badge">${BULB_ICON_SVG} Lời giải</span>
         <button type="button" class="ls-solution-close" data-ls-sol-toggle="${escapeAttr(solKey)}" title="Ẩn lời giải" aria-label="Ẩn lời giải">✕</button>
       </div>
-      <div class="ls-solution-body">${normalizeMathForSlides(rawExp)}</div>
+      <div class="ls-solution-body">${ansHtml}${rawExp ? normalizeMathForSlides(rawExp) : ''}</div>
     </div>
   `;
 }
 
-function renderQuestionBulbBtnHtml(q, solKey, isShown) {
-  const hasExp = Boolean(String(q?.explanation || '').trim());
+function renderQuestionBulbBtnHtml(q, solKey, isShown, part = 0) {
+  const hasExp = Boolean(String(q?.explanation || '').trim() || (part === 4 && String(q?.answer || '').trim()));
   if (!hasExp) return '';
   return `
     <button
@@ -335,11 +337,12 @@ function renderQuestionBulbBtnHtml(q, solKey, isShown) {
 
 function renderQuestionBlockHtml(part, item, { dock, dockWidth, demoMarks, shownSolutions }) {
   const { num, q } = item;
-  const stemHtml = normalizeMathForSlides(q.stem || '');
+  const figHtml = String(q?.figureHtml || '').trim();
+  const stemHtml = normalizeMathForSlides(q.stem || '') + (figHtml ? `<div class="ls-q-figures">${figHtml}</div>` : '');
   const solKey = `${part}-${num}`;
   const solShown = Boolean(shownSolutions?.has?.(solKey));
-  const bulbBtnHtml = renderQuestionBulbBtnHtml(q, solKey, solShown);
-  const solBoxHtml = renderQuestionSolutionHtml(q, solKey, solShown);
+  const bulbBtnHtml = renderQuestionBulbBtnHtml(q, solKey, solShown, part);
+  const solBoxHtml = renderQuestionSolutionHtml(q, solKey, solShown, part);
 
   if (part === 1) {
     const opts = Array.isArray(q.options) ? q.options : [];

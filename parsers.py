@@ -333,7 +333,7 @@ def _compile_single_tikz_cloud(tikz_code: str) -> tuple[str | None, str | None, 
     return None, base64.b64encode(raw).decode("ascii"), None
 
 
-def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, dict[str, str], dict[str, str], dict | None]:
+def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, dict[str, str], dict[str, str], dict | None, dict[str, str]]:
     """
     Find all \\begin{tikzpicture}...\\end{tikzpicture} blocks in raw_tex:
     - Local MiKTeX: compiles in parallel to crisp vector SVG.
@@ -343,7 +343,7 @@ def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, 
     pattern = re.compile(r"\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}")
     matches = list(pattern.finditer(raw_tex))
     if not matches:
-        return raw_tex, {}, {}, None
+        return raw_tex, {}, {}, None, {}
 
     has_local = bool(shutil.which("pdflatex") and (shutil.which("pdftocairo") or shutil.which("dvisvgm")))
     unique_codes: list[str] = []
@@ -422,11 +422,16 @@ def compile_tikz_blocks_in_tex(raw_tex: str, warnings: list[str]) -> tuple[str, 
                 warnings.append(f"Hình TikZ #{idx + 1} chưa biên dịch được ({err or 'lỗi cú pháp'}).")
                 tokens[tok] = '<div class="tikz-placeholder">[Hình vẽ TikZ chưa biên dịch được — kiểm tra mã nguồn]</div>'
 
+    # Build token -> raw TikZ source map so we can preserve pure LaTeX figureTex for editing
+    tikz_sources: dict[str, str] = {}
+    for code, idx in code_to_idx.items():
+        tikz_sources[f"EDULABTIKZTOKEN{idx}END"] = code
+
     out = raw_tex
     for m in reversed(matches):
         idx = code_to_idx[m.group(0)]
         out = out[:m.start()] + f" EDULABTIKZTOKEN{idx}END " + out[m.end():]
-    return out, tokens, pending_pdfs, batch_pdf
+    return out, tokens, pending_pdfs, batch_pdf, tikz_sources
 
 
 def _to_roman(n: int) -> str:
@@ -457,7 +462,7 @@ def _format_enum_label(opt: str, index_1: int) -> str:
     roman_hi = roman_lo.upper()
     arabic = str(index_1)
 
-    if not spec:
+    if not spec or "numeric" in spec.lower():
         return f"{arabic}."
 
     # Handle enumitem macros like \alph*), (\arabic*), \roman*., \Alph*)
@@ -847,12 +852,157 @@ def clean_short_answer_value(raw: str) -> str:
 # 1. PRIMARY PARSER: LATEX `ex_test` (\begin{ex} ... \end{ex})
 # =============================================================================
 
+def _extract_dapso_command(raw_tex: str) -> tuple[str, str]:
+    """Extract \\dapso{...} from raw LaTeX text, returning (answer_tex, remaining_tex)."""
+    m = re.search(r"\\dapso\b", raw_tex or "")
+    if not m:
+        return "", raw_tex
+    inner, end_pos = read_balanced(raw_tex, m.end(), "{", "}")
+    if inner is None:
+        return "", raw_tex
+    rem = (raw_tex[:m.start()] + raw_tex[end_pos:]).strip()
+    return inner.strip(), rem
+
+
+def _restore_tikz_tokens_to_tex(raw_tex: str, tikz_sources: dict[str, str]) -> str:
+    out = str(raw_tex or "")
+    for tok, src in (tikz_sources or {}).items():
+        if tok in out:
+            out = out.replace(tok, src)
+    return out.strip()
+
+
+def _split_stem_and_figures(
+    raw_tex: str,
+    tikz_tokens: dict[str, str],
+    tikz_sources: dict[str, str],
+    missing_imgs: list[str],
+) -> tuple[str, str, str, str]:
+    """
+    Separate text LaTeX (`stemTex`) from figure LaTeX (`figureTex`) and rendered `figureHtml`,
+    keeping the teacher's raw LaTeX 100% clean (no HTML or base64 <img> dumped into stemTex).
+    """
+    fig_tex_parts: list[str] = []
+    fig_html_parts: list[str] = []
+    work = str(raw_tex or "").strip()
+
+    # Extract TikZ tokens out of stem into figureTex + figureHtml
+    for tok in re.findall(r"EDULABTIKZTOKEN\d+END", work):
+        src = tikz_sources.get(tok, "")
+        if src:
+            fig_tex_parts.append(src)
+        html = tikz_tokens.get(tok, "")
+        if html:
+            fig_html_parts.append(html)
+        work = work.replace(tok, "")
+
+    # Extract \includegraphics[...]{name} out of stem into figureHtml (missing placeholders) & figureTex
+    inc_re = re.compile(r"\\includegraphics\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
+    for m in inc_re.finditer(work):
+        img_name = (m.group(1) or "").strip()
+        if img_name:
+            missing_imgs.append(img_name)
+            safe = _html_escape_attr(img_name)
+            fig_html_parts.append(
+                f'<div class="q-figure is-missing-img" data-missing-img="{safe}" title="Bấm để tải ảnh {safe} lên">'
+                f'<span class="missing-img-badge">Thiếu ảnh: <strong>{safe}</strong></span>'
+                f'<span class="missing-img-hint">Bấm để tải ảnh lên</span>'
+                f"</div>"
+            )
+    work = inc_re.sub("", work)
+
+    # Strip now-empty \begin{center}...\end{center} or \begin{figure}...\end{figure} wrappers
+    work = re.sub(r"\\begin\{(?:center|figure\*?)\}(?:\[[^\]]*\])?\s*\\end\{(?:center|figure\*?)\}", "", work)
+    stem_tex = re.sub(r"\n{3,}", "\n\n", work).strip()
+    stem_html = clean_latex_fragment(stem_tex, tikz_tokens, missing_imgs)
+    figure_tex = "\n\n".join(fig_tex_parts).strip()
+    figure_html = "".join(fig_html_parts).strip()
+    return stem_tex, stem_html, figure_tex, figure_html
+
+
+def _compile_figure_tex_to_html(figure_tex: str, warnings: list[str]) -> str:
+    """Compile pure LaTeX figure source (TikZ blocks and/or \\includegraphics) into figureHtml."""
+    raw = str(figure_tex or "").strip()
+    if not raw:
+        return ""
+    processed, tikz_tokens, _, _, _ = compile_tikz_blocks_in_tex(raw, warnings)
+    missing: list[str] = []
+    html = clean_latex_fragment(processed, tikz_tokens, missing)
+    # Mark compiled TikZ figures with data-tikz-compiled="1" so uploaded PNG/JPGs stay separate
+    html = html.replace('<div class="q-figure"><img ', '<div class="q-figure" data-tikz-compiled="1"><img ')
+    return html
+
+
+def compile_exam_latex_fields(exam: dict) -> dict:
+    """
+    Compile teacher-edited pure LaTeX fields (`stemTex`, `figureTex`, `explanationTex`)
+    into rendered HTML (`stem`, `figureHtml`, `explanation`) while preserving uploaded PNG/JPG images.
+    """
+    if not isinstance(exam, dict):
+        return exam
+    warnings: list[str] = []
+    img_block_re = re.compile(
+        r'<div\b[^>]*class="[^"]*\bq-figure\b[^"]*"[^>]*>[\s\S]*?<\/div>',
+        flags=re.IGNORECASE,
+    )
+
+    for part_key in ("part1", "part2", "part3", "part4"):
+        q_list = exam.get(part_key)
+        if not isinstance(q_list, list):
+            continue
+        for q in q_list:
+            if not isinstance(q, dict):
+                continue
+
+            # 1. Stem LaTeX -> rendered HTML
+            if "stemTex" in q and isinstance(q.get("stemTex"), str):
+                s_tex = q["stemTex"].strip()
+                q["stemTex"] = s_tex
+                if s_tex:
+                    proc, t_toks, _, _, _ = compile_tikz_blocks_in_tex(s_tex, warnings)
+                    q["stem"] = clean_latex_fragment(proc, t_toks, [])
+                else:
+                    q["stem"] = ""
+
+            # 2. Figure LaTeX (TikZ) + Uploaded PNG/JPG images -> figureHtml
+            if "figureTex" in q and isinstance(q.get("figureTex"), str):
+                f_tex = q["figureTex"].strip()
+                q["figureTex"] = f_tex
+                existing_fig = str(q.get("figureHtml") or "")
+                # Preserve non-TikZ uploaded PNG/JPG blocks cleanly
+                kept_uploads = [
+                    m.group(0)
+                    for m in img_block_re.finditer(existing_fig)
+                    if (
+                        'data-tikz-compiled="1"' not in m.group(0)
+                        and 'class="tikz-figure"' not in m.group(0)
+                    )
+                    or 'data-upload-img="1"' in m.group(0)
+                ]
+                compiled_tikz = _compile_figure_tex_to_html(f_tex, warnings) if f_tex else ""
+                q["figureHtml"] = (compiled_tikz + "".join(kept_uploads)).strip()
+
+            # 3. Explanation LaTeX -> rendered HTML
+            if "explanationTex" in q and isinstance(q.get("explanationTex"), str):
+                e_tex = q["explanationTex"].strip()
+                q["explanationTex"] = e_tex
+                if e_tex:
+                    proc, t_toks, _, _, _ = compile_tikz_blocks_in_tex(e_tex, warnings)
+                    q["explanation"] = clean_latex_fragment(proc, t_toks, [])
+                else:
+                    q["explanation"] = ""
+
+    return exam
+
+
 def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
     r"""
     Parse a Vietnamese LaTeX ex_test exam into EduLab 2025 structure:
     - \choice{A}{B}{C}{D} -> part1
     - \choiceTF{a}{b}{c}{d} / \choiceTF[t]{...} / \choiceTFt{...} -> part2
     - \shortans{...} / \shortans[oly]{...} -> part3
+    - No choice/shortans -> part4 (Tự luận)
+    Preserves pure LaTeX in `stemTex`, `figureTex`, `explanationTex` for clean editing.
     """
     warnings: list[str] = []
     # Extract title hint from comments or \title / section if present
@@ -864,7 +1014,7 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
         title_hint = re.sub(r"\.tex$", "", filename, flags=re.IGNORECASE).strip()
 
     # Compile all TikZ diagrams before stripping LaTeX comments/commands
-    processed_tex, tikz_tokens, pending_tikz_pdfs, pending_tikz_batch_pdf = compile_tikz_blocks_in_tex(raw_tex, warnings)
+    processed_tex, tikz_tokens, pending_tikz_pdfs, pending_tikz_batch_pdf, tikz_sources = compile_tikz_blocks_in_tex(raw_tex, warnings)
 
     # Find all \begin{ex}...\end{ex} blocks (also accept \begin{bt}...\end{bt})
     ex_blocks = re.findall(r"\\begin\{(ex|bt)\}([\s\S]*?)\\end\{\1\}", processed_tex)
@@ -896,14 +1046,23 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                 topic = opt_tag.strip()
             block = block[rest_pos:].strip()
 
-        # Extract \loigiai{...}
+        # Extract \loigiai{...} and optional \dapso{...}
         explanation = ""
+        explanation_tex = ""
+        essay_answer = ""
         lg_match = re.search(r"\\loigiai\b", block)
         if lg_match:
             lg_inner, lg_end = read_balanced(block, lg_match.end(), "{", "}")
             if lg_inner is not None:
-                explanation = clean_latex_fragment(lg_inner, tikz_tokens, missing_imgs)
+                dapso_in_lg, lg_without_dapso = _extract_dapso_command(lg_inner)
+                if dapso_in_lg:
+                    essay_answer = dapso_in_lg
+                explanation_tex = _restore_tikz_tokens_to_tex(lg_without_dapso, tikz_sources)
+                explanation = clean_latex_fragment(lg_without_dapso, tikz_tokens, missing_imgs)
                 block = (block[:lg_match.start()] + block[lg_end:]).strip()
+        dapso_in_body, block = _extract_dapso_command(block)
+        if dapso_in_body and not essay_answer:
+            essay_answer = dapso_in_body
 
         # Unwrap top-level \immini[thm]{arg1}{arg2} BEFORE splitting \choice / \choiceTF / \shortans
         # so cases where \choice or \shortans sits inside arg1 still keep the figure (arg2) in the stem!
@@ -966,12 +1125,17 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
                     "text": clean_latex_fragment(text_clean, tikz_tokens, missing_imgs),
                     "answer": is_true,
                 })
+            stem_tex, stem_html, fig_tex, fig_html = _split_stem_and_figures(stem_raw, tikz_tokens, tikz_sources, missing_imgs)
             part2.append({
                 "id": f"tex-p2-{len(part2)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
+                "stem": stem_html,
+                "stemTex": stem_tex,
+                "figureTex": fig_tex,
+                "figureHtml": fig_html,
                 "statements": statements,
                 "explanation": explanation,
+                "explanationTex": explanation_tex,
             })
 
         elif m_sa:
@@ -992,12 +1156,17 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             ans_clean = clean_short_answer_value(ans_raw or "")
             if not ans_clean:
                 warnings.append(f"Câu ex #{idx} (\\shortans) chưa có đáp án số.")
+            stem_tex, stem_html, fig_tex, fig_html = _split_stem_and_figures(stem_raw, tikz_tokens, tikz_sources, missing_imgs)
             part3.append({
                 "id": f"tex-p3-{len(part3)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
+                "stem": stem_html,
+                "stemTex": stem_tex,
+                "figureTex": fig_tex,
+                "figureHtml": fig_html,
                 "answer": ans_clean or "0",
                 "explanation": explanation,
+                "explanationTex": explanation_tex,
             })
 
         elif m_mc:
@@ -1031,23 +1200,33 @@ def parse_extest_latex(raw_tex: str, filename: str = "") -> dict:
             if not correct_key:
                 correct_key = "A"
                 warnings.append(f"Câu Phần I #{len(part1)+1} (ex #{idx}) không thấy \\True, tạm đặt đáp án A.")
+            stem_tex, stem_html, fig_tex, fig_html = _split_stem_and_figures(stem_raw, tikz_tokens, tikz_sources, missing_imgs)
             part1.append({
                 "id": f"tex-p1-{len(part1)+1}-{stamp}",
                 "topic": "",
-                "stem": clean_latex_fragment(stem_raw, tikz_tokens, missing_imgs),
+                "stem": stem_html,
+                "stemTex": stem_tex,
+                "figureTex": fig_tex,
+                "figureHtml": fig_html,
                 "options": options,
                 "answer": correct_key,
                 "explanation": explanation,
+                "explanationTex": explanation_tex,
             })
         else:
             # Essay / Tự luận question (no \choice, \choiceTF, or \shortans)
-            stem_clean = clean_latex_fragment(block, tikz_tokens, missing_imgs)
-            if stem_clean:
+            stem_tex, stem_html, fig_tex, fig_html = _split_stem_and_figures(block, tikz_tokens, tikz_sources, missing_imgs)
+            if stem_html or fig_html:
                 part4.append({
                     "id": f"tex-p4-{len(part4)+1}-{stamp}",
                     "topic": "",
-                    "stem": stem_clean,
+                    "stem": stem_html,
+                    "stemTex": stem_tex,
+                    "figureTex": fig_tex,
+                    "figureHtml": fig_html,
+                    "answer": essay_answer,
                     "explanation": explanation,
+                    "explanationTex": explanation_tex,
                 })
             else:
                 warnings.append(f"Bỏ qua khối ex #{idx} vì nội dung trống.")

@@ -1,12 +1,12 @@
-import { api, setToken } from './api.js?v=20261127d';
-import { createExamRunner } from './exam-runner.js?v=20261127w';
-import { createTeacherController } from './teacher-ui.js?v=20261127u';
+import { api, setToken } from './api.js?v=20261128h';
+import { createExamRunner } from './exam-runner.js?v=20261128h';
+import { createTeacherController } from './teacher-ui.js?v=20261128h';
 import { createStudentController } from './student-ui.js?v=20261127u';
 import { createHtmlLabController } from './html-lab.js?v=20261127u';
 import { createTeachingLogController } from './teaching-log.js?v=20261125h';
 import { createGradebookController } from './gradebook.js?v=20261127u';
-import { createLectureSlidesController } from './lecture-slides.js?v=20261127u';
-import { createMathReviewController } from './math-review.js?v=20261127n';
+import { createLectureSlidesController } from './lecture-slides.js?v=20261128h';
+import { createMathReviewController } from './math-review.js?v=20261128h';
 import { escapeHtml, escapeAttr, formatDateOnlyVN, parseVnDateOnlyToIso } from './exam-engine.js?v=20261127p';
 import { mountAnimatedDropzone } from './ux-dropzone.js?v=20261124z2';
 import { mountAvatarCropper } from './avatar-cropper.js?v=20261124z2';

@@ -92,54 +92,13 @@ export const DEFAULT_BOX_PRESETS = [
   },
 ];
 
-export const REVIEW_CURRICULUM = [
-  {
-    grade: 10,
-    label: 'Toán 10',
-    chapters: [
-      {
-        id: 'toan10-c1',
-        grade: 10,
-        code: 'Chương I',
-        title: 'Mệnh đề và Tập hợp',
-        comingSoon: true,
-        lessons: [],
-      },
-      {
-        id: 'toan10-c3',
-        grade: 10,
-        code: 'Chương III',
-        title: 'Hệ thức lượng trong tam giác',
-        comingSoon: true,
-        lessons: [],
-      },
-    ],
-  },
-  {
-    grade: 11,
-    label: 'Toán 11',
-    chapters: [
-      {
-        id: 'toan11-c1',
-        grade: 11,
-        code: 'Chương I',
-        title: 'Hàm số lượng giác và Phương trình lượng giác',
-        comingSoon: true,
-        lessons: [],
-      },
-      {
-        id: 'toan11-c2',
-        grade: 11,
-        code: 'Chương II',
-        title: 'Dãy số, Cấp số cộng và Cấp số nhân',
-        comingSoon: false,
-        lessons: [
+const BUILTIN_TOAN11_C2_LESSONS = [
           // ===================================================================
           // BÀI 1: DÃY SỐ
           // ===================================================================
           {
             id: 'toan11-c2-b1',
-            code: 'Bài 1',
+            code: 'Bài 5',
             title: 'Dãy số',
             summary: 'Khái niệm dãy số, cách cho dãy số, xét tính tăng giảm và tính bị chặn của dãy số.',
             coreCards: [
@@ -151,8 +110,12 @@ export const REVIEW_CURRICULUM = [
                   {
                     id: 'b1-c1-i1',
                     html: '<strong>Dãy số vô hạn $(u_n)$:</strong> Hàm số xác định trên $\\mathbb{N}^*$, viết dạng khai triển $u_1, u_2, \\dots, u_n, \\dots$ (với $u_1$ là số hạng đầu, $u_n$ là số hạng tổng quát).',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ về Khai triển dãy số',
+                      problem: 'Cho dãy số $(u_n)$ có số hạng tổng quát $u_n = 2n + 1$. Tìm $3$ số hạng đầu và số hạng thứ $10$ của dãy.',
+                      solution: 'Lần lượt thay $n = 1; 2; 3; 10$ vào công thức:<br/>• $u_1 = 3$, $u_2 = 5$, $u_3 = 7$.<br/>• Số hạng thứ $10$: $u_{10} = 2 \\cdot 10 + 1 = \\mathbf{21}$.',
+                    },
                   },
                   {
                     id: 'b1-c1-i2',
@@ -163,8 +126,12 @@ export const REVIEW_CURRICULUM = [
                         <span class="rv-chip-item"><span class="rv-chip-num">3</span>Công thức $u_n = f(n)$</span>
                         <span class="rv-chip-item"><span class="rv-chip-num">4</span>Hệ thức truy hồi</span>
                       </div>`,
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Dãy số cho bằng hệ thức truy hồi',
+                      problem: 'Cho dãy số $(u_n)$ xác định bởi $u_1 = 2$ và $u_{n+1} = 2u_n + 1$ ($\\forall n \\ge 1$). Tính $u_2, u_3, u_4$.',
+                      solution: 'Tính nối tiếp từng số hạng từ $u_1 = 2$:<br/>• $u_2 = 2u_1 + 1 = 2 \\cdot 2 + 1 = \\mathbf{5}$.<br/>• $u_3 = 2u_2 + 1 = 2 \\cdot 5 + 1 = \\mathbf{11}$.<br/>• $u_4 = 2u_3 + 1 = 2 \\cdot 11 + 1 = \\mathbf{23}$.',
+                    },
                   },
                 ],
               },
@@ -176,24 +143,36 @@ export const REVIEW_CURRICULUM = [
                   {
                     id: 'b1-c2-i1',
                     html: '<strong>Dãy tăng</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} > u_n$] $\\iff$ [CHE: $u_{n+1} - u_n > 0$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Chứng minh dãy tăng bằng xét hiệu',
+                      problem: 'Xét tính tăng, giảm của dãy số $(u_n)$ với $u_n = 3n - 1$.',
+                      solution: 'Xét hiệu $u_{n+1} - u_n = [3(n + 1) - 1] - (3n - 1) = \\mathbf{3} > 0$ ($\\forall n \\in \\mathbb{N}^*$).<br/>Vậy $(u_n)$ là <strong>dãy số tăng</strong>.',
+                    },
                   },
                   {
                     id: 'b1-c2-i2',
                     html: '<strong>Dãy giảm</strong> ($\\forall n \\in \\mathbb{N}^*$): [CHE: $u_{n+1} < u_n$] $\\iff$ [CHE: $u_{n+1} - u_n < 0$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Chứng minh dãy giảm bằng xét hiệu',
+                      problem: 'Xét tính tăng, giảm của dãy số $(u_n)$ với $u_n = \\dfrac{1}{n + 1}$.',
+                      solution: 'Xét hiệu:<br/>$$u_{n+1} - u_n = \\frac{1}{n + 2} - \\frac{1}{n + 1} = \\frac{-1}{(n + 1)(n + 2)} < 0 \\quad (\\forall n \\in \\mathbb{N}^*)$$Vậy $(u_n)$ là <strong>dãy số giảm</strong>.',
+                    },
                   },
                   {
                     id: 'b1-c2-i3',
                     html: `<strong>Xét tỉ số</strong> (chỉ khi [CHE: $u_n > 0, \\forall n \\in \\mathbb{N}^*$]):
                       <div class="rv-case-row">
-                        <span class="rv-case-pill">Dãy tăng $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$]</span>
-                        <span class="rv-case-pill">Dãy giảm $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$]</span>
+                        <span class="rv-case-pill is-up">Dãy tăng $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} > 1$]</span>
+                        <span class="rv-case-pill is-down">Dãy giảm $\\iff$ [CHE: $\\dfrac{u_{n+1}}{u_n} < 1$]</span>
                       </div>`,
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Xét tính đơn điệu bằng tỉ số',
+                      problem: 'Xét tính tăng, giảm của dãy số $(u_n)$ với $u_n = \\dfrac{3^n}{n + 1}$ ($n \\in \\mathbb{N}^*$).',
+                      solution: 'Vì $u_n > 0$ với mọi $n \\in \\mathbb{N}^*$, lập tỉ số:<br/>$$\\frac{u_{n+1}}{u_n} = \\frac{3^{n+1}}{n + 2} \\cdot \\frac{n + 1}{3^n} = \\frac{3n + 3}{n + 2} = 1 + \\frac{2n + 1}{n + 2} > 1$$Vậy $(u_n)$ là <strong>dãy số tăng</strong>.',
+                    },
                   },
                 ],
               },
@@ -205,20 +184,49 @@ export const REVIEW_CURRICULUM = [
                   {
                     id: 'b1-c3-i1',
                     html: '<strong>Bị chặn trên:</strong> $\\exists M$ sao cho [CHE: $u_n \\le M, \\forall n \\in \\mathbb{N}^*$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Dãy bị chặn trên',
+                      problem: 'Chứng minh dãy số $u_n = 5 - 2n$ ($n \\in \\mathbb{N}^*$) bị chặn trên.',
+                      solution: 'Vì $n \\ge 1$ nên $-2n \\le -2$, suy ra $u_n = 5 - 2n \\le \\mathbf{3}$ với mọi $n \\in \\mathbb{N}^*$.<br/>Vậy dãy bị chặn trên bởi $M = \\mathbf{3}$.',
+                    },
                   },
                   {
                     id: 'b1-c3-i2',
                     html: '<strong>Bị chặn dưới:</strong> $\\exists m$ sao cho [CHE: $u_n \\ge m, \\forall n \\in \\mathbb{N}^*$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Dãy bị chặn dưới',
+                      problem: 'Chứng minh dãy số $u_n = n^2 + 2$ ($n \\in \\mathbb{N}^*$) bị chặn dưới.',
+                      solution: 'Vì $n \\ge 1$ nên $n^2 \\ge 1$, suy ra $u_n = n^2 + 2 \\ge \\mathbf{3}$ với mọi $n \\in \\mathbb{N}^*$.<br/>Vậy dãy bị chặn dưới bởi $m = \\mathbf{3}$.',
+                    },
                   },
                   {
                     id: 'b1-c3-i3',
                     html: '<strong>Bị chặn:</strong> Vừa chặn trên vừa chặn dưới $\\iff \\exists m, M:$ [CHE: $m \\le u_n \\le M, \\forall n \\in \\mathbb{N}^*$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Chứng minh dãy số bị chặn',
+                      problem: 'Chứng minh dãy số $u_n = \\dfrac{n}{n + 1}$ ($n \\in \\mathbb{N}^*$) là dãy số bị chặn.',
+                      solution: 'Ta có $u_n = 1 - \\dfrac{1}{n + 1}$. Vì $n \\ge 1 \\Rightarrow 0 < \\dfrac{1}{n + 1} \\le \\dfrac{1}{2}$, suy ra:<br/>$$\\frac{1}{2} \\le u_n < 1 \\quad (\\forall n \\in \\mathbb{N}^*)$$Vậy $(u_n)$ là <strong>dãy số bị chặn</strong>.',
+                    },
+                  },
+                ],
+              },
+              {
+                id: 'b1-card-4',
+                type: 'warning',
+                title: 'Mẹo xét tăng, giảm & bị chặn',
+                items: [
+                  {
+                    id: 'b1-c4-i1',
+                    html: 'Với dãy phân thức $u_n = \\dfrac{an + b}{cn + d}$, luôn <strong>tách phần nguyên</strong> trước rồi đánh giá từ $n \\ge 1$; khi gặp lũy thừa $a^n$ hoặc $n!$ dương thì ưu tiên <strong>xét tỉ số $\\dfrac{u_{n+1}}{u_n}$</strong>.',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Tách phần nguyên nhanh',
+                      problem: 'Chứng minh dãy số $(u_n)$ với $u_n = \\dfrac{3n + 1}{n + 2}$ là dãy số bị chặn.',
+                      solution: 'Tách phần nguyên: $u_n = \\dfrac{3(n + 2) - 5}{n + 2} = 3 - \\dfrac{5}{n + 2}$.<br/>Vì $n \\ge 1 \\Rightarrow 0 < \\dfrac{5}{n + 2} \\le \\dfrac{5}{3}$, suy ra $\\mathbf{\\dfrac{4}{3} \\le u_n < 3}$ nên $(u_n)$ là <strong>dãy bị chặn</strong>.',
+                    },
                   },
                 ],
               },
@@ -359,6 +367,14 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '9',
                   explanation:
                     'Giải phương trình $n^2 - 4n + 5 = 50 \\Leftrightarrow n^2 - 4n - 45 = 0 \\Leftrightarrow n = 9$ (nhận) hoặc $n = -5$ (loại vì $n \\in \\mathbb{N}^*$).',
+                  paramSpec: {
+                    vars: 'n0 = 9 [5..12]; p = 2 [1..3]; c = 5 [1..8]',
+                    questionTemplate:
+                      'Cho dãy số $(u_n)$ có $u_n = n^2 - {{2 * p}}n + {{c}}$. Hỏi số ${{n0^2 - 2 * p * n0 + c}}$ là số hạng thứ mấy của dãy số?',
+                    answerTemplate: '{{n0}}',
+                    explanationTemplate:
+                      'Giải phương trình $n^2 - {{2 * p}}n + {{c}} = {{n0^2 - 2 * p * n0 + c}} \\Leftrightarrow (n - {{n0}})(n + {{n0 - 2 * p}}) = 0 \\Leftrightarrow n = {{n0}}$ (nhận, vì $n \\in \\mathbb{N}^*$).',
+                  },
                 },
                 {
                   id: 'b1-sa-2',
@@ -367,28 +383,17 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '5',
                   explanation:
                     'Ta có $u_n = 5 - \\dfrac{3}{n + 1} < 5$ với mọi $n \\ge 1$. Mặt khác khi $n \\ge 3$ thì $u_n > 4$, nên không thể chọn $M \\le 4$. Vậy giá trị nguyên nhỏ nhất của $M$ là $5$.',
+                  paramSpec: {
+                    vars: 'M = 5 [3..9]; k = 3 [2..5]',
+                    questionTemplate:
+                      'Cho dãy số $(u_n)$ với $u_n = \\dfrac{{{M}}n {{signed(M - k)}}}{n + 1}$. Tìm số nguyên $M$ nhỏ nhất sao cho $u_n < M$ với mọi $n \\in \\mathbb{N}^*$.',
+                    answerTemplate: '{{M}}',
+                    explanationTemplate:
+                      'Tách phần nguyên: $u_n = {{M}} - \\dfrac{{{k}}}{n + 1} < {{M}}$ với mọi $n \\ge 1$. Khi $n \\ge {{k}}$ thì $u_n > {{M - 1}}$, nên giá trị nguyên nhỏ nhất của $M$ là ${{M}}$.',
+                  },
                 },
               ],
             },
-            generators: [
-              {
-                id: 'gen-b1-term',
-                title: 'Tính giá trị số hạng dãy số (Đổi số tự động)',
-                generate() {
-                  const a = randInt(2, 6);
-                  const b = randNonZero(-5, 5);
-                  const n = randInt(4, 12);
-                  const K = a * n + b;
-                  const bStr = fmtSignedConst(b);
-                  return {
-                    prompt: `Cho dãy số $(u_n)$ với $u_n = ${a}n ${bStr}$. Tính giá trị của số hạng $u_{${n}}$.`,
-                    unitHint: 'Nhập kết quả là số nguyên',
-                    answer: String(K),
-                    solution: `Thay $n = ${n}$ vào công thức số hạng tổng quát:<br/>$$u_{${n}} = ${a} \\cdot ${n} ${bStr} = ${a * n} ${bStr} = ${K}$$`,
-                  };
-                },
-              },
-            ],
           },
 
           // ===================================================================
@@ -396,8 +401,8 @@ export const REVIEW_CURRICULUM = [
           // ===================================================================
           {
             id: 'toan11-c2-b2',
-            code: 'Bài 2',
-            title: 'Cấp số cộng (CSC)',
+            code: 'Bài 6',
+            title: 'Cấp số cộng',
             summary: 'Định nghĩa công sai $d$, số hạng tổng quát $u_n$, tính chất 3 số hạng liên tiếp và tổng $S_n$ của CSC.',
             coreCards: [
               {
@@ -631,6 +636,14 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '210',
                   explanation:
                     'Ta có $u_8 - u_3 = 5d \\Rightarrow 15 = 5d \\Rightarrow d = 3$. Suy ra $u_1 = u_3 - 2d = 7 - 6 = 1$. Tổng $S_{12} = \\dfrac{12}{2}[2 \\cdot 1 + 11 \\cdot 3] = 6 \\cdot 35 = 210$.',
+                  paramSpec: {
+                    vars: 'u1 = 1 [-3..5]; d = 3 [2..6]; k1 = 3 [2..4]; k2 = 8 [6..9]; m = 12 [8..12]',
+                    questionTemplate:
+                      'Cho cấp số cộng $(u_n)$ có $u_{{{k1}}} = {{u1 + (k1 - 1) * d}}$ và $u_{{{k2}}} = {{u1 + (k2 - 1) * d}}$. Tính tổng ${{m}}$ số hạng đầu tiên của cấp số cộng đó.',
+                    answerTemplate: '{{m * (2 * u1 + (m - 1) * d) / 2}}',
+                    explanationTemplate:
+                      'Ta có $u_{{{k2}}} - u_{{{k1}}} = {{k2 - k1}}d \\Rightarrow d = {{d}}$. Suy ra $u_1 = {{u1}}$. Tổng $S_{{{m}}} = \\dfrac{{{m}}}{2}[2 \\cdot {{paren(u1)}} + {{m - 1}} \\cdot {{paren(d)}}] = {{m * (2 * u1 + (m - 1) * d) / 2}}$.',
+                  },
                 },
                 {
                   id: 'b2-sa-2',
@@ -639,43 +652,17 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '10',
                   explanation:
                     'Ta có CSC với $u_1 = 1, d = 3$ và $S_n = 145$. Phương trình: $\\dfrac{n}{2}[2 \\cdot 1 + 3(n - 1)] = 145 \\Leftrightarrow 3n^2 - n - 290 = 0 \\Leftrightarrow n = 10$ (nhận) hoặc $n = -\\dfrac{29}{3}$ (loại).',
+                  paramSpec: {
+                    vars: 'u1 = 1 [1..3]; d = 3 [2..4]; n = 10 [6..12]',
+                    questionTemplate:
+                      'Một người xếp các khối gỗ lập phương thành một tháp nhiều tầng. Tầng trên cùng có ${{u1}}$ khối, tầng thứ hai có ${{u1 + d}}$ khối, tầng thứ ba có ${{u1 + 2 * d}}$ khối,... cứ như vậy tầng dưới hơn tầng kề trên ${{d}}$ khối gỗ. Nếu người đó dùng hết đúng ${{n * (2 * u1 + (n - 1) * d) / 2}}$ khối gỗ thì tháp gỗ có bao nhiêu tầng?',
+                    answerTemplate: '{{n}}',
+                    explanationTemplate:
+                      'Ta có CSC với $u_1 = {{u1}}, d = {{d}}$ và $S_n = {{n * (2 * u1 + (n - 1) * d) / 2}}$. Giải phương trình $\\dfrac{n}{2}[2 \\cdot {{u1}} + {{d}}(n - 1)] = {{n * (2 * u1 + (n - 1) * d) / 2}}$ thu được $n = {{n}}$ (nhận).',
+                  },
                 },
               ],
             },
-            generators: [
-              {
-                id: 'gen-b2-csc',
-                title: 'Tính số hạng tổng quát & Tổng n số hạng đầu CSC',
-                _turn: 0,
-                generate() {
-                  const u1 = randInt(-10, 15);
-                  const d = randNonZero(-6, 8);
-                  const n = randInt(6, 20);
-                  const isSum = this._turn++ % 2 === 1;
-                  const dParen = fmtParenNeg(d);
-                  const u1Paren = fmtParenNeg(u1);
-
-                  if (!isSum) {
-                    const ans = u1 + (n - 1) * d;
-                    return {
-                      prompt: `Cho cấp số cộng $(u_n)$ có số hạng đầu $u_1 = ${u1}$ và công sai $d = ${d}$. Tính giá trị số hạng $u_{${n}}$.`,
-                      unitHint: 'Dạng A • Tính số hạng u_n',
-                      answer: String(ans),
-                      solution: `Áp dụng công thức $u_n = u_1 + (n - 1)d$:<br/>$$u_{${n}} = ${u1} + (${n} - 1) \\cdot ${dParen} = ${u1} + ${n - 1} \\cdot ${dParen} = ${ans}$$`,
-                    };
-                  }
-
-                  const inside = 2 * u1 + (n - 1) * d;
-                  const sum = (n * inside) / 2;
-                  return {
-                    prompt: `Cho cấp số cộng $(u_n)$ có số hạng đầu $u_1 = ${u1}$ và công sai $d = ${d}$. Tính tổng ${n} số hạng đầu tiên $S_{${n}}$.`,
-                    unitHint: 'Dạng B • Tính tổng S_n',
-                    answer: String(sum),
-                    solution: `Áp dụng công thức $S_n = \\dfrac{n}{2}[2u_1 + (n - 1)d]$:<br/>$$S_{${n}} = \\frac{${n}}{2}\\left[2 \\cdot ${u1Paren} + (${n} - 1) \\cdot ${dParen}\\right] = \\frac{${n} \\cdot ${fmtParenNeg(inside)}}{2} = ${sum}$$`,
-                  };
-                },
-              },
-            ],
           },
 
           // ===================================================================
@@ -683,8 +670,8 @@ export const REVIEW_CURRICULUM = [
           // ===================================================================
           {
             id: 'toan11-c2-b3',
-            code: 'Bài 3',
-            title: 'Cấp số nhân (CSN)',
+            code: 'Bài 7',
+            title: 'Cấp số nhân',
             summary: 'Định nghĩa công bội $q$, số hạng tổng quát $u_n$, trung bình nhân và tổng $S_n$ của Cấp số nhân.',
             coreCards: [
               {
@@ -695,14 +682,37 @@ export const REVIEW_CURRICULUM = [
                   {
                     id: 'b3-c1-i1',
                     html: 'Mỗi số hạng (từ $u_2$) bằng số hạng liền trước nhân <strong>công bội $q$</strong> không đổi: $$u_{n+1} = u_n \\cdot q \\quad (\\forall n \\in \\mathbb{N}^*)$$',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ về Định nghĩa CSN',
+                      problem: 'Xét dãy số $2; 6; 18; 54; \\dots$ có phải cấp số nhân không? Nếu có, chỉ ra $u_1$ và công bội $q$.',
+                      solution: 'Ta thấy $\\dfrac{6}{2} = \\dfrac{18}{6} = \\dfrac{54}{18} = 3$ (không đổi). Vậy đây là cấp số nhân với $u_1 = \\mathbf{2}$ và công bội $q = \\mathbf{3}$.',
+                    },
                   },
                   {
                     id: 'b3-c1-i2',
-                    html: '<strong>Nhận biết</strong> ($u_n \\neq 0$): $\\dfrac{u_{n+1}}{u_n} = q$ (hằng số).',
-                    hasExample: false,
-                    example: null,
+                    html: '<strong>Dấu hiệu nhận biết</strong> ($u_n \\neq 0$): Tỉ số $\\dfrac{u_{n+1}}{u_n} = q$ (hằng số không phụ thuộc $n$).',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Nhận biết CSN',
+                      problem: 'Chứng minh dãy số $(u_n)$ với $u_n = 3 \\cdot 2^n$ là một cấp số nhân và tìm $u_1, q$.',
+                      solution: 'Xét tỉ số $\\dfrac{u_{n+1}}{u_n} = \\dfrac{3 \\cdot 2^{n+1}}{3 \\cdot 2^n} = \\mathbf{2}$ (hằng số với mọi $n \\in \\mathbb{N}^*$). Suy ra $(u_n)$ là CSN với $u_1 = 3 \\cdot 2^1 = \\mathbf{6}$ và công bội $q = \\mathbf{2}$.',
+                    },
+                  },
+                  {
+                    id: 'b3-c1-i3',
+                    html: `<strong>Tính đơn điệu theo công bội $q$</strong> (với $u_1 > 0$):
+                      <div class="rv-case-row">
+                        <span class="rv-case-pill is-up">$q > 1$: Dãy tăng</span>
+                        <span class="rv-case-pill is-down">$0 < q < 1$: Dãy giảm</span>
+                        <span class="rv-case-pill is-flat">$q = 1$: Không đổi ($q < 0$: Đan dấu)</span>
+                      </div>`,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Xét chiều tăng/giảm theo q',
+                      problem: 'Xét tính tăng, giảm của hai CSN: $(a_n)$ có $a_1 = 4, q = \\dfrac{1}{2}$ và $(b_n)$ có $b_1 = 2, q = -3$.',
+                      solution: '• Dãy $(a_n)$ có $a_1 > 0, 0 < q < 1$ nên là <strong>dãy giảm</strong> ($4; 2; 1; \\dfrac{1}{2}; \\dots$).<br/>• Dãy $(b_n)$ có $q = -3 < 0$ nên là <strong>dãy đan dấu</strong> ($2; -6; 18; -54; \\dots$, không tăng, không giảm).',
+                    },
                   },
                 ],
               },
@@ -714,20 +724,32 @@ export const REVIEW_CURRICULUM = [
                   {
                     id: 'b3-c2-i1',
                     html: '<strong>Số hạng tổng quát</strong> ($n \\ge 2$): $u_n =$ [CHE: $u_1 \\cdot q^{n-1}$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Tính số hạng tổng quát',
+                      problem: 'Cho cấp số nhân $(u_n)$ có $u_1 = 2$ và công bội $q = -3$. Tính giá trị số hạng $u_4$.',
+                      solution: 'Áp dụng công thức $u_n = u_1 \\cdot q^{n-1}$:<br/>$$u_4 = u_1 \\cdot q^3 = 2 \\cdot (-3)^3 = 2 \\cdot (-27) = \\mathbf{-54}$$',
+                    },
                   },
                   {
                     id: 'b3-c2-i2',
                     html: '<strong>Liên hệ 2 số hạng</strong> ($u_k \\neq 0$): $\\dfrac{u_m}{u_k} =$ [CHE: $q^{m-k}$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Tìm nhanh công bội q',
+                      problem: 'Cho cấp số nhân $(u_n)$ biết $u_2 = 6$ và $u_5 = 48$. Tìm công bội $q$.',
+                      solution: 'Ta có $\\dfrac{u_5}{u_2} = q^{5 - 2} \\iff q^3 = \\dfrac{48}{6} = 8 \\Rightarrow q = \\mathbf{2}$.',
+                    },
                   },
                   {
                     id: 'b3-c2-i3',
                     html: '<strong>3 số hạng liên tiếp</strong> $a, b, c$: [CHE: $b^2 = a \\cdot c$] $\\iff |b| =$ [CHE: $\\sqrt{ac}$].',
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Trung bình nhân 3 số',
+                      problem: 'Tìm $x$ để ba số $3; x; 27$ theo thứ tự đó lập thành một cấp số nhân.',
+                      solution: 'Theo tính chất CSN: $x^2 = 3 \\cdot 27 = 81 \\iff x = \\mathbf{9}$ hoặc $x = \\mathbf{-9}$ (lấy đủ cả hai dấu $\\pm$).',
+                    },
                   },
                   {
                     id: 'b3-c2-i4',
@@ -736,8 +758,29 @@ export const REVIEW_CURRICULUM = [
                         <span class="rv-case-pill">Khi $q \\neq 1$: $S_n =$ [CHE: $u_1 \\cdot \\dfrac{1 - q^n}{1 - q}$]</span>
                         <span class="rv-case-pill">Khi $q = 1$: $S_n =$ [CHE: $n \\cdot u_1$]</span>
                       </div>`,
-                    hasExample: false,
-                    example: null,
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Thực tế (Bóng nảy)',
+                      problem: 'Một quả bóng thả rơi và nảy lên các độ cao tạo thành CSN với $u_1 = 8\\text{ m}$ và $q = \\dfrac{1}{2}$. Tính tổng độ cao $4$ lần nảy đầu tiên $S_4$.',
+                      solution: 'Vì $q = \\dfrac{1}{2} \\neq 1$, áp dụng công thức tổng $S_n$:<br/>$$S_4 = 8 \\cdot \\frac{1 - (1/2)^4}{1 - 1/2} = 16 \\cdot \\frac{15}{16} = \\mathbf{15}\\text{ m}$$',
+                    },
+                  },
+                ],
+              },
+              {
+                id: 'b3-card-3',
+                type: 'warning',
+                title: 'Mẹo giải hệ CSN',
+                items: [
+                  {
+                    id: 'b3-c3-i1',
+                    html: 'Đưa mọi số hạng $u_k$ về <strong>2 ẩn $u_1, q$</strong> qua $u_k = u_1 \\cdot q^{k-1}$, đặt nhân tử chung rồi <strong>chia hai phương trình cho nhau</strong> để triệt tiêu $u_1$ và tìm $q$.',
+                    hasExample: true,
+                    example: {
+                      title: 'Ví dụ Giải hệ phương trình CSN',
+                      problem: 'Tìm $u_1, q$ của CSN có các số hạng dương thỏa mãn $\\begin{cases} u_1 + u_2 = 9 \\\\ u_3 + u_4 = 36 \\end{cases}$.',
+                      solution: 'Đặt nhân tử chung: $\\begin{cases} u_1(1 + q) = 9 \\\\ u_1 q^2(1 + q) = 36 \\end{cases}$.<br/>Chia vế theo vế: $q^2 = \\dfrac{36}{9} = 4 \\Rightarrow q = \\mathbf{2}$ (vì $u_n > 0$), thay lại được $u_1 = \\mathbf{3}$.',
+                    },
                   },
                 ],
               },
@@ -884,6 +927,14 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '7',
                   explanation:
                     '$S_n = 3 \\cdot \\dfrac{2^n - 1}{2 - 1} = 381 \\Leftrightarrow 2^n - 1 = 127 \\Leftrightarrow 2^n = 128 = 2^7 \\Rightarrow n = 7$.',
+                  paramSpec: {
+                    vars: 'u1 = 3 [1..5]; q = 2 {2, 3}; n = 7 [4..7]',
+                    questionTemplate:
+                      'Cho cấp số nhân $(u_n)$ có $u_1 = {{u1}}$ và công bội $q = {{q}}$. Biết tổng $n$ số hạng đầu tiên $S_n = {{u1 * (q^n - 1) / (q - 1)}}$. Tìm $n$.',
+                    answerTemplate: '{{n}}',
+                    explanationTemplate:
+                      'Ta có $S_n = {{u1}} \\cdot \\dfrac{{{q}}^n - 1}{{{q}} - 1} = {{u1 * (q^n - 1) / (q - 1)}} \\Leftrightarrow {{q}}^n = {{q^n}} = {{q}}^{{{n}}} \\Rightarrow n = {{n}}$.',
+                  },
                 },
                 {
                   id: 'b3-sa-2',
@@ -892,77 +943,699 @@ export const REVIEW_CURRICULUM = [
                   correctAnswer: '15',
                   explanation:
                     'Độ cao các lần nảy lập thành CSN với $h_1 = 16 \\cdot \\dfrac{1}{2} = 8\\text{ m}$ và $q = \\dfrac{1}{2}$. Tổng cần tìm là $S_4 = 8 + 4 + 2 + 1 = 15\\text{ m}$.',
+                  paramSpec: {
+                    vars: 'k = 1 [1..4]; m = 4 [3..5]',
+                    questionTemplate:
+                      'Một quả bóng cao su được thả từ độ cao ${{k * 2^m}}\\text{ m}$ xuống mặt đất. Mỗi lần chạm đất, quả bóng nảy lên độ cao bằng $\\dfrac{1}{2}$ độ cao ngay trước đó. Tính tổng độ cao lớn nhất đạt được của ${{m}}$ lần nảy đầu tiên (đơn vị: mét).',
+                    answerTemplate: '{{k * (2^m - 1)}}',
+                    explanationTemplate:
+                      'Độ cao các lần nảy lập thành CSN với $h_1 = {{k * 2^(m - 1)}}\\text{ m}$ và $q = \\dfrac{1}{2}$. Tổng ${{m}}$ lần nảy đầu: $S_{{{m}}} = {{k * 2^(m - 1)}} \\cdot \\dfrac{1 - (1/2)^{{{m}}}}{1 - 1/2} = {{k * (2^m - 1)}}\\text{ m}$.',
+                  },
                 },
               ],
             },
-            generators: [
-              {
-                id: 'gen-b3-csn',
-                title: 'Tính số hạng tổng quát & Tổng n số hạng đầu CSN',
-                _turn: 0,
-                generate() {
-                  const u1 = randNonZero(-5, 6);
-                  const q = pickRandom([-3, -2, 2, 3]);
-                  const n = randInt(3, 6);
-                  const isSum = this._turn++ % 2 === 1;
-                  const qParen = fmtParenNeg(q);
-                  const u1Paren = fmtParenNeg(u1);
-
-                  if (!isSum) {
-                    const qPow = Math.pow(q, n - 1);
-                    const ans = u1 * qPow;
-                    return {
-                      prompt: `Cho cấp số nhân $(u_n)$ có số hạng đầu $u_1 = ${u1}$ và công bội $q = ${q}$. Tính giá trị số hạng $u_{${n}}$.`,
-                      unitHint: 'Dạng A • Tính số hạng u_n',
-                      answer: String(ans),
-                      solution: `Áp dụng công thức $u_n = u_1 \\cdot q^{n - 1}$:<br/>$$u_{${n}} = ${u1Paren} \\cdot ${qParen}^{${n - 1}} = ${u1Paren} \\cdot ${fmtParenNeg(qPow)} = ${ans}$$`,
-                    };
-                  }
-
-                  const qPowN = Math.pow(q, n);
-                  const sum = (u1 * (qPowN - 1)) / (q - 1);
-                  return {
-                    prompt: `Cho cấp số nhân $(u_n)$ có số hạng đầu $u_1 = ${u1}$ và công bội $q = ${q}$. Tính tổng ${n} số hạng đầu tiên $S_{${n}}$.`,
-                    unitHint: 'Dạng B • Tính tổng S_n',
-                    answer: String(sum),
-                    solution: `Áp dụng công thức $S_n = u_1 \\cdot \\dfrac{q^n - 1}{q - 1}$:<br/>$$S_{${n}} = ${u1Paren} \\cdot \\frac{${qParen}^{${n}} - 1}{${q} - 1} = ${u1Paren} \\cdot \\frac{${qPowN} - 1}{${q - 1}} = ${sum}$$`,
-                  };
-                },
-              },
-            ],
           },
-        ],
-      },
-      {
-        id: 'toan11-c3',
-        grade: 11,
-        code: 'Chương III',
-        title: 'Các số đặc trưng đo xu thế trung tâm của mẫu số liệu ghép nhóm',
-        comingSoon: true,
-        lessons: [],
-      },
-    ],
-  },
-  {
-    grade: 12,
-    label: 'Toán 12',
-    chapters: [
-      {
-        id: 'toan12-c1',
-        grade: 12,
-        code: 'Chương I',
-        title: 'Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
-        comingSoon: true,
-        lessons: [],
-      },
-      {
-        id: 'toan12-c2',
-        grade: 12,
-        code: 'Chương II',
-        title: 'Vectơ và hệ tọa độ trong không gian Oxyz',
-        comingSoon: true,
-        lessons: [],
-      },
-    ],
-  },
-];
+        ];
+
+/**
+ * Official numbered Chapters & Lessons from Sổ báo giảng (Kế hoạch dạy học Toán 10, 11, 12).
+ * Strictly excludes Hoạt động thực hành trải nghiệm, Ôn tập, Kiểm tra.
+ * Content of all lessons (except the 3 pre-built Toán 11 Chương II lessons) starts empty for teacher editing.
+ */
+export const OFFICIAL_PLAN_SCAFFOLD = {
+  "10": [
+    {
+      "code": "Chương I",
+      "title": "Mệnh đề và tập hợp",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Mệnh đề"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Tập hợp và các phép toán trên tập hợp"
+        }
+      ]
+    },
+    {
+      "code": "Chương II",
+      "title": "BPT và hệ BPT bậc nhất hai ẩn",
+      "lessons": [
+        {
+          "code": "Bài 3",
+          "title": "Bất phương trình bậc nhất hai ẩn"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Hệ bất phương trình bậc nhất hai ẩn"
+        }
+      ]
+    },
+    {
+      "code": "Chương III",
+      "title": "Hệ thức lượng trong tam giác",
+      "lessons": [
+        {
+          "code": "Bài 5",
+          "title": "Giá trị lượng giác của một góc từ 0° đến 180°"
+        },
+        {
+          "code": "Bài 6",
+          "title": "Hệ thức lượng trong tam giác"
+        }
+      ]
+    },
+    {
+      "code": "Chương IV",
+      "title": "Vectơ",
+      "lessons": [
+        {
+          "code": "Bài 7",
+          "title": "Các khái niệm mở đầu"
+        },
+        {
+          "code": "Bài 8",
+          "title": "Tổng và hiệu của hai vectơ"
+        },
+        {
+          "code": "Bài 9",
+          "title": "Tích của một vectơ với một số"
+        },
+        {
+          "code": "Bài 10",
+          "title": "Vectơ trong mặt phẳng tọa độ"
+        },
+        {
+          "code": "Bài 11",
+          "title": "Tích vô hướng của hai vectơ"
+        }
+      ]
+    },
+    {
+      "code": "Chương V",
+      "title": "Các số đặc trưng của mẫu số liệu không ghép nhóm",
+      "lessons": [
+        {
+          "code": "Bài 12",
+          "title": "Số gần đúng và sai số"
+        },
+        {
+          "code": "Bài 13",
+          "title": "Các số đặc trưng đo xu thế trung tâm"
+        },
+        {
+          "code": "Bài 14",
+          "title": "Các số đặc trưng đo độ phân tán"
+        }
+      ]
+    },
+    {
+      "code": "Chương VI",
+      "title": "Hàm số, đồ thị và ứng dụng",
+      "lessons": [
+        {
+          "code": "Bài 15",
+          "title": "Hàm số"
+        },
+        {
+          "code": "Bài 16",
+          "title": "Hàm số bậc hai"
+        },
+        {
+          "code": "Bài 17",
+          "title": "Dấu của tam thức bậc hai"
+        },
+        {
+          "code": "Bài 18",
+          "title": "Phương trình quy về phương trình bậc hai"
+        }
+      ]
+    },
+    {
+      "code": "Chương VII",
+      "title": "Phương pháp tọa độ trong mặt phẳng",
+      "lessons": [
+        {
+          "code": "Bài 19",
+          "title": "Phương trình đường thẳng"
+        },
+        {
+          "code": "Bài 20",
+          "title": "Vị trí tương đối giữa hai đường thẳng. Góc và khoảng cách"
+        },
+        {
+          "code": "Bài 21",
+          "title": "Đường tròn trong mặt phẳng tọa độ"
+        },
+        {
+          "code": "Bài 22",
+          "title": "Ba đường conic"
+        }
+      ]
+    },
+    {
+      "code": "Chương VIII",
+      "title": "Đại số tổ hợp",
+      "lessons": [
+        {
+          "code": "Bài 23",
+          "title": "Quy tắc đếm"
+        },
+        {
+          "code": "Bài 24",
+          "title": "Hoán vị, chỉnh hợp và tổ hợp"
+        },
+        {
+          "code": "Bài 25",
+          "title": "Nhị thức Newton"
+        }
+      ]
+    },
+    {
+      "code": "Chương IX",
+      "title": "Tính xác suất theo định nghĩa cổ điển",
+      "lessons": [
+        {
+          "code": "Bài 26",
+          "title": "Biến cố và định nghĩa cổ điển của xác suất"
+        },
+        {
+          "code": "Bài 27",
+          "title": "Thực hành tính xác suất theo định nghĩa cổ điển"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 1",
+      "title": "Hệ phương trình bậc nhất ba ẩn",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Hệ phương trình bậc nhất ba ẩn"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Ứng dụng của Hệ phương trình bậc nhất ba ẩn"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 2",
+      "title": "Phương pháp quy nạp toán học. Nhị thức Newton",
+      "lessons": [
+        {
+          "code": "Bài 3",
+          "title": "Phương pháp quy nạp Toán học"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Nhị thức Newton"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 3",
+      "title": "Ba đường conic và ứng dụng",
+      "lessons": [
+        {
+          "code": "Bài 5",
+          "title": "Elip"
+        },
+        {
+          "code": "Bài 6",
+          "title": "Hypebol"
+        },
+        {
+          "code": "Bài 7",
+          "title": "Parabol"
+        },
+        {
+          "code": "Bài 8",
+          "title": "Sự thống nhất giữa ba đường conic"
+        }
+      ]
+    }
+  ],
+  "11": [
+    {
+      "code": "Chương I",
+      "title": "Hàm số lượng giác và phương trình lượng giác",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Giá trị lượng giác của góc lượng giác"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Công thức lượng giác"
+        },
+        {
+          "code": "Bài 3",
+          "title": "Hàm số lượng giác"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Phương trình lượng giác cơ bản"
+        }
+      ]
+    },
+    {
+      "code": "Chương II",
+      "title": "Dãy số. Cấp số cộng và cấp số nhân",
+      "lessons": [
+        {
+          "code": "Bài 5",
+          "title": "Dãy số"
+        },
+        {
+          "code": "Bài 6",
+          "title": "Cấp số cộng"
+        },
+        {
+          "code": "Bài 7",
+          "title": "Cấp số nhân"
+        }
+      ]
+    },
+    {
+      "code": "Chương III",
+      "title": "Mẫu số liệu ghép nhóm",
+      "lessons": [
+        {
+          "code": "Bài 8",
+          "title": "Mẫu số liệu ghép nhóm"
+        },
+        {
+          "code": "Bài 9",
+          "title": "Các số đặc trưng đo xu thế trung tâm"
+        }
+      ]
+    },
+    {
+      "code": "Chương IV",
+      "title": "Quan hệ song song trong không gian",
+      "lessons": [
+        {
+          "code": "Bài 10",
+          "title": "Đường thẳng và mặt phẳng trong không gian"
+        },
+        {
+          "code": "Bài 11",
+          "title": "Hai đường thẳng song song"
+        },
+        {
+          "code": "Bài 12",
+          "title": "Đường thẳng và mặt phẳng song song"
+        },
+        {
+          "code": "Bài 13",
+          "title": "Hai mặt phẳng song song"
+        },
+        {
+          "code": "Bài 14",
+          "title": "Phép chiếu song song"
+        }
+      ]
+    },
+    {
+      "code": "Chương V",
+      "title": "Giới hạn. Hàm số liên tục",
+      "lessons": [
+        {
+          "code": "Bài 15",
+          "title": "Giới hạn của dãy số"
+        },
+        {
+          "code": "Bài 16",
+          "title": "Giới hạn của hàm số"
+        },
+        {
+          "code": "Bài 17",
+          "title": "Hàm số liên tục"
+        }
+      ]
+    },
+    {
+      "code": "Chương VI",
+      "title": "Hàm số mũ và hàm số lôgarit",
+      "lessons": [
+        {
+          "code": "Bài 18",
+          "title": "Lũy thừa với số mũ thực"
+        },
+        {
+          "code": "Bài 19",
+          "title": "Lôgarit"
+        },
+        {
+          "code": "Bài 20",
+          "title": "Hàm số mũ và hàm số lôgarit"
+        },
+        {
+          "code": "Bài 21",
+          "title": "Phương trình, bất phương trình mũ và lôgarit"
+        }
+      ]
+    },
+    {
+      "code": "Chương VII",
+      "title": "Quan hệ vuông góc trong không gian",
+      "lessons": [
+        {
+          "code": "Bài 22",
+          "title": "Hai đường thẳng vuông góc"
+        },
+        {
+          "code": "Bài 23",
+          "title": "Đường thẳng vuông góc với mặt phẳng"
+        },
+        {
+          "code": "Bài 24",
+          "title": "Phép chiếu vuông góc"
+        },
+        {
+          "code": "Bài 25",
+          "title": "Hai mặt phẳng vuông góc"
+        },
+        {
+          "code": "Bài 26",
+          "title": "Khoảng cách"
+        },
+        {
+          "code": "Bài 27",
+          "title": "Thể tích"
+        }
+      ]
+    },
+    {
+      "code": "Chương VIII",
+      "title": "Các quy tắc tính xác suất",
+      "lessons": [
+        {
+          "code": "Bài 28",
+          "title": "Biến cố hợp, biến cố giao, biến cố độc lập"
+        },
+        {
+          "code": "Bài 29",
+          "title": "Công thức cộng xác suất"
+        },
+        {
+          "code": "Bài 30",
+          "title": "Công thức nhân xác suất cho hai biến cố độc lập"
+        }
+      ]
+    },
+    {
+      "code": "Chương IX",
+      "title": "Đạo hàm",
+      "lessons": [
+        {
+          "code": "Bài 31",
+          "title": "Định nghĩa và ý nghĩa của đạo hàm"
+        },
+        {
+          "code": "Bài 32",
+          "title": "Các quy tắc tính đạo hàm"
+        },
+        {
+          "code": "Bài 33",
+          "title": "Đạo hàm cấp hai"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 1",
+      "title": "Phép biến hình trong mặt phẳng",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Phép biến hình"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Phép tịnh tiến"
+        },
+        {
+          "code": "Bài 3",
+          "title": "Phép đối xứng trục"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Phép quay và phép đối xứng tâm"
+        },
+        {
+          "code": "Bài 5",
+          "title": "Phép dời hình"
+        },
+        {
+          "code": "Bài 6",
+          "title": "Phép vị tự"
+        },
+        {
+          "code": "Bài 7",
+          "title": "Phép đồng dạng"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 2",
+      "title": "Làm quen với một vài khái niệm của lí thuyết đồ thị",
+      "lessons": [
+        {
+          "code": "Bài 8",
+          "title": "Một số khái niệm cơ bản"
+        },
+        {
+          "code": "Bài 9",
+          "title": "Đường đi Euler và đường đi Hamilton"
+        },
+        {
+          "code": "Bài 10",
+          "title": "Bài toán tìm lối đi tối ưu trong một vài trường hợp đơn giản"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 3",
+      "title": "Một số yếu tố về kĩ thuật",
+      "lessons": [
+        {
+          "code": "Bài 11",
+          "title": "Hình chiếu vuông góc và hình chiếu trục đo"
+        },
+        {
+          "code": "Bài 12",
+          "title": "Bản vẽ kĩ thuật"
+        }
+      ]
+    }
+  ],
+  "12": [
+    {
+      "code": "Chương I",
+      "title": "Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Tính đơn điệu và cực trị của hàm số"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Giá trị lớn nhất và giá trị nhỏ nhất của hàm số"
+        },
+        {
+          "code": "Bài 3",
+          "title": "Đường tiệm cận của đồ thị hàm số"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Khảo sát sự biến thiên và vẽ đồ thị của hàm số"
+        },
+        {
+          "code": "Bài 5",
+          "title": "Ứng dụng đạo hàm để giải quyết một số vấn đề liên quan đến thực tiễn"
+        }
+      ]
+    },
+    {
+      "code": "Chương II",
+      "title": "Vectơ và hệ trục tọa độ trong không gian",
+      "lessons": [
+        {
+          "code": "Bài 6",
+          "title": "Vectơ trong không gian"
+        },
+        {
+          "code": "Bài 7",
+          "title": "Hệ trục tọa độ trong không gian"
+        },
+        {
+          "code": "Bài 8",
+          "title": "Biểu thức tọa độ của các phép toán vectơ"
+        }
+      ]
+    },
+    {
+      "code": "Chương III",
+      "title": "Các số đặc trưng đo độ phân tán của mẫu số liệu ghép nhóm",
+      "lessons": [
+        {
+          "code": "Bài 9",
+          "title": "Khoảng biến thiên và khoảng tứ phân vị"
+        },
+        {
+          "code": "Bài 10",
+          "title": "Phương sai và độ lệch chuẩn"
+        }
+      ]
+    },
+    {
+      "code": "Chương IV",
+      "title": "Nguyên hàm và tích phân",
+      "lessons": [
+        {
+          "code": "Bài 11",
+          "title": "Nguyên hàm"
+        },
+        {
+          "code": "Bài 12",
+          "title": "Tích phân"
+        },
+        {
+          "code": "Bài 13",
+          "title": "Ứng dụng của tích phân"
+        }
+      ]
+    },
+    {
+      "code": "Chương V",
+      "title": "Phương pháp tọa độ trong không gian",
+      "lessons": [
+        {
+          "code": "Bài 14",
+          "title": "Phương trình mặt phẳng"
+        },
+        {
+          "code": "Bài 15",
+          "title": "Phương trình đường thẳng trong không gian"
+        },
+        {
+          "code": "Bài 16",
+          "title": "Công thức tính góc trong không gian"
+        },
+        {
+          "code": "Bài 17",
+          "title": "Phương trình mặt cầu"
+        }
+      ]
+    },
+    {
+      "code": "Chương VI",
+      "title": "Xác suất có điều kiện",
+      "lessons": [
+        {
+          "code": "Bài 18",
+          "title": "Xác suất có điều kiện"
+        },
+        {
+          "code": "Bài 19",
+          "title": "Công thức xác suất toàn phần và công thức Bayes"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 1",
+      "title": "Biến ngẫu nhiên rời rạc",
+      "lessons": [
+        {
+          "code": "Bài 1",
+          "title": "Biến ngẫu nhiên rời rạc và các số đặc trưng"
+        },
+        {
+          "code": "Bài 2",
+          "title": "Biến ngẫu nhiên có phân bố nhị thức và áp dụng"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 2",
+      "title": "Ứng dụng toán học để giải quyết một số bài toán tối ưu",
+      "lessons": [
+        {
+          "code": "Bài 3",
+          "title": "Vận dụng hệ bất phương trình bậc nhất để giải quyết một số bài toán quy hoạch tuyến tính"
+        },
+        {
+          "code": "Bài 4",
+          "title": "Vận dụng đạo hàm để giải quyết một số bài toán tối ưu"
+        }
+      ]
+    },
+    {
+      "code": "Chuyên đề 3",
+      "title": "Ứng dụng toán học trong một số vấn đề liên quan đến tài chính",
+      "lessons": [
+        {
+          "code": "Bài 5",
+          "title": "Tiền tệ. Lãi suất"
+        },
+        {
+          "code": "Bài 6",
+          "title": "Tín dụng. Vay nợ"
+        },
+        {
+          "code": "Bài 7",
+          "title": "Đầu tư tài chính. Lập kế hoạch tài chính cá nhân"
+        }
+      ]
+    }
+  ]
+};
+
+function makeEmptyScaffoldLesson(id, code, title) {
+  return {
+    id,
+    code,
+    title,
+    summary: '',
+    coreCards: [],
+    flipCards: [],
+    examples: [],
+    quizzes: {
+      multipleChoice: [],
+      trueFalse: [],
+      shortAnswer: [],
+    },
+  };
+}
+
+function slugChapterId(grade, code, idx) {
+  const low = String(code || '').toLowerCase();
+  const mCd = low.match(/chuyên\s*đề\s*(\d+)/i);
+  if (mCd) return `toan${grade}-cd${mCd[1]}`;
+  return `toan${grade}-c${idx + 1}`;
+}
+
+export const REVIEW_CURRICULUM = [10, 11, 12].map((grade) => ({
+  grade,
+  label: `Toán ${grade}`,
+  chapters: (OFFICIAL_PLAN_SCAFFOLD[String(grade)] || []).map((ch, cIdx) => {
+    const chapId = slugChapterId(grade, ch.code, cIdx);
+    const isToan11C2 = grade === 11 && chapId === 'toan11-c2';
+    return {
+      id: chapId,
+      grade,
+      code: ch.code,
+      title: ch.title,
+      comingSoon: false,
+      lessons: isToan11C2
+        ? BUILTIN_TOAN11_C2_LESSONS
+        : (ch.lessons || []).map((ls, lIdx) => {
+            const mNum = String(ls.code || '').match(/(\d+)/);
+            const bTag = mNum ? mNum[1] : String(lIdx + 1);
+            return makeEmptyScaffoldLesson(`${chapId}-b${bTag}`, ls.code, ls.title);
+          }),
+    };
+  }),
+}));

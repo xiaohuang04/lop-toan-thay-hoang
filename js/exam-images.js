@@ -125,7 +125,7 @@ export function scanMissingImages(examOrDeck) {
 }
 
 export function buildFigureHtml(dataUrl, altName = 'Hình minh họa') {
-  return `<div class="q-figure"><img src="${escapeAttr(dataUrl)}" class="tikz-figure" alt="${escapeAttr(altName)}" /></div>`;
+  return `<div class="q-figure" data-upload-img="1"><img src="${escapeAttr(dataUrl)}" class="tikz-figure" alt="${escapeAttr(altName)}" /></div>`;
 }
 
 function replaceMissingInString(str, targetKey, figureHtml) {
@@ -206,8 +206,67 @@ export function extractQuestionImages(q) {
 export function appendImageToQuestion(q, dataUrl, altName = 'Hình minh họa') {
   if (!q || !dataUrl) return;
   const fig = buildFigureHtml(dataUrl, altName);
-  const cur = String(q.stem || '').trim();
-  q.stem = cur ? `${cur}${fig}` : fig;
+  const cur = String(q.figureHtml || '').trim();
+  q.figureHtml = cur ? `${cur}${fig}` : fig;
+}
+
+/**
+ * Migrate any legacy inline <div class="q-figure">...<img>...</div> blocks out of `q.stem`
+ * into `q.figureHtml`, and derive clean editable LaTeX (`stemTex`, `explanationTex`) when absent,
+ * so the Exam Editor ALWAYS shows pure LaTeX instead of raw HTML/base64 strings!
+ */
+export function htmlToCleanLatexSource(html) {
+  let s = String(html || '');
+  if (!s) return '';
+  // Remove embedded figure/image blocks (handled separately in figureHtml)
+  s = s.replace(/<div\b[^>]*class="[^"]*\bq-figure\b[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+  s = s.replace(/<img\b[^>]*>/gi, '');
+  // Convert tex-list blocks back to clean \begin{enumerate} / \begin{itemize}
+  s = s.replace(/<div\b[^>]*class="[^"]*\btex-list\b([^"]*)"[^>]*>([\s\S]*?)<\/div>\s*(?=<|$)/gi, (_, cls, inner) => {
+    const isEnum = /\bis-enum\b/i.test(cls || '');
+    const env = isEnum ? 'enumerate' : 'itemize';
+    const items = [];
+    const itemRe = /<div\b[^>]*class="[^"]*\btex-list-body\b[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+    let m;
+    while ((m = itemRe.exec(inner)) !== null) {
+      items.push(`  \\item ${htmlToCleanLatexSource(m[1])}`);
+    }
+    if (!items.length) return '';
+    return `\n\\begin{${env}}\n${items.join('\n')}\n\\end{${env}}\n`;
+  });
+  // Convert inline HTML formatting back to clean LaTeX
+  s = s.replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, '\\textbf{$2}');
+  s = s.replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, '\\textit{$2}');
+  s = s.replace(/<u>([\s\S]*?)<\/u>/gi, '\\underline{$1}');
+  s = s.replace(/<br\s*\/?>/gi, '\n');
+  s = s.replace(/<[^>]+>/g, '');
+  s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function normalizeQuestionForLatexEditor(q) {
+  if (!q) return;
+  // Move any legacy <div class="q-figure">...<img>...</div> blocks from stem -> figureHtml
+  const stemRaw = String(q.stem || '');
+  const figBlockRe = /<div\b[^>]*class="[^"]*\bq-figure\b[^"]*"[^>]*>[\s\S]*?<\/div>/gi;
+  const legacyFigs = stemRaw.match(figBlockRe);
+  if (legacyFigs && legacyFigs.length > 0) {
+    const existingFig = String(q.figureHtml || '').trim();
+    const moved = legacyFigs
+      .map((blk) => (blk.includes('data-upload-img') || blk.includes('data-tikz-compiled') || blk.includes('is-missing-img') ? blk : blk.replace('<div class="q-figure">', '<div class="q-figure" data-upload-img="1">')))
+      .join('');
+    q.figureHtml = existingFig ? `${existingFig}${moved}` : moved;
+    q.stem = stemRaw.replace(figBlockRe, '').trim();
+  }
+  if (typeof q.stemTex !== 'string') {
+    q.stemTex = htmlToCleanLatexSource(q.stem || '');
+  }
+  if (typeof q.figureTex !== 'string') {
+    q.figureTex = '';
+  }
+  if (typeof q.explanationTex !== 'string') {
+    q.explanationTex = htmlToCleanLatexSource(q.explanation || '');
+  }
 }
 
 export function removeImageFromQuestion(q, field, targetLocalIdx) {

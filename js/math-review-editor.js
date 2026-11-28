@@ -250,6 +250,25 @@ export function renderEditorCommandBarHtml({ isDirty, isSaving, showPresetManage
         </span>
       </div>
       <div class="rv-ed-top-actions">
+        <a
+          class="rv-ed-btn"
+          href="/api/review-curriculum/template/xlsx"
+          download="Mau_Nhap_Bai_On_Tap.xlsx"
+          title="Tải file Excel mẫu chuẩn format Cấp số cộng"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Mẫu Excel</span>
+        </a>
+        <button
+          type="button"
+          class="rv-ed-btn"
+          id="btnImportReviewXlsx"
+          title="Nạp bài học mới hoặc cập nhật từ tệp Excel (.xlsx)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Nhập Excel</span>
+        </button>
+        <input type="file" id="inpImportReviewXlsx" accept=".xlsx" class="hidden" />
         <button
           type="button"
           class="rv-ed-btn ${showPresetManager ? 'is-active' : ''}"
@@ -739,7 +758,7 @@ export function renderTouch3EditorHtml(lesson, { collapsedIds }) {
       <div class="rv-ed-section">
         <div class="rv-ed-sec-head">
           <div>
-            <h3 class="rv-ed-sec-title">Phần I — Trắc nghiệm 4 lựa chọn (${mcs.length} câu)</h3>
+            <h3 class="rv-ed-sec-title">Phần I (${mcs.length} câu)</h3>
           </div>
           <button type="button" class="rv-ed-btn is-primary" id="btnEdAddMc">+ Thêm câu TN</button>
         </div>
@@ -799,7 +818,7 @@ export function renderTouch3EditorHtml(lesson, { collapsedIds }) {
       <div class="rv-ed-section">
         <div class="rv-ed-sec-head">
           <div>
-            <h3 class="rv-ed-sec-title">Phần II — Trắc nghiệm Đúng / Sai (${tfs.length} câu)</h3>
+            <h3 class="rv-ed-sec-title">Phần II (${tfs.length} câu)</h3>
           </div>
           <button type="button" class="rv-ed-btn is-primary" id="btnEdAddTf">+ Thêm câu Đúng/Sai</button>
         </div>
@@ -860,7 +879,7 @@ export function renderTouch3EditorHtml(lesson, { collapsedIds }) {
       <div class="rv-ed-section">
         <div class="rv-ed-sec-head">
           <div>
-            <h3 class="rv-ed-sec-title">Phần III — Trắc nghiệm Trả lời ngắn (${sas.length} câu)</h3>
+            <h3 class="rv-ed-sec-title">Phần III (${sas.length} câu)</h3>
           </div>
           <button type="button" class="rv-ed-btn is-primary" id="btnEdAddSa">+ Thêm câu Trả lời ngắn</button>
         </div>

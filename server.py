@@ -33,7 +33,14 @@ from gemini_pdf import (
     test_gemini_connection,
 )
 from live_game_engine import LiveGameEngine
-from parsers import parse_docx_bytes, parse_extest_latex, parse_presentation_source, parse_structured_exam_text
+from parsers import (
+    compile_exam_latex_fields,
+    parse_docx_bytes,
+    parse_extest_latex,
+    parse_presentation_source,
+    parse_structured_exam_text,
+)
+from review_xlsx import build_review_template_xlsx, parse_review_lesson_xlsx
 from storage import StorageBackend
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1363,6 +1370,88 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     return self.send_json(200, {"reviewCurriculum": None})
                 return self.send_json(200, {"reviewCurriculum": rc})
 
+            # Official numbered chapters & lessons catalog extracted from Sổ báo giảng (Kế hoạch dạy học)
+            # Excludes Hoạt động thực hành trải nghiệm, Ôn tập, Kiểm tra — keeps ONLY numbered `Bài N` lessons!
+            if path == "/api/review-curriculum/plan-catalog":
+                tl_plans = (db.get("teaching_log") or {}).get("curriculumPlans")
+                builtin_plans = build_builtin_curriculum_plans()
+                grades_out = {}
+                for g_key in ("10", "11", "12"):
+                    raw_items = None
+                    if isinstance(tl_plans, dict) and g_key in tl_plans:
+                        raw_items = tl_plans[g_key]
+                    if isinstance(raw_items, dict):
+                        raw_items = raw_items.get("items", [])
+                    if not isinstance(raw_items, list) or not raw_items:
+                        raw_items = builtin_plans.get(g_key, [])
+
+                    chap_order = []
+                    chap_map = {}
+                    for it in raw_items:
+                        if not isinstance(it, dict):
+                            continue
+                        ch_raw = str(it.get("chapter", "")).strip()
+                        ch_low = ch_raw.lower()
+                        if not ch_raw or "hoạt động thực hành" in ch_low or "trải nghiệm" in ch_low:
+                            continue
+                        # Merge "(tt)" / "(tiếp)" chapter continuations cleanly
+                        ch_clean = re.sub(r"\s*\((?:tt|tiếp)\)\s*", " ", ch_raw, flags=re.IGNORECASE)
+                        ch_clean = re.sub(r"\s*:\s*", ": ", ch_clean).strip()
+                        ch_clean = re.sub(r"\s{2,}", " ", ch_clean)
+
+                        ln_raw = str(it.get("lessonName", "")).strip()
+                        ln_clean = re.sub(
+                            r"\s*\((?:tt|tiếp|tiết\s*\d+[^)]*|t\s*\d+)\)\s*$",
+                            "",
+                            ln_raw,
+                            flags=re.IGNORECASE,
+                        ).strip()
+                        m_ls = re.match(r"^(Bài\s+\d+)\s*[.:]\s*(.+)$", ln_clean, flags=re.IGNORECASE)
+                        if not m_ls:
+                            continue
+                        ls_code = re.sub(r"\s+", " ", m_ls.group(1).strip())
+                        ls_title = m_ls.group(2).strip()
+
+                        if ":" in ch_clean:
+                            ch_code, ch_title = [p.strip() for p in ch_clean.split(":", 1)]
+                        else:
+                            ch_code, ch_title = ch_clean, ""
+                        ch_key = ch_code.lower()
+                        if ch_key not in chap_map:
+                            chap_map[ch_key] = {
+                                "code": ch_code,
+                                "title": ch_title,
+                                "lessons": [],
+                            }
+                            chap_order.append(ch_key)
+                        elif not chap_map[ch_key]["title"] and ch_title:
+                            chap_map[ch_key]["title"] = ch_title
+
+                        ls_list = chap_map[ch_key]["lessons"]
+                        if not any(x["code"].lower() == ls_code.lower() and x["title"].lower() == ls_title.lower() for x in ls_list):
+                            ls_list.append({"code": ls_code, "title": ls_title})
+
+                    grades_out[g_key] = [chap_map[k] for k in chap_order if chap_map[k]["lessons"]]
+                return self.send_json(200, {"grades": grades_out})
+
+            # Download styled Excel (.xlsx) template for authoring `/on-tap` lessons
+            if path == "/api/review-curriculum/template/xlsx":
+                raw = build_review_template_xlsx()
+                self.send_response(200)
+                self.send_header(
+                    "Content-Type",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                self.send_header(
+                    "Content-Disposition",
+                    'attachment; filename="Mau_Nhap_Bai_On_Tap.xlsx"',
+                )
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+
             if not user:
                 return self.send_json(401, {"error": "Vui lòng đăng nhập để tiếp tục."})
 
@@ -1881,6 +1970,17 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     return self.send_json(400, {"error": str(e)})
 
             # Parse Exam from LaTeX (ex_test), Word (.docx), or PDF text
+            if path == "/api/admin/review-curriculum/import-xlsx":
+                b64_data = str(body.get("dataBase64", "")).strip()
+                if not b64_data:
+                    return self.send_json(400, {"error": "Vui lòng chọn tệp Excel (.xlsx) hợp lệ."})
+                try:
+                    raw_bytes = base64.b64decode(b64_data)
+                    parsed = parse_review_lesson_xlsx(raw_bytes)
+                    return self.send_json(200, {"ok": True, **parsed})
+                except Exception as exc:
+                    return self.send_json(400, {"error": f"Không thể đọc tệp Excel: {exc}"})
+
             if path == "/api/admin/parse-exam":
                 fmt = str(body.get("format", "latex")).lower().strip()
                 filename = str(body.get("filename", "")).strip()
@@ -1934,6 +2034,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     # Ensure unique id
                     if any(e["id"] == exam["id"] for e in db["exams"]):
                         exam["id"] = gen_id("exam")
+                    compile_exam_latex_fields(exam)
                     db["exams"].insert(0, exam)
                     created.append(exam)
                 save_db(db)
@@ -2217,6 +2318,7 @@ class EduLabHandler(SimpleHTTPRequestHandler):
                     "part4": body.get("part4", existing.get("part4", [])),
                     "updatedAt": now_iso(),
                 }
+                compile_exam_latex_fields(updated)
                 db["exams"][idx] = updated
                 save_db(db)
                 return self.send_json(200, {"exam": updated})

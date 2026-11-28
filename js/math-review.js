@@ -1,5 +1,6 @@
-import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261127j';
-import { escapeHtml, escapeAttr } from './exam-engine.js?v=20261123d';
+import { REVIEW_CURRICULUM, DEFAULT_BOX_PRESETS } from './review-data.js?v=20261128h';
+import { escapeHtml, escapeAttr, formatShortAnswerSlots } from './exam-engine.js?v=20261127p';
+import { getParametricShortAnswerPool, generateRandomFromShortAnswers } from './review-param.js?v=20261128c';
 import {
   renderBoxIconSvg,
   deriveBoxColorsFromHex,
@@ -14,7 +15,7 @@ import {
   renderTouch1EditorHtml,
   renderTouch3EditorHtml,
   applyTextareaSnippet,
-} from './math-review-editor.js?v=20261127k';
+} from './math-review-editor.js?v=20261128h';
 
 const LS_BOOKMARKS_KEY = 'math_review_bookmarks';
 const LS_PROGRESS_KEY = 'math_review_progress';
@@ -28,7 +29,14 @@ function deepCloneJson(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function cloneCurriculumWithGenerators(grades, builtinGeneratorsMap, builtinCoreCardsMap = null, builtinFlipCardsMap = null) {
+function cloneCurriculumWithGenerators(
+  grades,
+  builtinGeneratorsMap,
+  builtinCoreCardsMap = null,
+  builtinFlipCardsMap = null,
+  builtinLessonsMap = null,
+  savedVersion = 2
+) {
   return (grades || []).map((g) => ({
     grade: Number(g.grade),
     label: String(g.label || `Toán ${g.grade}`),
@@ -53,24 +61,52 @@ function cloneCurriculumWithGenerators(grades, builtinGeneratorsMap, builtinCore
             shortAnswer: Array.isArray(ls.quizzes?.shortAnswer) ? ls.quizzes.shortAnswer : [],
           },
         });
-        // Non-destructively upgrade legacy `content`-only coreCards saved before `items[]` existed,
-        // preserving teacher text edits while attaching built-in per-line examples where missing.
+        // Non-destructively upgrade saved built-in coreCards:
+        // 1) Migrate legacy `content`-only cards to `items[]`
+        // 2) Attach newly added built-in Speech Cloud examples & case tones when missing
+        // 3) For v1 saves (before Dãy số & CSN unification), merge newly added built-in items/cards
         if (builtinCoreCardsMap) {
           cloned.coreCards.forEach((card) => {
-            if (!Array.isArray(card.items)) {
-              const migrated = ensureCoreCardItems(card);
-              const builtin = builtinCoreCardsMap.get(card.id);
-              if (builtin && Array.isArray(builtin.items)) {
-                migrated.forEach((it, idx) => {
-                  const bIt = builtin.items[idx];
-                  if (bIt && bIt.hasExample && bIt.example && !it.hasExample && !it.example) {
-                    it.hasExample = true;
-                    it.example = deepCloneJson(bIt.example);
-                  }
+            const items = Array.isArray(card.items) ? card.items : ensureCoreCardItems(card);
+            const builtin = builtinCoreCardsMap.get(card.id);
+            if (builtin && Array.isArray(builtin.items)) {
+              const byItemId = new Map(builtin.items.map((bi) => [bi.id, bi]));
+              items.forEach((it, idx) => {
+                const bIt = byItemId.get(it.id) || builtin.items[idx];
+                const hasSavedEx = Boolean(it.hasExample && it.example && (it.example.problem || it.example.solution));
+                if (bIt && bIt.hasExample && bIt.example && !hasSavedEx && savedVersion < 2) {
+                  it.hasExample = true;
+                  it.example = deepCloneJson(bIt.example);
+                }
+                if (
+                  savedVersion < 2 &&
+                  card.id === 'b1-card-2' &&
+                  idx === 2 &&
+                  bIt &&
+                  typeof it.html === 'string' &&
+                  !it.html.includes('is-up')
+                ) {
+                  it.html = bIt.html;
+                }
+              });
+              if (savedVersion < 2 && builtin.items.length > items.length) {
+                builtin.items.slice(items.length).forEach((bIt) => {
+                  items.push(deepCloneJson(bIt));
                 });
               }
             }
           });
+        }
+        if (savedVersion < 2 && builtinLessonsMap) {
+          const bLs = builtinLessonsMap.get(cloned.id);
+          if (bLs && Array.isArray(bLs.coreCards)) {
+            const existingCardIds = new Set(cloned.coreCards.map((cc) => cc.id));
+            bLs.coreCards.forEach((bCard) => {
+              if (bCard?.id && !existingCardIds.has(bCard.id)) {
+                cloned.coreCards.push(deepCloneJson(bCard));
+              }
+            });
+          }
         }
         // Upgrade legacy plain-text built-in trapLabels to LaTeX `$...$` format when unchanged
         if (builtinFlipCardsMap) {
@@ -80,6 +116,20 @@ function cloneCurriculumWithGenerators(grades, builtinGeneratorsMap, builtinCore
               fc.trapLabel = bFc.trapLabel;
             }
           });
+        }
+        // Hydrate built-in parametric specs onto saved built-in short-answer questions when missing
+        if (builtinLessonsMap) {
+          const bLs = builtinLessonsMap.get(cloned.id);
+          const bSas = bLs?.quizzes?.shortAnswer || [];
+          if (bSas.length) {
+            const bySaId = new Map(bSas.map((s) => [s.id, s]));
+            (cloned.quizzes.shortAnswer || []).forEach((sa, idx) => {
+              const bSa = bySaId.get(sa.id) || bSas[idx];
+              if (bSa?.paramSpec && !sa.paramSpec) {
+                sa.paramSpec = deepCloneJson(bSa.paramSpec);
+              }
+            });
+          }
         }
         const gens = builtinGeneratorsMap.get(cloned.id);
         if (gens?.length) cloned.generators = gens;
@@ -299,16 +349,68 @@ function saveJsonStorage(key, val) {
 }
 
 export function createMathReviewController({ rootEl, uiHelpers, api, getUser, onRouteChange }) {
-  const { showToast, renderMath } = uiHelpers;
+  const { showToast, renderMath, openModal, closeModal } = uiHelpers;
   const isAdmin = () => getUser?.()?.role === 'admin';
+  let planCatalogCache = null;
+
+  async function ensurePlanCatalog() {
+    if (planCatalogCache) return planCatalogCache;
+    if (!api?.getReviewPlanCatalog) return null;
+    try {
+      const res = await api.getReviewPlanCatalog();
+      if (res && res.grades) {
+        planCatalogCache = res.grades;
+        return planCatalogCache;
+      }
+    } catch {
+      // fallback silently to manual entry
+    }
+    return null;
+  }
+
+  function normCatalogKey(str) {
+    return stripAccents(String(str || ''))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function createEmptyLessonObj(gradeNum, code, title) {
+    return {
+      id: genReviewId(`toan${gradeNum}-b`),
+      code: String(code || 'Bài mới').trim(),
+      title: String(title || 'Bài học mới').trim(),
+      summary: '',
+      coreCards: [
+        {
+          id: genReviewId('card'),
+          type: 'theory',
+          title: 'Định nghĩa & Khái niệm cơ bản',
+          items: [
+            {
+              id: genReviewId('item'),
+              html: '<strong>Ý chính:</strong> Nhập nội dung lý thuyết và công thức $...$ tại đây.',
+              hasExample: false,
+              example: null,
+            },
+          ],
+        },
+      ],
+      flipCards: [],
+      examples: [],
+      quizzes: { multipleChoice: [], trueFalse: [], shortAnswer: [] },
+    };
+  }
 
   // Preserve built-in dynamic generators (JS functions) & built-in per-line examples for legacy migration
   const builtinGeneratorsMap = new Map();
   const builtinCoreCardsMap = new Map();
   const builtinFlipCardsMap = new Map();
+  const builtinLessonsMap = new Map();
   REVIEW_CURRICULUM.forEach((g) => {
     (g.chapters || []).forEach((c) => {
       (c.lessons || []).forEach((ls) => {
+        if (ls?.id) builtinLessonsMap.set(ls.id, ls);
         if (ls.generators?.length) builtinGeneratorsMap.set(ls.id, ls.generators);
         (ls.coreCards || []).forEach((card) => {
           if (card?.id) builtinCoreCardsMap.set(card.id, card);
@@ -324,7 +426,9 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     REVIEW_CURRICULUM,
     builtinGeneratorsMap,
     builtinCoreCardsMap,
-    builtinFlipCardsMap
+    builtinFlipCardsMap,
+    builtinLessonsMap,
+    2
   );
   let boxPresets = deepCloneJson(DEFAULT_BOX_PRESETS);
 
@@ -400,7 +504,8 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
 
   rebuildIndexes();
 
-  const defaultLessonId = lessonsIndex[0]?.id || '';
+  const defaultLessonId =
+    lessonsIndex.find((l) => (l.coreCards?.length || 0) > 0)?.id || lessonsIndex[0]?.id || '';
   const savedBookmarks = loadJsonStorage(LS_BOOKMARKS_KEY, []);
   const savedProgress = loadJsonStorage(LS_PROGRESS_KEY, {});
   const savedLastLesson = (() => {
@@ -453,6 +558,98 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     }
   }
 
+  function mergeOfficialCurriculumScaffold(savedGrades, builtinGrades) {
+    const out = [];
+    const savedByGrade = new Map((savedGrades || []).map((g) => [Number(g.grade), g]));
+
+    (builtinGrades || []).forEach((bGrade) => {
+      const sGrade = savedByGrade.get(Number(bGrade.grade));
+      if (!sGrade) {
+        out.push(deepCloneJson(bGrade));
+        return;
+      }
+
+      const savedChaps = Array.isArray(sGrade.chapters) ? sGrade.chapters : [];
+      const usedSavedChapIdxs = new Set();
+      const mergedChaps = [];
+
+      (bGrade.chapters || []).forEach((bChap) => {
+        const bCodeKey = normCatalogKey(bChap.code);
+        const sIdx = savedChaps.findIndex(
+          (sc, idx) =>
+            !usedSavedChapIdxs.has(idx) &&
+            (sc.id === bChap.id || normCatalogKey(sc.code) === bCodeKey)
+        );
+        if (sIdx < 0) {
+          // Chapter missing from cloud save -> add official empty scaffold structure
+          mergedChaps.push(deepCloneJson(bChap));
+          return;
+        }
+        usedSavedChapIdxs.add(sIdx);
+        const sChap = deepCloneJson(savedChaps[sIdx]);
+        const sLessons = Array.isArray(sChap.lessons) ? sChap.lessons : [];
+        const usedSavedLsIdxs = new Set();
+        const mergedLessons = [];
+
+        (bChap.lessons || []).forEach((bLs) => {
+          const bTitleKey = normCatalogKey(bLs.title);
+          const bCodeLsKey = normCatalogKey(bLs.code);
+          const lIdx = sLessons.findIndex(
+            (sl, idx) =>
+              !usedSavedLsIdxs.has(idx) &&
+              (sl.id === bLs.id ||
+                normCatalogKey(sl.title) === bTitleKey ||
+                (bTitleKey && normCatalogKey(sl.title).startsWith(bTitleKey)) ||
+                normCatalogKey(sl.code) === bCodeLsKey)
+          );
+          if (lIdx >= 0) {
+            usedSavedLsIdxs.add(lIdx);
+            // Keep 100% of teacher-saved content, only align official lesson code when built-in Toán 11 C2
+            const kept = sLessons[lIdx];
+            if (bLs.id === 'toan11-c2-b1' || bLs.id === 'toan11-c2-b2' || bLs.id === 'toan11-c2-b3') {
+              kept.code = bLs.code;
+            }
+            mergedLessons.push(kept);
+          } else {
+            // Lesson missing -> add empty scaffold entry (structure only, zero prefilled content!)
+            mergedLessons.push({
+              id: bLs.id,
+              code: bLs.code,
+              title: bLs.title,
+              summary: '',
+              coreCards: [],
+              flipCards: [],
+              examples: [],
+              quizzes: { multipleChoice: [], trueFalse: [], shortAnswer: [] },
+            });
+          }
+        });
+
+        // Keep any extra custom lessons teacher created inside this chapter
+        sLessons.forEach((sl, idx) => {
+          if (!usedSavedLsIdxs.has(idx)) mergedLessons.push(sl);
+        });
+
+        sChap.lessons = mergedLessons;
+        sChap.comingSoon = mergedLessons.length === 0;
+        mergedChaps.push(sChap);
+      });
+
+      // Keep any extra custom chapters teacher created in this grade
+      savedChaps.forEach((sc, idx) => {
+        if (!usedSavedChapIdxs.has(idx)) mergedChaps.push(deepCloneJson(sc));
+      });
+
+      out.push({
+        grade: Number(bGrade.grade),
+        label: sGrade.label || bGrade.label,
+        chapters: mergedChaps,
+      });
+    });
+
+    return out;
+  }
+
   async function loadCurriculumFromServer() {
     if (state.serverLoaded || !api?.getReviewCurriculum) return;
     state.serverLoaded = true;
@@ -460,16 +657,24 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
       const res = await api.getReviewCurriculum();
       const rc = res?.reviewCurriculum;
       if (rc && Array.isArray(rc.grades) && rc.grades.length > 0) {
-        curriculum = cloneCurriculumWithGenerators(
+        const savedVer = Number(rc.version || 1);
+        let hydrated = cloneCurriculumWithGenerators(
           rc.grades,
           builtinGeneratorsMap,
           builtinCoreCardsMap,
-          builtinFlipCardsMap
+          builtinFlipCardsMap,
+          builtinLessonsMap,
+          savedVer
         );
+        if (savedVer < 3) {
+          hydrated = mergeOfficialCurriculumScaffold(hydrated, REVIEW_CURRICULUM);
+        }
+        curriculum = hydrated;
         boxPresets = mergeBoxPresets(rc.boxPresets);
         rebuildIndexes();
-        if (!lessonsById.has(state.activeLessonId) && lessonsIndex[0]) {
-          state.activeLessonId = lessonsIndex[0].id;
+        if (!lessonsById.has(state.activeLessonId)) {
+          state.activeLessonId =
+            lessonsIndex.find((l) => (l.coreCards?.length || 0) > 0)?.id || lessonsIndex[0]?.id || '';
         }
         if (state.mounted) render();
       }
@@ -484,7 +689,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     render();
     try {
       const payload = {
-        version: 1,
+        version: 3,
         boxPresets,
         grades: serializeCurriculumForServer(curriculum),
       };
@@ -513,15 +718,19 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         summary: null,
       };
     }
-    if (!state.genState[lesson.id] && lesson.generators?.length) {
-      state.genState[lesson.id] = {
-        item: lesson.generators[0].generate(),
-        userInput: '',
-        checked: false,
-        isCorrect: false,
-        showSol: false,
-        streak: 0,
-      };
+    const paramPool = getParametricShortAnswerPool(lesson);
+    if (!state.genState[lesson.id] && paramPool.length > 0) {
+      const firstItem = generateRandomFromShortAnswers(lesson);
+      if (firstItem) {
+        state.genState[lesson.id] = {
+          item: firstItem,
+          userInput: '',
+          checked: false,
+          isCorrect: false,
+          showSol: false,
+          streak: 0,
+        };
+      }
     }
     (lesson.examples || []).forEach((ex) => {
       if (!state.exampleState[ex.id]) {
@@ -775,7 +984,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
                                   ${(chap.lessons || [])
                                     .map((ls, lIdx) => {
                                       const isSelected = state.viewMode === 'lesson' && state.activeLessonId === ls.id;
-                                      const doneRec = state.progress[ls.id];
                                       return `
                                         <div class="rv-tree-row">
                                           <button
@@ -783,9 +991,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
                                             class="rv-lesson-btn ${isSelected ? 'is-active' : ''}"
                                             data-select-lesson="${escapeAttr(ls.id)}"
                                           >
-                                            <span class="rv-lesson-dot ${doneRec ? 'is-done' : ''}" aria-hidden="true">
-                                              ${doneRec ? '✓' : ''}
-                                            </span>
                                             <span class="rv-lesson-title">
                                               <strong>${escapeHtml(ls.code)}:</strong> ${escapeHtml(ls.title)}
                                             </span>
@@ -874,7 +1079,17 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     `;
   }
 
-  function renderCoreCardHtml(card, { showLessonMeta = '' } = {}) {
+  function renderJumpLessonIconSvg() {
+    return `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    `;
+  }
+
+  function renderCoreCardHtml(card, { showLessonMeta = '', jumpLessonId = '' } = {}) {
     const preset = resolveBoxPreset(card.type, boxPresets);
     const effStyle = card.boxStyle || preset.style || 'editorial';
     const isStarred = state.bookmarks.has(card.id);
@@ -896,15 +1111,34 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
               ${showLessonMeta ? `<div class="rv-card-lesson-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
             </div>
           </div>
-          <button
-            type="button"
-            class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
-            data-star-id="${escapeAttr(card.id)}"
-            aria-label="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu Sổ tay'}"
-            title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
-          >
-            ${renderStarSvg(isStarred)}
-          </button>
+          <div class="rv-sec-head-actions">
+            ${
+              jumpLessonId
+                ? `
+                  <button
+                    type="button"
+                    class="rv-nb-jump-ico-btn"
+                    data-jump-lesson="${escapeAttr(jumpLessonId)}"
+                    data-jump-card="${escapeAttr(card.id)}"
+                    data-tip="Xem bài"
+                    title="Xem bài"
+                    aria-label="Xem bài"
+                  >
+                    ${renderJumpLessonIconSvg()}
+                  </button>
+                `
+                : ''
+            }
+            <button
+              type="button"
+              class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
+              data-star-id="${escapeAttr(card.id)}"
+              aria-label="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu Sổ tay'}"
+              title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
+            >
+              ${renderStarSvg(isStarred)}
+            </button>
+          </div>
         </div>
         <div class="rv-sec-body">
           <ul class="rv-bullet-list">
@@ -932,7 +1166,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     `;
   }
 
-  function renderFlipCardHtml(fc, { indexNum = 0, showLessonMeta = '' } = {}) {
+  function renderFlipCardHtml(fc, { indexNum = 0, showLessonMeta = '', jumpLessonId = '' } = {}) {
     const isFlipped = state.flippedIds.has(fc.id);
     const isStarred = state.bookmarks.has(fc.id);
     const attempt = state.trapAttempts[fc.id] || null;
@@ -941,6 +1175,9 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     const frontBadgeTxt = indexNum > 0 ? `Câu ${indexNum}` : 'Thử sức';
     const flipIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;
     const enterIconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>`;
+    const jumpIconBtnHtml = jumpLessonId
+      ? `<button type="button" class="rv-nb-jump-ico-btn" data-jump-lesson="${escapeAttr(jumpLessonId)}" data-jump-card="${escapeAttr(fc.id)}" data-tip="Xem bài" title="Xem bài" aria-label="Xem bài">${renderJumpLessonIconSvg()}</button>`
+      : '';
 
     return `
       <div
@@ -953,12 +1190,15 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
           <div class="rv-flip-face rv-flip-front">
             <div class="rv-flip-top">
               <span class="rv-flip-badge is-front">${escapeHtml(frontBadgeTxt)}</span>
-              <button
-                type="button"
-                class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
-                data-star-id="${escapeAttr(fc.id)}"
-                title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
-              >${renderStarSvg(isStarred)}</button>
+              <div class="rv-sec-head-actions">
+                ${jumpIconBtnHtml}
+                <button
+                  type="button"
+                  class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
+                  data-star-id="${escapeAttr(fc.id)}"
+                  title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
+                >${renderStarSvg(isStarred)}</button>
+              </div>
             </div>
             ${showLessonMeta ? `<div class="rv-flip-crumb">${escapeHtml(showLessonMeta)}</div>` : ''}
             <div class="rv-flip-problem"><div class="rv-flip-problem-txt">${fc.problem}</div></div>
@@ -996,12 +1236,15 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
               <span class="rv-trap-cat-badge">
                 <span class="rv-trap-cat-lbl">${fc.trapLabel || 'Bẫy hay sai'}</span>
               </span>
-              <button
-                type="button"
-                class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
-                data-star-id="${escapeAttr(fc.id)}"
-                title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
-              >${renderStarSvg(isStarred)}</button>
+              <div class="rv-sec-head-actions">
+                ${jumpIconBtnHtml}
+                <button
+                  type="button"
+                  class="rv-star-btn ${isStarred ? 'is-starred' : ''}"
+                  data-star-id="${escapeAttr(fc.id)}"
+                  title="${isStarred ? 'Bỏ lưu Sổ tay' : 'Lưu vào Sổ tay'}"
+                >${renderStarSvg(isStarred)}</button>
+              </div>
             </div>
 
             <div class="rv-flip-back-body">
@@ -1040,6 +1283,21 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
   }
 
   function renderTouch1Html(lesson) {
+    const hasCore = (lesson.coreCards || []).length > 0;
+    const hasFlip = (lesson.flipCards || []).length > 0;
+    if (!hasCore && !hasFlip) {
+      return `
+        <div class="rv-empty-notebook" style="margin-top:8px;">
+          <h3 style="margin-bottom:6px;">Nội dung bài học chưa được cập nhật</h3>
+          <p>Thầy Hoàng đang chuẩn bị sơ đồ kiến thức và bài tập cho <strong>${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</strong>.</p>
+          ${
+            isAdmin()
+              ? `<button type="button" class="btn btn-primary btn-sm" data-start-edit-empty="1">✎ Soạn / Nhập Excel cho bài này</button>`
+              : ''
+          }
+        </div>
+      `;
+    }
     return `
       <div class="rv-editorial-flow">
         ${(lesson.coreCards || []).map((c) => renderCoreCardHtml(c)).join('')}
@@ -1178,12 +1436,25 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
     const mcs = qz.multipleChoice || [];
     const tfs = qz.trueFalse || [];
     const sas = qz.shortAnswer || [];
+    if (mcs.length + tfs.length + sas.length === 0) {
+      return `
+        <div class="rv-empty-notebook" style="margin-top:8px;">
+          <h3 style="margin-bottom:6px;">Chưa có câu hỏi luyện nhanh</h3>
+          <p>Bộ câu hỏi luyện nhanh cho <strong>${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</strong> chưa được nạp nội dung.</p>
+          ${
+            isAdmin()
+              ? `<button type="button" class="btn btn-primary btn-sm" data-start-edit-empty="1">✎ Soạn / Nhập Excel cho bài này</button>`
+              : ''
+          }
+        </div>
+      `;
+    }
     const qState = state.quizState[lesson.id];
     const submitted = qState.submitted;
     const optLetters = ['A', 'B', 'C', 'D'];
 
     let qCounter = 0;
-    const genCfg = lesson.generators?.[0];
+    const hasRandomPractice = getParametricShortAnswerPool(lesson).length > 0;
     const gSt = state.genState[lesson.id];
 
     return `
@@ -1209,7 +1480,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         <div class="rv-quiz-part">
           <div class="rv-quiz-part-head">
             <span class="badge badge-p1">Phần I</span>
-            <strong>Trắc nghiệm 4 lựa chọn</strong>
+            <strong>Câu trắc nghiệm nhiều phương án lựa chọn</strong>
           </div>
           ${mcs
             .map((q) => {
@@ -1267,7 +1538,7 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         <div class="rv-quiz-part">
           <div class="rv-quiz-part-head">
             <span class="badge badge-p2">Phần II</span>
-            <strong>Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)</strong>
+            <strong>Câu trắc nghiệm đúng sai</strong>
           </div>
           ${tfs
             .map((q) => {
@@ -1329,16 +1600,17 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
             .join('')}
         </div>
 
-        <!-- Part 3: Short Answer -->
+        <!-- Part 3: Short Answer (Unified Single-Focus 4-Box Input) -->
         <div class="rv-quiz-part">
           <div class="rv-quiz-part-head">
             <span class="badge badge-p3">Phần III</span>
-            <strong>Trắc nghiệm Trả lời ngắn</strong>
+            <strong>Câu trắc nghiệm trả lời ngắn</strong>
           </div>
           ${sas
             .map((q) => {
               qCounter += 1;
               const rawUser = qState.sa[q.id] ?? '';
+              const slots = formatShortAnswerSlots(rawUser);
               const isRight =
                 submitted && normalizeShortAnswer(rawUser) === normalizeShortAnswer(q.correctAnswer);
               const isWrong = submitted && !isRight;
@@ -1348,28 +1620,43 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
                     <span class="rv-q-num">Câu ${qCounter}.</span>
                     <span>${q.question}</span>
                   </div>
-                  <div class="rv-sa-row">
-                    <label class="rv-sa-lbl" for="rv-sa-${escapeAttr(q.id)}">Đáp số của bạn:</label>
-                    <input
-                      id="rv-sa-${escapeAttr(q.id)}"
-                      type="text"
-                      inputmode="decimal"
-                      class="input-control rv-sa-input"
-                      placeholder="Nhập số nguyên hoặc thập phân..."
-                      data-rv-sa="${escapeAttr(q.id)}"
-                      value="${escapeAttr(rawUser)}"
-                      ${submitted ? 'disabled' : ''}
-                    />
-                  </div>
                   ${
                     submitted
                       ? `
-                        <div class="rv-q-exp ${isRight ? 'is-ok' : 'is-err'}">
-                          <strong>${isRight ? `✓ Chính xác (${q.correctAnswer})!` : `✗ Chưa đúng — Đáp số chuẩn là: ${escapeHtml(q.correctAnswer)}`}</strong>
-                          <div>${q.explanation}</div>
+                        <div class="sa-box-wrap is-review rv-sa-slots-wrap">
+                          <div class="sa-slots ${isRight ? 'is-correct' : 'is-wrong'}">
+                            ${slots.map((ch) => `<div class="sa-slot ${ch ? '' : 'empty'}">${ch || '·'}</div>`).join('')}
+                          </div>
+                          <span class="rv-verdict-pill ${isRight ? 'is-ok' : 'is-err'}">${isRight ? '✓ Chính xác' : '✗ Sai'}</span>
+                          ${!isRight ? `<div class="sa-review-ans">Đáp án đúng: <strong class="sa-review-ans-val">${escapeHtml(q.correctAnswer)}</strong></div>` : ''}
+                        </div>
+                        ${q.explanation ? `<div class="rv-gen-sol-box" style="margin-top:10px;"><div class="rv-gen-sol-title">Lời giải chi tiết</div><div class="rv-gen-sol-body">${q.explanation}</div></div>` : ''}
+                      `
+                      : `
+                        <div class="sa-box-wrap is-direct-slots rv-sa-slots-wrap">
+                          <span class="sa-direct-label">Kết quả</span>
+                          <div class="sa-slots is-unified" data-rv-sa-unified="${escapeAttr(q.id)}">
+                            <input
+                              type="text"
+                              inputmode="text"
+                              autocomplete="off"
+                              autocorrect="off"
+                              autocapitalize="off"
+                              spellcheck="false"
+                              maxlength="4"
+                              class="sa-slots-overlay-input"
+                              value="${escapeAttr(rawUser)}"
+                              aria-label="Nhập đáp án câu ${qCounter}"
+                            />
+                            ${slots
+                              .map(
+                                (ch, si) =>
+                                  `<div class="sa-slot ${ch ? 'is-filled' : 'empty'} ${si === Math.min(rawUser.length, 3) ? 'is-caret' : ''}" data-slot-cell="${si}">${escapeHtml(ch)}</div>`
+                              )
+                              .join('')}
+                          </div>
                         </div>
                       `
-                      : ''
                   }
                 </div>
               `;
@@ -1381,72 +1668,115 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
           ${
             !submitted
               ? `<button type="button" class="btn btn-primary btn-lg" id="btnGradeLessonQuiz">Chấm điểm &amp; Xem giải thích</button>`
-              : `<button type="button" class="btn btn-secondary" id="btnResetLessonQuizBottom">Làm lại bộ 5 câu này</button>`
+              : `<button type="button" class="btn btn-secondary" id="btnResetLessonQuizBottom">Làm lại bộ câu hỏi này</button>`
           }
         </div>
 
-        <!-- Dynamic Infinite Generator -->
+        <!-- Random Parametric Practice (Pulled from Parametric Short-Answer Questions Above) -->
         ${
-          genCfg && gSt
-            ? `
-              <section class="rv-generator-box" id="rvDynamicGenSection">
-                <div class="rv-gen-head">
-                  <div>
-                    <span class="rv-gen-eyebrow">⚡ LUYỆN PHẢN XẠ VÔ HẠN • SINH BÀI TẬP ĐỔI SỐ TỰ ĐỘNG</span>
-                    <h3 class="rv-gen-title">${escapeHtml(genCfg.title)}</h3>
-                  </div>
-                  <span class="rv-streak-pill" title="Chuỗi làm đúng liên tiếp">
-                    Chuỗi đúng: <strong>${gSt.streak}</strong>
-                  </span>
-                </div>
+          hasRandomPractice && gSt && gSt.item
+            ? (() => {
+                const rawGen = gSt.userInput || '';
+                const genSlots = formatShortAnswerSlots(rawGen);
+                const isLocked = Boolean(gSt.checked || gSt.showSol);
+                const genSlotsStateCls = gSt.checked ? (gSt.isCorrect ? 'is-correct' : 'is-wrong') : '';
+                return `
+                  <section class="rv-generator-box" id="rvDynamicGenSection">
+                    <div class="rv-gen-head">
+                      <div class="rv-gen-head-left">
+                        <span class="rv-gen-ico" aria-hidden="true">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+                            <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+                            <line x1="4" y1="4" x2="9" y2="9"/>
+                          </svg>
+                        </span>
+                        <div>
+                          <span class="rv-gen-eyebrow">LUYỆN TẬP THÊM</span>
+                          <h3 class="rv-gen-title">Bài tập đổi số ngẫu nhiên</h3>
+                        </div>
+                      </div>
+                      <span class="rv-streak-pill ${gSt.streak > 0 ? 'is-hot' : ''}" title="Chuỗi làm đúng liên tiếp">
+                        Chuỗi đúng: <strong>${gSt.streak}</strong>
+                      </span>
+                    </div>
 
-                <div class="rv-gen-problem">
-                  ${gSt.item.unitHint ? `<span class="rv-gen-tag">${escapeHtml(gSt.item.unitHint)}</span>` : ''}
-                  <div class="rv-gen-prompt">${gSt.item.prompt}</div>
-                </div>
+                    <div class="rv-gen-problem">
+                      <div class="rv-gen-prompt">${gSt.item.prompt}</div>
+                    </div>
 
-                <div class="rv-gen-controls">
-                  <input
-                    type="text"
-                    inputmode="decimal"
-                    id="inpGenAnswer"
-                    class="input-control rv-gen-input"
-                    placeholder="Nhập đáp số rồi nhấn Enter..."
-                    value="${escapeAttr(gSt.userInput)}"
-                  />
-                  <button type="button" class="btn btn-primary" id="btnGenCheck">Kiểm tra</button>
-                  <button type="button" class="btn btn-secondary" id="btnGenShowSol">
-                    ${gSt.showSol ? 'Ẩn lời giải' : 'Xem lời giải tự động'}
-                  </button>
-                  <button type="button" class="btn btn-ghost" id="btnGenNext">↻ Làm câu tương tự</button>
-                </div>
-
-                ${
-                  gSt.checked
-                    ? `
-                      <div class="rv-gen-feedback ${gSt.isCorrect ? 'is-ok' : 'is-err'}">
+                    <div class="rv-gen-controls">
+                      <div class="rv-gen-slots-group">
+                        <span class="sa-direct-label">Kết quả</span>
+                        <div class="sa-slots is-unified ${isLocked ? 'is-locked' : ''} ${genSlotsStateCls}" id="rvGenSlots">
+                          <input
+                            type="text"
+                            inputmode="text"
+                            autocomplete="off"
+                            autocorrect="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            maxlength="4"
+                            class="sa-slots-overlay-input"
+                            value="${escapeAttr(rawGen)}"
+                            aria-label="Nhập đáp án bài tập đổi số"
+                            ${isLocked ? 'disabled' : ''}
+                          />
+                          ${genSlots
+                            .map(
+                              (ch, si) =>
+                                `<div class="sa-slot ${ch ? 'is-filled' : 'empty'} ${!isLocked && si === Math.min(rawGen.length, 3) ? 'is-caret' : ''}" data-slot-cell="${si}">${escapeHtml(ch)}</div>`
+                            )
+                            .join('')}
+                        </div>
                         ${
-                          gSt.isCorrect
-                            ? `<strong>✓ Tuyệt vời! Đáp số ${escapeHtml(gSt.item.answer)} hoàn toàn chính xác!</strong> Bấm <em>"Làm câu tương tự"</em> để đổi bộ số mới ngay.`
-                            : `<strong>✗ Chưa khớp!</strong> Đáp số đúng của câu này là <strong>${escapeHtml(gSt.item.answer)}</strong>. Bạn có thể bấm <em>"Xem lời giải tự động"</em> để kiểm tra từng bước.`
+                          gSt.checked
+                            ? `
+                              <span class="rv-verdict-pill ${gSt.isCorrect ? 'is-ok' : 'is-err'}">
+                                ${gSt.isCorrect ? '✓ Chính xác' : '✗ Sai'}
+                              </span>
+                              ${
+                                !gSt.isCorrect
+                                  ? `<span class="rv-verdict-ans">Đáp án: <strong>${escapeHtml(gSt.item.answer)}</strong></span>`
+                                  : ''
+                              }
+                            `
+                            : gSt.showSol
+                              ? `<span class="rv-verdict-ans">Đáp án: <strong>${escapeHtml(gSt.item.answer)}</strong></span>`
+                              : ''
                         }
                       </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  gSt.showSol
-                    ? `
-                      <div class="rv-gen-sol-box">
-                        <strong>Lời giải tự động (thay đúng bộ số vừa sinh):</strong>
-                        <div style="margin-top:6px;">${gSt.item.solution}</div>
+                      <div class="rv-gen-actions">
+                        ${
+                          !isLocked
+                            ? `
+                              <button type="button" class="btn btn-primary" id="btnGenCheck">Kiểm tra</button>
+                              <button type="button" class="btn btn-secondary" id="btnGenShowSol">Xem lời giải</button>
+                            `
+                            : ''
+                        }
+                        <button type="button" class="btn ${isLocked ? 'btn-primary' : 'btn-secondary'} rv-gen-next-btn" id="btnGenNext">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                          </svg>
+                          <span>Làm câu khác</span>
+                        </button>
                       </div>
-                    `
-                    : ''
-                }
-              </section>
-            `
+                    </div>
+
+                    ${
+                      isLocked && gSt.item.solution
+                        ? `
+                          <div class="rv-gen-sol-box">
+                            <div class="rv-gen-sol-title">Lời giải chi tiết</div>
+                            <div class="rv-gen-sol-body">${gSt.item.solution}</div>
+                          </div>
+                        `
+                        : ''
+                    }
+                  </section>
+                `;
+              })()
             : ''
         }
       </div>
@@ -1551,13 +1881,27 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
   function renderNotebookViewHtml() {
     const starredItems = cardsIndex.filter((it) => state.bookmarks.has(it.id));
     return `
-      <div class="rv-lesson-header">
-        <div>
-          <div class="rv-breadcrumb">SỔ TAY CÁ NHÂN • LƯU TRÊN THIẾT BỊ (LOCALSTORAGE)</div>
+      <div class="rv-lesson-header rv-nb-header">
+        <div class="rv-breadcrumb">SỔ TAY CÁ NHÂN</div>
+        <div class="rv-nb-hero-row">
           <h1 class="rv-lesson-h1">★ Sổ tay "Kiến thức hay quên" (${starredItems.length})</h1>
-          <p class="rv-lesson-desc">
-            Gom toàn bộ thẻ công thức, lý thuyết và bẫy sai lầm bạn đã gắn sao <strong>★</strong> từ mọi bài học để ôn cấp tốc 3 phút trước giờ kiểm tra.
-          </p>
+          ${
+            starredItems.length > 0
+              ? `
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked="${state.activeRecall}"
+                  class="rv-tool-icon-btn ${state.activeRecall ? 'is-active' : ''}"
+                  id="btnActiveRecallToggle"
+                  data-tip="${state.activeRecall ? 'Bỏ che công thức' : 'Che công thức'}"
+                  aria-label="Che công thức"
+                >
+                  ${renderRecallEyeSvg(state.activeRecall)}
+                </button>
+              `
+              : ''
+          }
         </div>
       </div>
 
@@ -1572,38 +1916,14 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
             </div>
           `
           : `
-            <div class="rv-tabbar-wrap is-notebook-bar">
-              <span class="rv-nb-count-note">${starredItems.length} mục</span>
-              <div class="rv-tabbar-tools">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked="${state.activeRecall}"
-                  class="rv-tool-icon-btn ${state.activeRecall ? 'is-active' : ''}"
-                  id="btnActiveRecallToggle"
-                  data-tip="${state.activeRecall ? 'Bỏ che công thức' : 'Che công thức'}"
-                  aria-label="Che công thức"
-                >
-                  ${renderRecallEyeSvg(state.activeRecall)}
-                </button>
-              </div>
-            </div>
-
             <div class="rv-editorial-flow">
               ${starredItems
                 .map((it) => {
-                  const jumpBtn = `
-                    <div class="rv-nb-jump-row">
-                      <button type="button" class="rv-inline-link" data-jump-lesson="${escapeAttr(it.lessonId)}" data-jump-card="${escapeAttr(it.id)}">
-                        Xem trong ${escapeHtml(it.lessonLabel)} →
-                      </button>
-                    </div>
-                  `;
                   if (it.kind === 'core') {
-                    return `<div class="rv-nb-item-wrap">${renderCoreCardHtml(it.card, { showLessonMeta: it.lessonLabel })}${jumpBtn}</div>`;
+                    return `<div class="rv-nb-item-wrap">${renderCoreCardHtml(it.card, { showLessonMeta: it.lessonLabel, jumpLessonId: it.lessonId })}</div>`;
                   }
                   if (it.kind === 'flip') {
-                    return `<div class="rv-nb-item-wrap" style="padding:18px 0;">${renderFlipCardHtml(it.card, { showLessonMeta: it.lessonLabel })}${jumpBtn}</div>`;
+                    return `<div class="rv-nb-item-wrap" style="padding:18px 0;">${renderFlipCardHtml(it.card, { showLessonMeta: it.lessonLabel, jumpLessonId: it.lessonId })}</div>`;
                   }
                   return '';
                 })
@@ -1769,18 +2089,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
               `
               : ''
           }
-          ${
-            !editing
-              ? `
-                <button type="button" class="rv-print-ghost-btn" id="btnPrintWorksheet" data-tip="In phiếu ôn tập" aria-label="In phiếu ôn tập">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
-                  </svg>
-                  <span>In</span>
-                </button>
-              `
-              : ''
-          }
         </div>
       </div>
 
@@ -1813,8 +2121,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
             : ''
         }
       </div>
-
-      ${renderPrintWorksheetHtml(lesson)}
     `;
   }
 
@@ -2035,11 +2341,6 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         bindSearchResultClicks();
         triggerMathRender(searchHost);
       }
-    });
-
-    // Print Worksheet button
-    rootEl.querySelector('#btnPrintWorksheet')?.addEventListener('click', () => {
-      window.print();
     });
 
     // 3-Chạm tab switching + mobile swipe gesture
@@ -2330,6 +2631,113 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
 
     rootEl.querySelector('#btnSaveReviewCurriculum')?.addEventListener('click', saveCurriculumToServer);
 
+    rootEl.querySelectorAll('[data-start-edit-empty]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!isAdmin()) return;
+        state.editMode = true;
+        render();
+      });
+    });
+
+    rootEl.querySelector('#btnImportReviewXlsx')?.addEventListener('click', () => {
+      rootEl.querySelector('#inpImportReviewXlsx')?.click();
+    });
+
+    rootEl.querySelector('#inpImportReviewXlsx')?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file || !api?.importReviewLessonXlsx) return;
+      if (!file.name.toLowerCase().endsWith('.xlsx')) {
+        showToast?.('Vui lòng chọn tệp Excel định dạng .xlsx.', 'error');
+        return;
+      }
+      try {
+        const dataBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = String(reader.result || '');
+            const idx = res.indexOf(',');
+            resolve(idx >= 0 ? res.slice(idx + 1) : res);
+          };
+          reader.onerror = () => reject(new Error('Không thể đọc tệp từ máy.'));
+          reader.readAsDataURL(file);
+        });
+        const parsed = await api.importReviewLessonXlsx({ filename: file.name, dataBase64 });
+        const targetGradeNum = Number(parsed.grade) || 11;
+        let gradeObj = curriculum.find((g) => Number(g.grade) === targetGradeNum);
+        if (!gradeObj) {
+          gradeObj = { grade: targetGradeNum, label: `Toán ${targetGradeNum}`, chapters: [] };
+          curriculum.push(gradeObj);
+          curriculum.sort((a, b) => a.grade - b.grade);
+        }
+
+        const normStr = (s) => stripAccents(String(s || '').trim()).replace(/\s+/g, ' ');
+        const chCodeNorm = normStr(parsed.chapterCode);
+        const chTitleNorm = normStr(parsed.chapterTitle);
+        let chap = (gradeObj.chapters || []).find(
+          (c) =>
+            (chCodeNorm && normStr(c.code) === chCodeNorm) ||
+            (chTitleNorm && normStr(c.title) === chTitleNorm)
+        );
+        if (!chap) {
+          chap = {
+            id: genReviewId(`toan${targetGradeNum}-c`),
+            grade: targetGradeNum,
+            code: parsed.chapterCode || `Chương ${(gradeObj.chapters?.length || 0) + 1}`,
+            title: parsed.chapterTitle || 'Chương mới',
+            comingSoon: false,
+            lessons: [],
+          };
+          gradeObj.chapters.push(chap);
+        }
+        chap.comingSoon = false;
+        if (!Array.isArray(chap.lessons)) chap.lessons = [];
+
+        const impLesson = parsed.lesson;
+        const lsCodeNorm = normStr(impLesson.code);
+        const lsTitleNorm = normStr(impLesson.title);
+        const existingIdx = chap.lessons.findIndex(
+          (l) =>
+            (lsCodeNorm && normStr(l.code) === lsCodeNorm) ||
+            (lsTitleNorm && normStr(l.title) === lsTitleNorm)
+        );
+
+        let targetLessonId = impLesson.id;
+        if (existingIdx >= 0) {
+          const prev = chap.lessons[existingIdx];
+          targetLessonId = prev.id;
+          chap.lessons[existingIdx] = {
+            ...impLesson,
+            id: prev.id,
+            examples: prev.examples || [],
+            ...(prev.generators ? { generators: prev.generators } : {}),
+          };
+        } else {
+          chap.lessons.push(impLesson);
+        }
+
+        delete state.genState[targetLessonId];
+        delete state.quizState[targetLessonId];
+        rebuildIndexes();
+        state.viewMode = 'lesson';
+        state.activeLessonId = targetLessonId;
+        state.touchTab = 'touch1';
+        state.expandedGrades.add(gradeObj.grade);
+        state.expandedChapters.add(chap.id);
+        markDirty();
+        render();
+
+        const sm = parsed.summary || {};
+        const verb = existingIdx >= 0 ? 'Đã cập nhật' : 'Đã nạp mới';
+        showToast?.(
+          `${verb} ${impLesson.code}: ${impLesson.title} (${sm.boxCount || 0} Box, ${sm.lineCount || 0} dòng, ${sm.exampleCount || 0} VD, ${sm.flipCount || 0} thẻ bẫy, ${(sm.mcCount || 0) + (sm.tfCount || 0) + (sm.saCount || 0)} câu luyện nhanh). Bấm "Lưu lên web" để đồng bộ!`,
+          'success'
+        );
+      } catch (err) {
+        showToast?.(err?.message || 'Lỗi khi nạp tệp Excel.', 'error');
+      }
+    });
+
     if (state.editMode && isAdmin()) {
       const enrichedLesson = lessonsById.get(state.activeLessonId);
       const rawLesson = enrichedLesson?._raw || null;
@@ -2418,32 +2826,141 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         render();
       });
 
-      // --- Sidebar Hierarchy Tree Editing ---
+      // --- Sidebar Hierarchy Tree Editing (Picker from Sổ báo giảng — Kế hoạch dạy học) ---
+      const addChapterToGrade = (gIdx, code, title) => {
+        const gradeObj = curriculum[gIdx];
+        if (!gradeObj) return;
+        const newChap = {
+          id: genReviewId(`toan${gradeObj.grade}-c`),
+          grade: gradeObj.grade,
+          code: String(code || 'Chương mới').trim(),
+          title: String(title || 'Chưa đặt tên').trim(),
+          comingSoon: false,
+          lessons: [],
+        };
+        gradeObj.chapters = gradeObj.chapters || [];
+        gradeObj.chapters.push(newChap);
+        state.expandedGrades.add(gradeObj.grade);
+        state.expandedChapters.add(newChap.id);
+        rebuildIndexes();
+        markDirty();
+        render();
+        showToast?.(`Đã thêm "${newChap.code}: ${newChap.title}"!`, 'success');
+      };
+
+      const addLessonToChapter = (gIdx, cIdx, code, title) => {
+        const gradeObj = curriculum[gIdx];
+        const chap = gradeObj?.chapters?.[cIdx];
+        if (!chap) return;
+        chap.lessons = chap.lessons || [];
+        const newLs = createEmptyLessonObj(gradeObj.grade, code, title);
+        chap.lessons.push(newLs);
+        chap.comingSoon = false;
+        state.expandedGrades.add(gradeObj.grade);
+        state.expandedChapters.add(chap.id);
+        state.viewMode = 'lesson';
+        state.activeLessonId = newLs.id;
+        state.touchTab = 'touch1';
+        rebuildIndexes();
+        markDirty();
+        render();
+        showToast?.(`Đã thêm "${newLs.code}: ${newLs.title}"!`, 'success');
+      };
+
       rootEl.querySelectorAll('[data-ed-chap-add]').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const gIdx = Number(btn.dataset.edChapAdd);
           const gradeObj = curriculum[gIdx];
           if (!gradeObj) return;
-          const code = window.prompt('Nhập mã chương (VD: Chương IV):', `Chương ${(gradeObj.chapters?.length || 0) + 1}`);
-          if (code === null) return;
-          const title = window.prompt('Nhập tên chương:', 'Chương mới');
-          if (title === null) return;
-          const newChap = {
-            id: genReviewId(`toan${gradeObj.grade}-c`),
-            grade: gradeObj.grade,
-            code: code.trim() || 'Chương mới',
-            title: title.trim() || 'Chưa đặt tên',
-            comingSoon: false,
-            lessons: [],
+
+          const promptManualChapter = () => {
+            const code = window.prompt('Nhập mã chương (VD: Chương IV):', `Chương ${(gradeObj.chapters?.length || 0) + 1}`);
+            if (code === null) return;
+            const title = window.prompt('Nhập tên chương:', 'Chương mới');
+            if (title === null) return;
+            addChapterToGrade(gIdx, code, title);
           };
-          gradeObj.chapters = gradeObj.chapters || [];
-          gradeObj.chapters.push(newChap);
-          state.expandedGrades.add(gradeObj.grade);
-          state.expandedChapters.add(newChap.id);
-          rebuildIndexes();
-          markDirty();
-          render();
+
+          if (!openModal) {
+            promptManualChapter();
+            return;
+          }
+
+          const catalog = await ensurePlanCatalog();
+          const planChaps = catalog?.[String(gradeObj.grade)] || [];
+          if (!planChaps.length) {
+            promptManualChapter();
+            return;
+          }
+
+          const existingKeys = new Set(
+            (gradeObj.chapters || []).map((c) => normCatalogKey(c.code))
+          );
+
+          openModal({
+            title: `Chọn chương từ Kế hoạch dạy học — ${gradeObj.label}`,
+            wide: true,
+            bodyHtml: `
+              <div class="rv-picker-modal">
+                <div class="rv-picker-search-wrap">
+                  <input type="search" id="rvPickerSearch" class="input-control input-compact" placeholder="Tìm nhanh tên chương hoặc chuyên đề..." autocomplete="off" />
+                </div>
+                <div class="rv-picker-list" id="rvPickerList">
+                  ${planChaps
+                    .map((pc, idx) => {
+                      const exists = existingKeys.has(normCatalogKey(pc.code));
+                      return `
+                        <button
+                          type="button"
+                          class="rv-picker-item ${exists ? 'is-exists' : ''}"
+                          data-pick-chap="${idx}"
+                          data-search-hay="${escapeAttr(normCatalogKey(`${pc.code} ${pc.title}`))}"
+                        >
+                          <div class="rv-picker-item-main">
+                            <span class="rv-picker-code">${escapeHtml(pc.code)}</span>
+                            <span class="rv-picker-title">${escapeHtml(pc.title)}</span>
+                          </div>
+                          <div class="rv-picker-item-meta">
+                            <span class="rv-picker-count">${pc.lessons.length} bài</span>
+                            ${exists ? '<span class="rv-picker-exists-pill">Đã có</span>' : '<span class="rv-picker-add-pill">+ Chọn</span>'}
+                          </div>
+                        </button>
+                      `;
+                    })
+                    .join('')}
+                </div>
+              </div>
+            `,
+            footerHtml: `
+              <button type="button" class="btn btn-secondary btn-sm" id="btnPickChapManual">✎ Nhập tên chương tự do</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btnPickChapCancel">Đóng</button>
+            `,
+            onMount(m) {
+              const inp = m.querySelector('#rvPickerSearch');
+              inp?.addEventListener('input', () => {
+                const q = normCatalogKey(inp.value);
+                m.querySelectorAll('[data-pick-chap]').forEach((el) => {
+                  const show = !q || (el.dataset.searchHay || '').includes(q);
+                  el.classList.toggle('hidden', !show);
+                });
+              });
+              m.querySelectorAll('[data-pick-chap]').forEach((itemBtn) => {
+                itemBtn.addEventListener('click', () => {
+                  const pc = planChaps[Number(itemBtn.dataset.pickChap)];
+                  if (!pc) return;
+                  closeModal?.();
+                  addChapterToGrade(gIdx, pc.code, pc.title);
+                });
+              });
+              m.querySelector('#btnPickChapManual')?.addEventListener('click', () => {
+                closeModal?.();
+                promptManualChapter();
+              });
+              m.querySelector('#btnPickChapCancel')?.addEventListener('click', () => closeModal?.());
+              setTimeout(() => inp?.focus(), 40);
+            },
+          });
         });
       });
 
@@ -2483,48 +3000,155 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
       });
 
       rootEl.querySelectorAll('[data-ed-lesson-add]').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const [gIdx, cIdx] = btn.dataset.edLessonAdd.split(':').map(Number);
           const gradeObj = curriculum[gIdx];
           const chap = gradeObj?.chapters?.[cIdx];
           if (!chap) return;
-          chap.lessons = chap.lessons || [];
-          const num = chap.lessons.length + 1;
-          const newLs = {
-            id: genReviewId(`toan${gradeObj.grade}-b`),
-            code: `Bài ${num}`,
-            title: 'Bài học mới',
-            summary: '',
-            coreCards: [
-              {
-                id: genReviewId('card'),
-                type: 'theory',
-                title: 'Định nghĩa & Khái niệm cơ bản',
-                items: [
-                  {
-                    id: genReviewId('item'),
-                    html: '<strong>Ý chính:</strong> Nhập nội dung lý thuyết và công thức $...$ tại đây.',
-                    hasExample: false,
-                    example: null,
-                  },
-                ],
-              },
-            ],
-            flipCards: [],
-            examples: [],
-            quizzes: { multipleChoice: [], trueFalse: [], shortAnswer: [] },
+
+          const promptManualLesson = () => {
+            const num = (chap.lessons?.length || 0) + 1;
+            const code = window.prompt('Nhập mã bài (VD: Bài 1):', `Bài ${num}`);
+            if (code === null) return;
+            const title = window.prompt('Nhập tên bài học:', 'Bài học mới');
+            if (title === null) return;
+            addLessonToChapter(gIdx, cIdx, code, title);
           };
-          chap.lessons.push(newLs);
-          chap.comingSoon = false;
-          state.expandedGrades.add(gradeObj.grade);
-          state.expandedChapters.add(chap.id);
-          state.viewMode = 'lesson';
-          state.activeLessonId = newLs.id;
-          state.touchTab = 'touch1';
-          rebuildIndexes();
-          markDirty();
-          render();
+
+          if (!openModal) {
+            promptManualLesson();
+            return;
+          }
+
+          const catalog = await ensurePlanCatalog();
+          const planChaps = catalog?.[String(gradeObj.grade)] || [];
+          if (!planChaps.length) {
+            promptManualLesson();
+            return;
+          }
+
+          const chapCodeKey = normCatalogKey(chap.code);
+          const chapTitleKey = normCatalogKey(chap.title);
+          const matchedChap =
+            planChaps.find((pc) => normCatalogKey(pc.code) === chapCodeKey) ||
+            planChaps.find((pc) => chapTitleKey && normCatalogKey(pc.title).includes(chapTitleKey)) ||
+            null;
+
+          const existingLessons = new Set(
+            (chap.lessons || []).map((ls) => normCatalogKey(`${ls.code} ${ls.title}`))
+          );
+          const existingTitles = new Set(
+            (chap.lessons || []).map((ls) => normCatalogKey(ls.title))
+          );
+
+          const renderGroupHtml = (pc, groupIdx) => `
+            <div class="rv-picker-group" data-picker-group="${groupIdx}">
+              <div class="rv-picker-group-head">${escapeHtml(pc.code)}${pc.title ? `: ${escapeHtml(pc.title)}` : ''}</div>
+              ${pc.lessons
+                .map((ls, lIdx) => {
+                  const exists =
+                    existingLessons.has(normCatalogKey(`${ls.code} ${ls.title}`)) ||
+                    existingTitles.has(normCatalogKey(ls.title));
+                  return `
+                    <button
+                      type="button"
+                      class="rv-picker-item ${exists ? 'is-exists' : ''}"
+                      data-pick-lesson="${groupIdx}:${lIdx}"
+                      data-search-hay="${escapeAttr(normCatalogKey(`${pc.code} ${pc.title} ${ls.code} ${ls.title}`))}"
+                    >
+                      <div class="rv-picker-item-main">
+                        <span class="rv-picker-code">${escapeHtml(ls.code)}</span>
+                        <span class="rv-picker-title">${escapeHtml(ls.title)}</span>
+                      </div>
+                      <div class="rv-picker-item-meta">
+                        ${exists ? '<span class="rv-picker-exists-pill">Đã có</span>' : '<span class="rv-picker-add-pill">+ Chọn</span>'}
+                      </div>
+                    </button>
+                  `;
+                })
+                .join('')}
+            </div>
+          `;
+
+          const groupsToUse = matchedChap
+            ? [matchedChap, ...planChaps.filter((pc) => pc !== matchedChap)]
+            : planChaps;
+          let showAllGrades = !matchedChap;
+
+          openModal({
+            title: `Chọn bài học — ${chap.code}: ${chap.title}`,
+            wide: true,
+            bodyHtml: `
+              <div class="rv-picker-modal">
+                <div class="rv-picker-toolbar">
+                  <input type="search" id="rvPickerSearch" class="input-control input-compact" placeholder="Tìm nhanh số bài hoặc tên bài học..." autocomplete="off" />
+                  ${
+                    matchedChap
+                      ? `<button type="button" class="btn btn-secondary btn-sm" id="btnToggleAllPlanChaps">Xem tất cả ${gradeObj.label}</button>`
+                      : ''
+                  }
+                </div>
+                <div class="rv-picker-list" id="rvPickerList">
+                  ${groupsToUse
+                    .map((pc, idx) => {
+                      const hiddenCls = matchedChap && idx > 0 ? ' hidden' : '';
+                      return `<div class="rv-picker-group-slot${hiddenCls}" data-group-slot="${idx}">${renderGroupHtml(pc, idx)}</div>`;
+                    })
+                    .join('')}
+                </div>
+              </div>
+            `,
+            footerHtml: `
+              <button type="button" class="btn btn-secondary btn-sm" id="btnPickLessonManual">✎ Nhập tên bài tự do</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btnPickLessonCancel">Đóng</button>
+            `,
+            onMount(m) {
+              const inp = m.querySelector('#rvPickerSearch');
+              const toggleBtn = m.querySelector('#btnToggleAllPlanChaps');
+
+              const applyFilter = () => {
+                const q = normCatalogKey(inp?.value || '');
+                m.querySelectorAll('[data-group-slot]').forEach((slotEl) => {
+                  const idx = Number(slotEl.dataset.groupSlot);
+                  const allowGroup = showAllGrades || Boolean(q) || idx === 0;
+                  if (!allowGroup) {
+                    slotEl.classList.add('hidden');
+                    return;
+                  }
+                  let anyVisible = false;
+                  slotEl.querySelectorAll('[data-pick-lesson]').forEach((el) => {
+                    const show = !q || (el.dataset.searchHay || '').includes(q);
+                    el.classList.toggle('hidden', !show);
+                    if (show) anyVisible = true;
+                  });
+                  slotEl.classList.toggle('hidden', !anyVisible);
+                });
+              };
+
+              inp?.addEventListener('input', applyFilter);
+              toggleBtn?.addEventListener('click', () => {
+                showAllGrades = !showAllGrades;
+                toggleBtn.textContent = showAllGrades ? `Chỉ xem ${chap.code}` : `Xem tất cả ${gradeObj.label}`;
+                applyFilter();
+              });
+              m.querySelectorAll('[data-pick-lesson]').forEach((itemBtn) => {
+                itemBtn.addEventListener('click', () => {
+                  const [gi, li] = itemBtn.dataset.pickLesson.split(':').map(Number);
+                  const ls = groupsToUse[gi]?.lessons?.[li];
+                  if (!ls) return;
+                  closeModal?.();
+                  addLessonToChapter(gIdx, cIdx, ls.code, ls.title);
+                });
+              });
+              m.querySelector('#btnPickLessonManual')?.addEventListener('click', () => {
+                closeModal?.();
+                promptManualLesson();
+              });
+              m.querySelector('#btnPickLessonCancel')?.addEventListener('click', () => closeModal?.());
+              setTimeout(() => inp?.focus(), 40);
+            },
+          });
         });
       });
 
@@ -3263,10 +3887,68 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
         });
       });
 
-      rootEl.querySelectorAll('[data-rv-sa]').forEach((inp) => {
+      const bindUnifiedFourBoxSlots = (wrapEl, { isLocked = () => false, onChange, onEnter } = {}) => {
+        if (!wrapEl) return;
+        const inp = wrapEl.querySelector('.sa-slots-overlay-input');
+        const cells = [...wrapEl.querySelectorAll('[data-slot-cell]')];
+        if (!inp || !cells.length) return;
+
+        const syncCells = (rawVal) => {
+          const cleaned = String(rawVal || '')
+            .replace(/\./g, ',')
+            .replace(/[^0-9,\-]/g, '')
+            .slice(0, 4);
+          if (inp.value !== cleaned) inp.value = cleaned;
+          const slots = formatShortAnswerSlots(cleaned);
+          const caretIdx = Math.min(cleaned.length, 3);
+          cells.forEach((cell, i) => {
+            const ch = slots[i] || '';
+            cell.textContent = ch;
+            cell.classList.toggle('is-filled', Boolean(ch));
+            cell.classList.toggle('empty', !ch);
+            cell.classList.toggle('is-caret', !isLocked() && i === caretIdx);
+          });
+          onChange?.(cleaned);
+        };
+
+        const snapEnd = () => {
+          const len = inp.value.length;
+          try {
+            inp.setSelectionRange(len, len);
+          } catch {}
+        };
+
+        inp.addEventListener('focus', snapEnd);
+        inp.addEventListener('click', snapEnd);
+        inp.addEventListener('keydown', (e) => {
+          if (isLocked()) {
+            e.preventDefault();
+            return;
+          }
+          if (e.key === 'Enter' && onEnter) {
+            e.preventDefault();
+            onEnter();
+            return;
+          }
+          if (e.key === 'ArrowLeft' || e.key === 'Home') {
+            e.preventDefault();
+            snapEnd();
+          }
+        });
         inp.addEventListener('input', () => {
-          if (curQuizState.submitted) return;
-          curQuizState.sa[inp.dataset.rvSa] = inp.value;
+          if (isLocked()) return;
+          syncCells(inp.value);
+          snapEnd();
+        });
+      };
+
+      rootEl.querySelectorAll('[data-rv-sa-unified]').forEach((wrapEl) => {
+        const qId = wrapEl.dataset.rvSaUnified;
+        bindUnifiedFourBoxSlots(wrapEl, {
+          isLocked: () => Boolean(curQuizState.submitted),
+          onChange: (val) => {
+            curQuizState.sa[qId] = val;
+          },
         });
       });
 
@@ -3278,56 +3960,58 @@ export function createMathReviewController({ rootEl, uiHelpers, api, getUser, on
       };
       rootEl.querySelector('#btnResetLessonQuiz')?.addEventListener('click', resetQuiz);
       rootEl.querySelector('#btnResetLessonQuizBottom')?.addEventListener('click', resetQuiz);
-    }
 
-    // Chạm 3: Dynamic Generator
-    const gSt = curLesson ? state.genState[curLesson.id] : null;
-    const genCfg = curLesson?.generators?.[0];
-    if (curLesson && gSt && genCfg) {
-      const genInp = rootEl.querySelector('#inpGenAnswer');
-      const checkGen = () => {
-        const raw = (genInp?.value ?? gSt.userInput).trim();
-        if (!raw) {
-          showToast?.('Hãy nhập đáp số trước khi kiểm tra nhé!', 'info');
-          genInp?.focus();
-          return;
-        }
-        gSt.userInput = raw;
-        const ok = normalizeShortAnswer(raw) === normalizeShortAnswer(gSt.item.answer);
-        if (!gSt.checked) {
+      // Chạm 3: Random Parametric Practice (from Parametric Short-Answer Questions above)
+      const gSt = curLesson ? state.genState[curLesson.id] : null;
+      const hasRandPool = getParametricShortAnswerPool(curLesson).length > 0;
+      if (curLesson && gSt && hasRandPool) {
+        const genSlotsEl = rootEl.querySelector('#rvGenSlots');
+        const isGenLocked = () => Boolean(gSt.checked || gSt.showSol);
+        const checkGen = () => {
+          if (isGenLocked()) return;
+          const raw = String(gSt.userInput || '').trim();
+          if (!raw) {
+            showToast?.('Hãy nhập đáp số trước khi kiểm tra nhé!', 'info');
+            genSlotsEl?.querySelector('.sa-slots-overlay-input')?.focus();
+            return;
+          }
+          const ok = normalizeShortAnswer(raw) === normalizeShortAnswer(gSt.item.answer);
           gSt.streak = ok ? gSt.streak + 1 : 0;
-        } else if (ok && !gSt.isCorrect) {
-          gSt.streak += 1;
-        }
-        gSt.checked = true;
-        gSt.isCorrect = ok;
-        render();
-      };
+          gSt.checked = true;
+          gSt.isCorrect = ok;
+          gSt.showSol = true;
+          render();
+        };
 
-      genInp?.addEventListener('input', (e) => {
-        gSt.userInput = e.target.value;
-      });
-      genInp?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          checkGen();
-        }
-      });
+        bindUnifiedFourBoxSlots(genSlotsEl, {
+          isLocked: isGenLocked,
+          onChange: (val) => {
+            gSt.userInput = val;
+          },
+          onEnter: checkGen,
+        });
 
-      rootEl.querySelector('#btnGenCheck')?.addEventListener('click', checkGen);
-      rootEl.querySelector('#btnGenShowSol')?.addEventListener('click', () => {
-        gSt.showSol = !gSt.showSol;
-        render();
-      });
-      rootEl.querySelector('#btnGenNext')?.addEventListener('click', () => {
-        gSt.item = genCfg.generate();
-        gSt.userInput = '';
-        gSt.checked = false;
-        gSt.isCorrect = false;
-        gSt.showSol = false;
-        render();
-        rootEl.querySelector('#inpGenAnswer')?.focus();
-      });
+        rootEl.querySelector('#btnGenCheck')?.addEventListener('click', checkGen);
+        rootEl.querySelector('#btnGenShowSol')?.addEventListener('click', () => {
+          if (isGenLocked()) return;
+          gSt.showSol = true;
+          gSt.streak = 0;
+          render();
+        });
+        rootEl.querySelector('#btnGenNext')?.addEventListener('click', () => {
+          const nextItem = generateRandomFromShortAnswers(curLesson, {
+            prevPrompt: gSt.item?.prompt || '',
+            prevSourceId: gSt.item?.sourceId || '',
+          });
+          if (nextItem) gSt.item = nextItem;
+          gSt.userInput = '';
+          gSt.checked = false;
+          gSt.isCorrect = false;
+          gSt.showSol = false;
+          render();
+          rootEl.querySelector('#rvGenSlots .sa-slots-overlay-input')?.focus();
+        });
+      }
     }
   }
 
